@@ -4,14 +4,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "include/triton-linalg/Dialect/MathExt/IR/Math.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Transforms/InliningUtils.h"
+#include "triton-linalg/Dialect/MathExt/IR/Math.h"
 
 using namespace mlir;
 using namespace mlir::math_ext;
 
-#include "include/triton-linalg/Dialect/MathExt/IR/MathExtOpsDialect.cpp.inc"
+#include "triton-linalg/Dialect/MathExt/IR/MathExtOpsDialect.cpp.inc"
 
 namespace {
 /// This class defines the interface for handling inlining with math
@@ -29,7 +29,7 @@ struct MathInlinerInterface : public DialectInlinerInterface {
 void mlir::math_ext::MathExtDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "include/triton-linalg/Dialect/MathExt/IR/MathExtOps.cpp.inc"
+#include "triton-linalg/Dialect/MathExt/IR/MathExtOps.cpp.inc"
       >();
   addInterfaces<MathInlinerInterface>();
 }

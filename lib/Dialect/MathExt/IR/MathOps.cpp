@@ -4,11 +4,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "include/triton-linalg/Dialect/MathExt/IR/Math.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/CommonFolders.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Builders.h"
+#include "triton-linalg/Dialect/MathExt/IR/Math.h"
 #include <optional>
 
 using namespace mlir;
@@ -19,7 +19,7 @@ using namespace mlir::math_ext;
 //===----------------------------------------------------------------------===//
 
 #define GET_OP_CLASSES
-#include "include/triton-linalg/Dialect/MathExt/IR/MathExtOps.cpp.inc"
+#include "triton-linalg/Dialect/MathExt/IR/MathExtOps.cpp.inc"
 
 //===----------------------------------------------------------------------===//
 // MulhiUIOp

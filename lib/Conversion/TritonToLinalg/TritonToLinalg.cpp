@@ -127,7 +127,7 @@ getBroadcastDimensions(ArrayRef<int64_t> srcShape, ArrayRef<int64_t> dstShape) {
 }
 
 static Value sliceFirst(ConversionPatternRewriter &rewriter, Location loc,
-                        Value input, int64_t dim, bool reverse=false) {
+                        Value input, int64_t dim, bool reverse = false) {
   ShapedType inputType = input.getType().cast<ShapedType>();
   auto sizes =
       llvm::to_vector(llvm::map_range(inputType.getShape(), [&](int64_t t) {
@@ -148,7 +148,7 @@ static Value sliceFirst(ConversionPatternRewriter &rewriter, Location loc,
 }
 
 static Value sliceRemaining(ConversionPatternRewriter &rewriter, Location loc,
-                            Value input, int64_t dim, bool reverse=false) {
+                            Value input, int64_t dim, bool reverse = false) {
   ShapedType inputType = input.getType().cast<ShapedType>();
   auto sizes =
       llvm::to_vector(llvm::map_range(inputType.getShape(), [&](int64_t t) {
@@ -1178,8 +1178,8 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
 
       // 1. Slice the remaining elements of input operands.
       {
-        Value slice = sliceRemaining(rewriter, loc, inputVal,
-			             op.getAxis(), op.getReverse());
+        Value slice = sliceRemaining(rewriter, loc, inputVal, op.getAxis(),
+                                     op.getReverse());
         // Create output tensor
         auto sliceShape = slice.getType().cast<ShapedType>().getShape();
         Value empty = rewriter.create<tensor::EmptyOp>(
@@ -1191,8 +1191,8 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
       // 2. Slice the first elements of input operands, and use them as init
       //    operands' init value.
       {
-        Value slice = sliceFirst(rewriter, loc, inputVal,
-			         op.getAxis(), op.getReverse());
+        Value slice =
+            sliceFirst(rewriter, loc, inputVal, op.getAxis(), op.getReverse());
         SmallVector<int64_t> collapseDstShape;
         ShapedType sliceTy = slice.getType().cast<ShapedType>();
         for (int64_t i = 0; i < rank; ++i) {
@@ -1219,7 +1219,7 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
         loc, /*resultTypes=*/SmallVector<Type>(resultTypes),
         /*inputs=*/inputVals, /*inits=*/initVals,
         /*dimensions=*/ArrayRef<int64_t>{op.getAxis()},
-	/*reverse=*/op.getReverse());
+        /*reverse=*/op.getReverse());
     auto &block = op->getRegion(0).front();
     block.addArgument(block.getArgumentTypes()[0], loc);
     rewriter.replaceAllUsesWith(block.getArgument(1), block.getArgument(2));

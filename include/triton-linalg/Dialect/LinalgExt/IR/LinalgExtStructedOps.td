@@ -282,6 +282,6 @@ def Im2ColOp : LinalgStructuredBase_Op<"im2col", [AttrSizedOperandSegments]> {
 // Named LinalgExt ops.
 //===----------------------------------------------------------------------===//
 
-include "include/triton-linalg/Dialect/LinalgExt/IR/LinalgExtNamedStructuredOps.yamlgen.td"
+include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtNamedStructuredOps.yamlgen.td"
 
 #endif // TRITON_LINALG_DIALECT_LINALGEXT_IR_LINALGEXTSTRUCTEDOPS_TD

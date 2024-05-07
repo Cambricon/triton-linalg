@@ -403,6 +403,8 @@ class RegionBuilderHelper {
 public:
   RegionBuilderHelper(MLIRContext *context, Block &block)
       : context(context), block(block) {}
+  RegionBuilderHelper(OpBuilder &builder, Block &block)
+      : context(builder.getContext()), block(block) {}
 
   // Build the unary functions defined by OpDSL.
   Value buildUnaryFn(UnaryFn unaryFn, Value arg) {
@@ -1072,8 +1074,8 @@ static bool checkDimensionsMatch(ShapedType t1, ShapedType t2,
 
 void ScatterOp::build(
     OpBuilder &builder, OperationState &result, ValueRange inputs, Value init,
-    ArrayRef<int64_t> dimensionMap, bool rangedData,
-    bool overlapWindow, bool signedIndice,
+    ArrayRef<int64_t> dimensionMap, bool rangedData, bool overlapWindow,
+    bool signedIndice,
     function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
     ArrayRef<NamedAttribute> attributes) {
   build(builder, result, TypeRange{}, inputs, init,
@@ -1368,7 +1370,8 @@ void GatherOp::build(
     function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
     ArrayRef<NamedAttribute> attributes) {
   build(builder, result, TypeRange{}, inputs, init,
-        DenseI64ArrayAttr::get(builder.getContext(), dimensionMap), rangedData, signedIndice);
+        DenseI64ArrayAttr::get(builder.getContext(), dimensionMap), rangedData,
+        signedIndice);
   result.addAttributes(attributes);
 
   // Add output types for `RankedTensorType` output arguments.

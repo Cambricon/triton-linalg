@@ -9,7 +9,7 @@
 
 include "mlir/Dialect/Arith/IR/ArithBase.td"
 include "mlir/Dialect/Arith/IR/ArithOpsInterfaces.td"
-include "include/triton-linalg/Dialect/MathExt/IR/MathBase.td"
+include "triton-linalg/Dialect/MathExt/IR/MathBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/VectorInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
