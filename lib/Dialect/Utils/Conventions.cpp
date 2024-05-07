@@ -6,10 +6,10 @@
 
 #include <assert.h>
 
-#include "triton-linalg/Dialect/Utils/Conventions.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "triton-linalg/Dialect/Utils/Conventions.h"
 #include "llvm/ADT/StringRef.h"
 
 using namespace mlir;
@@ -24,4 +24,3 @@ bool mlir::triton::isLinearMemory(::mlir::ModuleOp op) {
   // The default value for missing linear attribute is false.
   return false;
 }
-

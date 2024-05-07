@@ -18,7 +18,7 @@ include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtBase.td"
 // Op definition for BatchConv2DNhwcFhwcOp
 //===----------------------------------------------------------------------===//
 
-def BatchConv2DNhwcFhwcOp : LinalgExtStructuredBase_Op<"batch_conv_2d_nhwc_fhwc",
+def BatchConv2DNhwcFhwcOp : LinalgStructuredBase_Op<"batch_conv_2d_nhwc_fhwc",
     [AttrSizedOperandSegments]> {
   let summary = [{ Performs a batched 2-D convolution. }];
   let description = [{
@@ -93,7 +93,7 @@ def BatchConv2DNhwcFhwcOp : LinalgExtStructuredBase_Op<"batch_conv_2d_nhwc_fhwc"
 // Op definition for MakeRangeOp
 //===----------------------------------------------------------------------===//
 
-def MakeRangeOp : LinalgExtStructuredBase_Op<"make_range",
+def MakeRangeOp : LinalgStructuredBase_Op<"make_range",
     [AttrSizedOperandSegments]> {
   let summary = [{ MakeRange operator. }];
   let description = [{
@@ -175,7 +175,7 @@ def MakeRangeOp : LinalgExtStructuredBase_Op<"make_range",
 // Op definition for Im2ColOp
 //===----------------------------------------------------------------------===//
 
-def Im2ColOp : LinalgExtStructuredBase_Op<"im2col", [AttrSizedOperandSegments]> {
+def Im2ColOp : LinalgStructuredBase_Op<"im2col", [AttrSizedOperandSegments]> {
   let summary = "Image to Column operation.";
   let description = [{
     Consider 2D input X with single channel input and output and 2x2 filter W:
@@ -277,4 +277,11 @@ def Im2ColOp : LinalgExtStructuredBase_Op<"im2col", [AttrSizedOperandSegments]> 
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
     }];
 }
+
+//===----------------------------------------------------------------------===//
+// Named LinalgExt ops.
+//===----------------------------------------------------------------------===//
+
+include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtNamedStructuredOps.yamlgen.td"
+
 #endif // TRITON_LINALG_DIALECT_LINALGEXT_IR_LINALGEXTSTRUCTEDOPS_TD

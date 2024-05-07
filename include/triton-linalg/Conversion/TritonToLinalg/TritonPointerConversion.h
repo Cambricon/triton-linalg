@@ -152,9 +152,7 @@ public:
   int64_t getContigSize() const { return contigSize; }
   int64_t getBroadcastSize() const { return broadcastSize; }
   int64_t getDimSize() const { return dimSize; }
-  bool isBroadcastDim() const {
-    return getContigSize() == 1 && getDimSize() != 1;
-  }
+  bool isBroadcastDim() const { return getContigSize() == 1; }
 
 private:
   int64_t contigSize = -1;
@@ -275,13 +273,13 @@ protected:
   /// Get the actual size of each dim needed to be load.
   SmallVector<OpFoldResult>
   getActualSizes(Location loc, ArrayRef<int64_t> tensorShape,
-                 std::optional<MaskTracker> maskTracker,
+                 std::optional<triton::MaskTracker> maskTracker,
                  ConversionPatternRewriter &rewriter) const;
 
   bool isBlockPtr(ArrayRef<DimInfo> dimInfos) const;
 
   SmallVector<OpFoldResult>
-  getMaskedOffsets(int64_t rank, std::optional<MaskTracker> maskTracker,
+  getMaskedOffsets(int64_t rank, std::optional<triton::MaskTracker> maskTracker,
                    ConversionPatternRewriter &rewriter) const;
 
 private:
@@ -295,7 +293,7 @@ class TritonPtrContiguousConversionBase
 protected:
   std::pair<Value, SmallVector<Value>>
   getOffsetAndStrides(Location loc, ArrayRef<int64_t> tensorShape, Value offset,
-                      std::optional<MaskTracker> maskState,
+                      std::optional<triton::MaskTracker> maskState,
                       const triton::AxisInfoExt *axisInfo,
                       ConversionPatternRewriter &rewriter) const;
 

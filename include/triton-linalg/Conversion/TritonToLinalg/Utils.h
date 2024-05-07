@@ -20,6 +20,11 @@ class OpBuilder;
 class MLIRContext;
 namespace triton {
 enum class CacheModifier : uint32_t;
+enum class MemSemantic : uint32_t;
+namespace linalg_ext {
+enum class MemoryOrder : uint32_t;
+} // namespace linalg_ext
+
 } // namespace triton
 } // namespace mlir
 
@@ -33,6 +38,10 @@ Value getPadOrInsertOpWithOther(Location loc, Value other, Type otherType,
                                 OpBuilder &rewriter);
 
 StringAttr getCacheModeAttr(MLIRContext *context, triton::CacheModifier mode);
+
+/// Get atomic MemoryOrder.
+FailureOr<triton::linalg_ext::MemoryOrder>
+getLinalgExtAtomicMemoryOrder(triton::MemSemantic memSem);
 } // namespace triton
 } // namespace mlir
 #endif // TRITON_LINALG_CONVERSION_TRITONTOLINALG_UTILS_H

@@ -8,12 +8,6 @@
 #include <optional>
 #include <utility>
 
-#include "triton-linalg/Conversion/ArithToLinalg/ArithToLinalg.h"
-#include "triton-linalg/Conversion/LinalgCommon/Pattern.h"
-#include "triton-linalg/Conversion/PassDetail.h"
-#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h" // IWYU pragma: keep
-#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
-#include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/Utils/Utils.h"
@@ -34,6 +28,12 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "triton-linalg/Conversion/ArithToLinalg/ArithToLinalg.h"
+#include "triton-linalg/Conversion/LinalgCommon/Pattern.h"
+#include "triton-linalg/Conversion/PassDetail.h"
+#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h" // IWYU pragma: keep
+#include "triton-linalg/Dialect/Utils/ArithUtils.h"
+#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/StringRef.h"

@@ -5,7 +5,6 @@
 //===----------------------------------------------------------------------===//
 #include <optional>
 
-#include "triton-linalg/Conversion/TritonToLinalg/TypeConverter.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -13,6 +12,7 @@
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/IR/ValueRange.h"
+#include "triton-linalg/Conversion/TritonToLinalg/TypeConverter.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"

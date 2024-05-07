@@ -31,16 +31,4 @@ def TritonToTensorPass : Pass<"convert-triton-to-tensor", "ModuleOp"> {
       "triton::TritonDialect", "tensor::TensorDialect",
   ];
 }
-
-def TritonToLinalgPass : Pass<"convert-triton-to-linalg", "ModuleOp"> {
-  let summary = "Convert the operations from the Triton dialect into the Linalg dialect";
-  let constructor = "mlir::triton::createTritonToLinalgPass()";
-  let dependentDialects = [
-      "triton::TritonDialect", "linalg::LinalgDialect",
-      "linalg_ext::LinalgExtDialect", "scf::SCFDialect",
-      "arith::ArithDialect", "triton::aux::AuxiliaryDialect",
-      "bufferization::BufferizationDialect",
-      "func::FuncDialect",
-  ];
-}
 #endif // TRITON_LINALG_CONVERSION_PASSES_TD

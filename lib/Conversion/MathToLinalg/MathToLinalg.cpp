@@ -8,10 +8,6 @@
 #include <optional>
 #include <utility>
 
-#include "triton-linalg/Conversion/LinalgCommon/Pattern.h"
-#include "triton-linalg/Conversion/MathToLinalg/MathToLinalg.h"
-#include "triton-linalg/Conversion/PassDetail.h"
-#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h" // IWYU pragma: keep
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
@@ -24,6 +20,11 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "triton-linalg/Conversion/LinalgCommon/Pattern.h"
+#include "triton-linalg/Conversion/MathToLinalg/MathToLinalg.h"
+#include "triton-linalg/Conversion/PassDetail.h"
+#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h" // IWYU pragma: keep
+#include "triton-linalg/Dialect/MathExt/IR/Math.h" // IWYU pragma: keep
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/StringRef.h"
 
@@ -42,8 +43,9 @@ void mlir::triton::populateMathToLinalgPatterns(RewritePatternSet &patterns) {
                GenericOpPattern<math::AbsFOp>, GenericOpPattern<math::TruncOp>,
                GenericOpPattern<math::RoundOp>, GenericOpPattern<math::FloorOp>,
                GenericOpPattern<math::FmaOp>, GenericOpPattern<math::CeilOp>,
-               GenericOpPattern<math::Log2Op>, GenericOpPattern<math::Exp2Op>>(
-      context);
+               GenericOpPattern<math::Log2Op>, GenericOpPattern<math::Exp2Op>,
+               GenericOpPattern<math::RsqrtOp>, GenericOpPattern<math::ErfOp>,
+               GenericOpPattern<math_ext::MulhiUIOp>>(context);
 }
 
 namespace {
@@ -55,9 +57,11 @@ struct MathToLinalgPass : public MathToLinalgPassBase<MathToLinalgPass> {
     ConversionTarget target(ctx);
     target.addLegalDialect<linalg::LinalgDialect, linalg_ext::LinalgExtDialect,
                            tensor::TensorDialect, arith::ArithDialect>();
-    target.addDynamicallyLegalDialect<math::MathDialect>([&](Operation *op) {
-      return !op->getResultTypes().front().isa<ShapedType>();
-    });
+    target.addDynamicallyLegalDialect<math::MathDialect,
+                                      math_ext::MathExtDialect>(
+        [&](Operation *op) {
+          return !op->getResultTypes().front().isa<ShapedType>();
+        });
     // Setup conversion patterns.
     RewritePatternSet patterns(&ctx);
     populateMathToLinalgPatterns(patterns);

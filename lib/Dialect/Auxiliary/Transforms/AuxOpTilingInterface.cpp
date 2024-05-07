@@ -6,8 +6,6 @@
 #include <memory>
 #include <stdint.h>
 
-#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h"
-#include "triton-linalg/Dialect/Auxiliary/Transforms/AuxOpTilingInterface.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -29,6 +27,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h"
+#include "triton-linalg/Dialect/Auxiliary/Transforms/AuxOpTilingInterface.h"
 #include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"

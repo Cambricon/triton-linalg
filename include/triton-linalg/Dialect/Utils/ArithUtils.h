@@ -7,12 +7,12 @@
 #define TRITON_LINALG_DIALECT_UTILS_ARITHUTILS_H
 #include <stdint.h>
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/APFloat.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
 
 namespace llvm {
 class APInt;
@@ -35,7 +35,16 @@ Value createScalarOrSplatConstant(OpBuilder &builder, Location loc, Type type,
 /// Get splat value from the arith.constant op.
 FailureOr<Value> getSplatValue(OpBuilder &builder, arith::ConstantOp op);
 
-std::optional<TypedAttr> getNeutralElement(Operation *op);
+/// Derive the specific max/min semantics based on the type of compare and the
+/// operand relationship between compare and select.
+std::optional<Operation *> getCmpSelectResult(OpBuilder &builder, Location loc,
+                                              arith::CmpFOp op,
+                                              bool operandsSwapped);
+std::optional<Operation *> getCmpSelectResult(OpBuilder &builder, Location loc,
+                                              arith::CmpIOp op,
+                                              bool operandsSwapped);
+std::optional<Operation *>
+getCmpSelectResult(OpBuilder &builder, Operation *cmpOp, arith::SelectOp op);
 } // namespace triton
 } // namespace mlir
 

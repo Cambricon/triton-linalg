@@ -12,8 +12,9 @@ int main(int argc, char **argv) {
   ::mlir::registerAllPasses();
   registerTritonLinalgDialects(registry);
   registerTritonLinalgPasses();
+  ::mlir::triton::registerTritonToLinalgPass();
   ::mlir::triton::registerTritonLinalgPipelines();
 
-  return mlir::asMainReturnCode(mlir::MlirOptMain(
-      argc, argv, "Triton-Linalg test driver\n", registry));
+  return mlir::asMainReturnCode(
+      mlir::MlirOptMain(argc, argv, "Triton-Linalg test driver\n", registry));
 }

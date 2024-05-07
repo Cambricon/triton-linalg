@@ -11,8 +11,8 @@
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
-#include "mlir/IR/Types.h"
 #include "mlir/IR/TypeUtilities.h"
+#include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/APFloat.h"
@@ -28,8 +28,8 @@ using namespace mlir;
 // BEGIN copied from mlir/lib/Dialect/Arith/Transforms/EmulateWideInt.cpp
 //===----------------------------------------------------------------------===//
 Value mlir::triton::createScalarOrSplatConstant(OpBuilder &builder,
-                                                 Location loc, Type type,
-                                                 const APInt &value) {
+                                                Location loc, Type type,
+                                                const APInt &value) {
   TypedAttr attr;
   if (isa<IntegerType>(type)) {
     attr = builder.getIntegerAttr(type, value);
@@ -42,8 +42,8 @@ Value mlir::triton::createScalarOrSplatConstant(OpBuilder &builder,
 }
 
 Value mlir::triton::createScalarOrSplatConstant(OpBuilder &builder,
-                                                 Location loc, Type type,
-                                                 int64_t value) {
+                                                Location loc, Type type,
+                                                int64_t value) {
   unsigned elementBitWidth = 0;
   if (auto intTy = dyn_cast<IntegerType>(type))
     elementBitWidth = intTy.getWidth();
@@ -55,8 +55,8 @@ Value mlir::triton::createScalarOrSplatConstant(OpBuilder &builder,
 }
 
 Value mlir::triton::createScalarOrSplatConstant(OpBuilder &builder,
-                                                 Location loc, Type type,
-                                                 const APFloat &value) {
+                                                Location loc, Type type,
+                                                const APFloat &value) {
   if (isa<FloatType>(type))
     return builder.createOrFold<arith::ConstantOp>(
         loc, type, builder.getFloatAttr(type, value));
@@ -67,7 +67,7 @@ Value mlir::triton::createScalarOrSplatConstant(OpBuilder &builder,
 // END copied from mlir/lib/Dialect/Arith/Transforms/EmulateWideInt.cpp
 //===----------------------------------------------------------------------===//
 FailureOr<Value> mlir::triton::getSplatValue(OpBuilder &builder,
-                                              arith::ConstantOp op) {
+                                             arith::ConstantOp op) {
   auto loc = op.getLoc();
   // If arith.const store a scalar type, return itself.
   if (op.getValue().getType().isIntOrFloat()) {
@@ -104,43 +104,87 @@ FailureOr<Value> mlir::triton::getSplatValue(OpBuilder &builder,
   return fillVal;
 }
 
-
-/// Return the identity numeric value associated to the give op.
-std::optional<TypedAttr> mlir::triton::getNeutralElement(Operation *op) {
-  std::optional<arith::AtomicRMWKind> maybeKind =
-      llvm::TypeSwitch<Operation *, std::optional<arith::AtomicRMWKind>>(op)
-          // Floating-point operations.
-          .Case([](arith::AddFOp op) { return arith::AtomicRMWKind::addf; })
-          .Case([](arith::MulFOp op) { return arith::AtomicRMWKind::mulf; })
-          .Case([](arith::MaximumFOp op) { return arith::AtomicRMWKind::maximumf; })
-          .Case([](arith::MinimumFOp op) { return arith::AtomicRMWKind::minimumf; })
-          // Integer operations.
-          .Case([](arith::AddIOp op) { return arith::AtomicRMWKind::addi; })
-          .Case([](arith::OrIOp op) { return arith::AtomicRMWKind::ori; })
-          .Case([](arith::XOrIOp op) { return arith::AtomicRMWKind::ori; })
-          .Case([](arith::AndIOp op) { return arith::AtomicRMWKind::andi; })
-          .Case([](arith::MaxUIOp op) { return arith::AtomicRMWKind::maxu; })
-          .Case([](arith::MinUIOp op) { return arith::AtomicRMWKind::minu; })
-          .Case([](arith::MaxSIOp op) { return arith::AtomicRMWKind::maxs; })
-          .Case([](arith::MinSIOp op) { return arith::AtomicRMWKind::mins; })
-          .Case([](arith::MulIOp op) { return arith::AtomicRMWKind::muli; })
-          .Default([](Operation *op) { return std::nullopt; });
-  if (!maybeKind) {
+std::optional<Operation *>
+mlir::triton::getCmpSelectResult(OpBuilder &builder, Location loc,
+                                 arith::CmpFOp op, bool operandsSwapped) {
+  auto predicate = op.getPredicate();
+  auto lhs = op.getLhs();
+  auto rhs = op.getRhs();
+  switch (predicate) {
+  case arith::CmpFPredicate::OGT:
+  case arith::CmpFPredicate::UGT:
+  case arith::CmpFPredicate::OGE:
+  case arith::CmpFPredicate::UGE:
+    return operandsSwapped ? builder.create<arith::MinimumFOp>(loc, lhs, rhs)
+                           : builder.create<arith::MaximumFOp>(loc, lhs, rhs);
+  case arith::CmpFPredicate::OLT:
+  case arith::CmpFPredicate::ULT:
+  case arith::CmpFPredicate::OLE:
+  case arith::CmpFPredicate::ULE:
+    return operandsSwapped ? builder.create<arith::MaximumFOp>(loc, lhs, rhs)
+                           : builder.create<arith::MinimumFOp>(loc, lhs, rhs);
+  default:
     return std::nullopt;
   }
+}
 
-  bool useOnlyFiniteValue = false;
-  auto fmfOpInterface = dyn_cast<arith::ArithFastMathInterface>(op);
-  if (fmfOpInterface) {
-    arith::FastMathFlagsAttr fmfAttr = fmfOpInterface.getFastMathFlagsAttr();
-    useOnlyFiniteValue =
-        bitEnumContainsAny(fmfAttr.getValue(), arith::FastMathFlags::ninf);
+std::optional<Operation *>
+mlir::triton::getCmpSelectResult(OpBuilder &builder, Location loc,
+                                 arith::CmpIOp op, bool operandsSwapped) {
+  auto predicate = op.getPredicate();
+  auto lhs = op.getLhs();
+  auto rhs = op.getRhs();
+  switch (predicate) {
+  case arith::CmpIPredicate::sgt:
+  case arith::CmpIPredicate::sge:
+    return operandsSwapped ? builder.create<arith::MinSIOp>(loc, lhs, rhs)
+                           : builder.create<arith::MaxSIOp>(loc, lhs, rhs);
+  case arith::CmpIPredicate::ugt:
+  case arith::CmpIPredicate::uge:
+    return operandsSwapped ? builder.create<arith::MinUIOp>(loc, lhs, rhs)
+                           : builder.create<arith::MaxUIOp>(loc, lhs, rhs);
+  case arith::CmpIPredicate::slt:
+  case arith::CmpIPredicate::sle:
+    return operandsSwapped ? builder.create<arith::MaxSIOp>(loc, lhs, rhs)
+                           : builder.create<arith::MinSIOp>(loc, lhs, rhs);
+  case arith::CmpIPredicate::ult:
+  case arith::CmpIPredicate::ule:
+    return operandsSwapped ? builder.create<arith::MaxUIOp>(loc, lhs, rhs)
+                           : builder.create<arith::MinUIOp>(loc, lhs, rhs);
+  default:
+    return std::nullopt;
   }
+}
 
-  // Builder only used as helper for attribute creation.
-  OpBuilder b(op->getContext());
-  Type resultType = op->getResult(0).getType();
-
-  return getIdentityValueAttr(*maybeKind, resultType, b, op->getLoc(),
-                              useOnlyFiniteValue);
+std::optional<Operation *>
+mlir::triton::getCmpSelectResult(OpBuilder &builder, Operation *cmpOp,
+                                 arith::SelectOp op) {
+  // Get cmp op mode.
+  std::optional<arith::CmpFOp> cmpFOp;
+  std::optional<arith::CmpIOp> cmpIOp;
+  if (isa<arith::CmpFOp>(cmpOp)) {
+    cmpFOp = cast<arith::CmpFOp>(cmpOp);
+  } else if (isa<arith::CmpIOp>(cmpOp)) {
+    cmpIOp = cast<arith::CmpIOp>(cmpOp);
+  } else {
+    return std::nullopt;
+  }
+  // Get specific max/min semantics.
+  auto loc = op.getLoc();
+  if (op->getOperand(1) == cmpOp->getOperand(0) &&
+      op->getOperand(2) == cmpOp->getOperand(1)) {
+    if (cmpFOp) {
+      return getCmpSelectResult(builder, loc, *cmpFOp, false);
+    } else if (cmpIOp) {
+      return getCmpSelectResult(builder, loc, *cmpIOp, false);
+    }
+  } else if (op->getOperand(1) == cmpOp->getOperand(1) &&
+             op->getOperand(2) == cmpOp->getOperand(0)) {
+    if (cmpFOp) {
+      return getCmpSelectResult(builder, loc, *cmpFOp, true);
+    } else if (cmpIOp) {
+      return getCmpSelectResult(builder, loc, *cmpIOp, true);
+    }
+  }
+  return std::nullopt;
 }

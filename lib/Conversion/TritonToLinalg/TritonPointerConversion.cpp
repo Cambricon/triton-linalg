@@ -10,16 +10,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "triton-linalg/Analysis/AxisInfoAnalysis.h"
-#include "triton-linalg/Conversion/TritonToLinalg/TritonPointerConversion.h"
-#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
-#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h"
-#include "triton-linalg/Dialect/Triton/Interfaces/InferAxisInfoInterface.h"
-#include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
-#include "triton-linalg/Utils/Utils.h"
-#include "triton-linalg/Dialect/Triton/Utils/PointerMetaInfoTracker.h"
-#include "triton-linalg/Dialect/Utils/Conventions.h"
-#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -44,6 +34,16 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "triton-linalg/Analysis/AxisInfoAnalysis.h"
+#include "triton-linalg/Conversion/TritonToLinalg/TritonPointerConversion.h"
+#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
+#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h"
+#include "triton-linalg/Dialect/Triton/Interfaces/InferAxisInfoInterface.h"
+#include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
+#include "triton-linalg/Dialect/Triton/Utils/PointerMetaInfoTracker.h"
+#include "triton-linalg/Dialect/Utils/Conventions.h"
+#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
+#include "triton-linalg/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
@@ -60,8 +60,8 @@ using namespace mlir;
 using namespace mlir::triton;
 
 Value triton::selectByMask(Location loc, Value mask, Value trueVal,
-                            Value falseVal,
-                            ConversionPatternRewriter &rewriter) {
+                           Value falseVal,
+                           ConversionPatternRewriter &rewriter) {
   assert(trueVal && "Get true value failed.");
   auto trueType = trueVal.getType().dyn_cast<ShapedType>();
   if (!mask || !falseVal || !trueType)
@@ -76,7 +76,7 @@ Value triton::selectByMask(Location loc, Value mask, Value trueVal,
             .getResult(0);
   }
   auto resType = falseType.template cast<ShapedType>();
-  auto initDims = getDims(rewriter, loc, falseVal);
+  auto initDims = triton::getDims(rewriter, loc, falseVal);
   Value initTensor =
       rewriter.create<tensor::EmptyOp>(loc, initDims, resType.getElementType());
   auto mapOp = rewriter.create<linalg::MapOp>(
@@ -87,64 +87,6 @@ Value triton::selectByMask(Location loc, Value mask, Value trueVal,
         b.create<linalg::YieldOp>(loc, innerResult);
       });
   return mapOp->getResult(0);
-}
-
-/// Check if any broadcast dimensions need mask, i.e., if the masked size
-/// is smaller than original size.
-static bool
-shouldApplyMaskForAnyBroadcastDim(ArrayRef<DimInfo> dimInfos,
-                                  ArrayRef<OpFoldResult> maskedSizes) {
-  // Identify broadcast dimensions.
-  SmallVector<int64_t> broadcastDimensions;
-  for (const auto &[index, dimInfo] : llvm::enumerate(dimInfos)) {
-    if (dimInfo.isBroadcastDim())
-      broadcastDimensions.push_back(index);
-  }
-
-  // Check whether masks are needed for any broadcast dimension.
-  return llvm::any_of(broadcastDimensions,
-                      [maskedSizes, dimInfos](int64_t dim) {
-                        auto size = getConstantIntValue(maskedSizes[dim]);
-                        return !size || *size != dimInfos[dim].getDimSize();
-                      });
-}
-
-/// Extract slice `value` based on offsets/sizes/strides, and then drop
-/// the last `dimsToDrop` dims.
-///
-/// Example 1:
-/// Parameters:
-/// - offsets = [0, 1, 0, 0, 1]
-/// - sizes   = [1, 3, 2, 1, 3]
-/// - strides = [1, 1, 1, 1, 1]
-/// - dimsToDrop = 2
-/// ```mlir
-/// %0 = tensor.empty() : tensor<1x4x2x1x4xf32>
-/// %1 = tensor.extract_slice %0[0, 1, 0, 0, 1][1, 3, 2, 1, 1][1, 1, 1, 1, 1]
-///      : tensor<1x4x2x1x4xf32> to tensor<1x3x2xf32>
-/// ```
-static Value extractSliceAndDropLastNdims(Location loc, Value value,
-                                          ArrayRef<OpFoldResult> offsets,
-                                          ArrayRef<OpFoldResult> sizes,
-                                          ArrayRef<OpFoldResult> strides,
-                                          int64_t dimsToDrop,
-                                          ConversionPatternRewriter &rewriter) {
-  auto srcType = value.getType().cast<RankedTensorType>();
-  int64_t dstRank = sizes.size() - dimsToDrop;
-  // Reset the size of last n dims to 1.
-  SmallVector<OpFoldResult> resetSizes(sizes);
-  std::for_each(resetSizes.begin() + dstRank, resetSizes.end(),
-                [&rewriter](auto &ofr) { ofr = rewriter.getIndexAttr(1); });
-  SmallVector<int64_t> staticSizes;
-  SmallVector<Value> dynamicSizes;
-  dispatchIndexOpFoldResults(sizes, dynamicSizes, staticSizes);
-  staticSizes.resize(dstRank);
-  auto dstType = RankedTensorType::get(staticSizes, srcType.getElementType());
-
-  return rewriter
-      .create<tensor::ExtractSliceOp>(loc, dstType, value, offsets, resetSizes,
-                                      strides)
-      .getResult();
 }
 
 Value triton::flattenValueToMatchGatherScatter(
@@ -186,9 +128,9 @@ Value triton::flattenValueToMatchGatherScatter(
       value, expandReassociation);
 }
 
-Value triton::reshapeGatherScatterValueTo(
-    Value value, RankedTensorType resultTy,
-    ConversionPatternRewriter &rewriter) {
+Value triton::reshapeGatherScatterValueTo(Value value,
+                                          RankedTensorType resultTy,
+                                          ConversionPatternRewriter &rewriter) {
   assert(value);
   auto valueTy = value.getType().cast<RankedTensorType>();
   auto loc = value.getLoc();
@@ -253,8 +195,8 @@ Value TritonPtrConversionBase::getMemRef(
   if (!offset)
     offset = rewriter.getIndexAttr(0);
 
-  return rewriter.create<triton::aux::ViewOp>(
-      loc, elementType, llvmPtr, offset, newSizes, newStrides, cacheMode);
+  return rewriter.create<triton::aux::ViewOp>(loc, elementType, llvmPtr, offset,
+                                              newSizes, newStrides, cacheMode);
 }
 
 Value TritonPtrConversionBase::getMemRef(

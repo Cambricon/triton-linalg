@@ -61,7 +61,7 @@ AxisInfoExt AxisInfoExt::getPessimisticValueState(Value value) {
     rank = ty.getRank();
 
   AxisInfoExt ret(DimVectorT(rank, kInitValue), DimVectorT(rank, kInitValue),
-               DimVectorT(rank, kStrideValueInitValue));
+                  DimVectorT(rank, kStrideValueInitValue));
   BlockArgument blockArg = value.dyn_cast<BlockArgument>();
   if (!blockArg || !blockArg.getOwner()->isEntryBlock()) {
     return ret;
@@ -103,7 +103,7 @@ AxisInfoExt AxisInfoExt::getPessimisticValueState(Value value) {
     return AxisInfoExt(divisibility, contiguity, DimVectorT(rank, 1));
   }
   return AxisInfoExt(divisibility, DimVectorT(rank, kInitValue),
-                  DimVectorT(rank, kStrideValueInitValue));
+                     DimVectorT(rank, kStrideValueInitValue));
 }
 
 AxisInfoExt AxisInfoExt::join(const AxisInfoExt &lhs, const AxisInfoExt &rhs) {
@@ -156,12 +156,12 @@ void AxisInfoExt::print(raw_ostream &os) const {
 
 AxisInfoExt
 triton::overrideAxisInfoByHint(Operation *op,
-                                const AxisInfoExt::DimVectorT &knownDivisibility,
-                                const AxisInfoExt::DimVectorT &knownStride,
-                                const AxisInfoExt::DimVectorT &knownStrideValue,
-                                std::optional<int64_t> constantValue) {
-  AxisInfoExt::DimVectorT divisibility = knownDivisibility, stride = knownStride,
-                       strideValue = knownStrideValue;
+                               const AxisInfoExt::DimVectorT &knownDivisibility,
+                               const AxisInfoExt::DimVectorT &knownStride,
+                               const AxisInfoExt::DimVectorT &knownStrideValue,
+                               std::optional<int64_t> constantValue) {
+  AxisInfoExt::DimVectorT divisibility = knownDivisibility,
+                          stride = knownStride, strideValue = knownStrideValue;
   if (Attribute attr = op->getAttr("tt.divisibility")) {
     auto vals = attr.cast<DenseElementsAttr>().getValues<int>();
     divisibility = AxisInfoExt::DimVectorT(vals.begin(), vals.end());

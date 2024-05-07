@@ -62,8 +62,8 @@ public:
   Value getBase() const { return base; }
   Value getOffset() const { return offset; }
 
-  LogicalResult parse(Value operand, Location loc,
-                      ConversionPatternRewriter &rewriter);
+  FailureOr<bool> parse(Value operand, Location loc,
+                        ConversionPatternRewriter &rewriter);
 
 private:
   template <typename OpTy>

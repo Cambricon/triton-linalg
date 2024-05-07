@@ -12,8 +12,6 @@
 #include <stdint.h>
 #include <tuple>
 
-#include "triton-linalg/Dialect/Utils/MemRefUtils.h"
-#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -35,6 +33,8 @@
 #include "mlir/Interfaces/ViewLikeInterface.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "triton-linalg/Dialect/Utils/MemRefUtils.h"
+#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
@@ -57,18 +57,6 @@ class MLIRContext;
 
 using namespace mlir;
 using namespace mlir::triton;
-
-LogicalResult mlir::triton::foldMemRefCast(Operation *op) {
-  bool folded = false;
-  for (OpOperand &operand : op->getOpOperands()) {
-    auto castOp = operand.get().getDefiningOp<memref::CastOp>();
-    if (castOp && memref::CastOp::canFoldIntoConsumerOp(castOp)) {
-      operand.set(castOp.getOperand());
-      folded = true;
-    }
-  }
-  return success(folded);
-}
 
 /// Try to get the broadcast dimensions from 'srcTy' to 'dstTy', if successful,
 /// return the broadcast dimensions, otherwise return failure. The broadcast

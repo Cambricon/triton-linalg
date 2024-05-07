@@ -13,7 +13,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -22,6 +21,7 @@
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
+#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringMap.h"

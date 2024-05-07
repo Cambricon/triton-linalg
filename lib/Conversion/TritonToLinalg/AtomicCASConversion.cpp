@@ -6,12 +6,6 @@
 #include <algorithm>
 #include <optional>
 
-#include "triton-linalg/Conversion/TritonToLinalg/AtomicCASConversion.h"
-#include "triton-linalg/Conversion/TritonToLinalg/TritonPointerConversion.h"
-#include "triton-linalg/Conversion/TritonToLinalg/TypeConverter.h"
-#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
-#include "triton-linalg/Dialect/Triton/Utils/PointerMetaInfoTracker.h"
-#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -22,6 +16,13 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "triton-linalg/Conversion/TritonToLinalg/AtomicCASConversion.h"
+#include "triton-linalg/Conversion/TritonToLinalg/TritonPointerConversion.h"
+#include "triton-linalg/Conversion/TritonToLinalg/TypeConverter.h"
+#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
+#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
+#include "triton-linalg/Dialect/Triton/Utils/PointerMetaInfoTracker.h"
+#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -40,16 +41,15 @@ namespace {
 
 class TritonScalarAtomicCASOpConversion
     : public OpConversionPattern<triton::AtomicCASOp>,
-      public TritonPtrScalarConversionBase {
+      public triton::TritonPtrScalarConversionBase {
   using OpConversionPattern<triton::AtomicCASOp>::OpConversionPattern;
 
 public:
-  TritonScalarAtomicCASOpConversion(TritonLinalgTypeConverter &converter,
-                                    MLIRContext *context,
-                                    DataFlowSolver &solver,
-                                    PatternBenefit benefit)
+  TritonScalarAtomicCASOpConversion(
+      triton::TritonLinalgTypeConverter &converter, MLIRContext *context,
+      DataFlowSolver &solver, PatternBenefit benefit)
       : OpConversionPattern<triton::AtomicCASOp>(converter, context, benefit),
-        TritonPtrScalarConversionBase(solver) {}
+        triton::TritonPtrScalarConversionBase(solver) {}
 
   LogicalResult
   matchAndRewrite(triton::AtomicCASOp op, OpAdaptor adaptor,
@@ -82,13 +82,18 @@ public:
     auto init = rewriter.create<tensor::EmptyOp>(
         loc, originTensorTy.getShape(), originTensorTy.getElementType());
 
-    rewriter.create<triton::linalg_ext::AtomicCASOp>(
+    auto maybeMemoryOrder = getLinalgExtAtomicMemoryOrder(op.getSem());
+    if (failed(maybeMemoryOrder))
+      return failure();
+
+    auto casOp = rewriter.create<triton::linalg_ext::AtomicCASOp>(
         loc, originTensor.getType(),
-        ValueRange({originTensor, cmpValue, valValue}), init);
+        ValueRange({originTensor, cmpValue, valValue}), init,
+        *maybeMemoryOrder);
     Value scalarRet =
         rewriter
-            .create<tensor::ExtractOp>(loc, op.getResult().getType(), init,
-                                       ValueRange({zero}))
+            .create<tensor::ExtractOp>(loc, op.getResult().getType(),
+                                       casOp->getResult(0), ValueRange({zero}))
             .getResult();
     op.replaceAllUsesWith(scalarRet);
     rewriter.eraseOp(op);
@@ -96,14 +101,15 @@ public:
   }
 };
 
-class TritonAtomicCASPattern : public OpConversionPattern<triton::AtomicCASOp>,
-                               public TritonPtrContiguousConversionBase {
+class TritonAtomicCASPattern
+    : public OpConversionPattern<triton::AtomicCASOp>,
+      public triton::TritonPtrContiguousConversionBase {
 public:
-  TritonAtomicCASPattern(TritonLinalgTypeConverter &converter,
+  TritonAtomicCASPattern(triton::TritonLinalgTypeConverter &converter,
                          MLIRContext *context, DataFlowSolver &solver,
                          PatternBenefit benefit = 1)
       : OpConversionPattern<triton::AtomicCASOp>(converter, context, benefit),
-        TritonPtrContiguousConversionBase(solver) {}
+        triton::TritonPtrContiguousConversionBase(solver) {}
 
   LogicalResult
   matchAndRewrite(triton::AtomicCASOp op, OpAdaptor adaptor,
@@ -123,7 +129,7 @@ public:
       if (dimInfo.getContigSize() != dimInfo.getDimSize())
         return failure();
     }
-    if (!isConsecutive(ptrInfo->permutations)) {
+    if (!triton::isConsecutive(ptrInfo->permutations)) {
       return failure();
     }
 
@@ -132,12 +138,17 @@ public:
 
     auto init = rewriter.create<tensor::EmptyOp>(loc, resultTy.getShape(),
                                                  resultTy.getElementType());
-    Value ret =
-        rewriter
-            .create<triton::linalg_ext::AtomicCASOp>(
-                loc, op.getResult().getType(),
-                ValueRange({originTensor, op.getCmp(), op.getVal()}), init)
-            .getResults()[0];
+
+    auto maybeMemoryOrder = getLinalgExtAtomicMemoryOrder(op.getSem());
+    if (failed(maybeMemoryOrder))
+      return failure();
+
+    Value ret = rewriter
+                    .create<triton::linalg_ext::AtomicCASOp>(
+                        loc, op.getResult().getType(),
+                        ValueRange({originTensor, op.getCmp(), op.getVal()}),
+                        init, *maybeMemoryOrder)
+                    .getResults()[0];
     rewriter.replaceOp(op, ret);
     return success();
   }
@@ -147,7 +158,7 @@ class TritonGatherAtomicCASPattern
     : public OpConversionPattern<triton::AtomicCASOp>,
       TritonPtrScatterConversionBase {
 public:
-  TritonGatherAtomicCASPattern(TritonLinalgTypeConverter &converter,
+  TritonGatherAtomicCASPattern(triton::TritonLinalgTypeConverter &converter,
                                MLIRContext *context, DataFlowSolver &solver,
                                PatternBenefit benefit = 1)
       : OpConversionPattern<triton::AtomicCASOp>(converter, context, benefit),
@@ -165,7 +176,7 @@ public:
 
     auto loc = op.getLoc();
     // When encounter discrete input.
-    PointerMetaInfoTracker tracker;
+    triton::PointerMetaInfoTracker tracker;
     if (failed(tracker.parse(op.getPtr(), loc, rewriter)))
       return failure();
     Value memref = getDynamicMemRef(loc, tracker.getBase(), resultTy, rewriter);
@@ -173,11 +184,16 @@ public:
         rewriter.create<bufferization::ToTensorOp>(loc, memref, true, true);
     auto init = rewriter.create<tensor::EmptyOp>(loc, resultTy.getShape(),
                                                  resultTy.getElementType());
+
+    auto maybeMemoryOrder = getLinalgExtAtomicMemoryOrder(op.getSem());
+    if (failed(maybeMemoryOrder))
+      return failure();
+
     rewriter.replaceOpWithNewOp<triton::linalg_ext::GatherAtomicCASOp>(
         op, op.getResult().getType(),
         ValueRange(
             {originTensor, op.getCmp(), op.getVal(), tracker.getOffset()}),
-        init);
+        init, *maybeMemoryOrder);
     return success();
   }
 };
@@ -185,7 +201,7 @@ public:
 } // namespace
 
 void triton::populateTritonAtomicCASToLinalgPatterns(
-    RewritePatternSet &patterns, TritonLinalgTypeConverter &converter,
+    RewritePatternSet &patterns, triton::TritonLinalgTypeConverter &converter,
     DataFlowSolver &solver) {
   MLIRContext *context = patterns.getContext();
   patterns.add<TritonScalarAtomicCASOpConversion, TritonAtomicCASPattern>(

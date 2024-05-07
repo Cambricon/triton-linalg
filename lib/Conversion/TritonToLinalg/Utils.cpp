@@ -6,9 +6,6 @@
 #include <assert.h>
 #include <optional>
 
-#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
-#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
-#include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
@@ -21,6 +18,9 @@
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LogicalResult.h"
+#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
+#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
+#include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
@@ -36,10 +36,10 @@ class MLIRContext;
 using namespace mlir;
 
 Value mlir::triton::getPadOrInsertOpWithOther(Location loc, Value other,
-                                               Type otherType, Value source,
-                                               ArrayRef<OpFoldResult> offsets,
-                                               ArrayRef<OpFoldResult> sizes,
-                                               OpBuilder &rewriter) {
+                                              Type otherType, Value source,
+                                              ArrayRef<OpFoldResult> offsets,
+                                              ArrayRef<OpFoldResult> sizes,
+                                              OpBuilder &rewriter) {
   auto otherShapedType = otherType.cast<ShapedType>();
   assert(otherShapedType.hasStaticShape() && "other val shape must be static.");
   Type elementType = otherShapedType.getElementType();
@@ -95,7 +95,7 @@ Value mlir::triton::getPadOrInsertOpWithOther(Location loc, Value other,
     }
     return rewriter
         .create<mlir::triton::linalg_ext::PadOp>(loc, source, padInit, pValue,
-                                                  lowPads, highPads)
+                                                 lowPads, highPads)
         .getResult()[0];
   } while (false);
 
@@ -110,7 +110,7 @@ Value mlir::triton::getPadOrInsertOpWithOther(Location loc, Value other,
 }
 
 StringAttr mlir::triton::getCacheModeAttr(MLIRContext *context,
-                                           triton::CacheModifier mode) {
+                                          triton::CacheModifier mode) {
   switch (mode) {
   case triton::CacheModifier::CA:
   case triton::CacheModifier::CG:
@@ -121,5 +121,22 @@ StringAttr mlir::triton::getCacheModeAttr(MLIRContext *context,
     return StringAttr::get(context, "cmtransient");
   default:
     return nullptr;
+  }
+}
+
+FailureOr<triton::linalg_ext::MemoryOrder>
+mlir::triton::getLinalgExtAtomicMemoryOrder(triton::MemSemantic memSem) {
+  switch (memSem) {
+  case triton::MemSemantic::RELAXED:
+    return triton::linalg_ext::MemoryOrder::relaxed;
+  case triton::MemSemantic::ACQUIRE:
+    return triton::linalg_ext::MemoryOrder::acquire;
+  case triton::MemSemantic::RELEASE:
+    return triton::linalg_ext::MemoryOrder::release;
+  case triton::MemSemantic::ACQUIRE_RELEASE:
+    return triton::linalg_ext::MemoryOrder::acq_rel;
+  default:
+    llvm_unreachable("Invalid MemoryOrder");
+    return failure();
   }
 }

@@ -10,8 +10,6 @@
 #include <stdint.h>
 #include <tuple>
 
-#include "triton-linalg/Dialect/LinalgExt/Transforms/TilingInterfaceImpl.h"
-#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Utils/Utils.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -42,6 +40,7 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
+#include "triton-linalg/Dialect/LinalgExt/Transforms/TilingInterfaceImpl.h"
 #include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
@@ -58,7 +57,6 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
 using namespace mlir;
-using namespace mlir::triton;
 using namespace mlir::triton;
 namespace mlir {
 class MLIRContext;
@@ -352,12 +350,12 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::ScatterOp>
           ValueRange({windowIndicesAndMask[0], windowIndicesAndMask[1],
                       windowIndicesAndMask[2]}),
           tiledInit, dimensionMap, concreteOp.getRangedData(),
-          concreteOp.getOverlapWindow());
+          concreteOp.getOverlapWindow(), concreteOp.getSignedIndice());
     } else {
       tiledScatterOp = b.create<triton::linalg_ext::ScatterOp>(
           loc, ValueRange({windowIndicesAndMask[0], windowIndicesAndMask[1]}),
           tiledInit, dimensionMap, concreteOp.getRangedData(),
-          concreteOp.getOverlapWindow());
+          concreteOp.getOverlapWindow(), concreteOp.getSignedIndice());
     }
 
     // Clean body region.
@@ -524,11 +522,13 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::GatherOp>
           loc,
           ValueRange(
               {tiledInput, windowIndicesAndMask[1], windowIndicesAndMask[2]}),
-          windowIndicesAndMask[0], dimensionMap, concreteOp.getRangedData());
+          windowIndicesAndMask[0], dimensionMap, concreteOp.getRangedData(),
+          concreteOp.getSignedIndice());
     } else {
       tiledGatherOp = b.create<triton::linalg_ext::GatherOp>(
           loc, ValueRange({tiledInput, windowIndicesAndMask[1]}),
-          windowIndicesAndMask[0], dimensionMap, concreteOp.getRangedData());
+          windowIndicesAndMask[0], dimensionMap, concreteOp.getRangedData(),
+          concreteOp.getSignedIndice());
     }
 
     // Clean body region.
@@ -675,7 +675,7 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::AtomicCASOp>
         loc, atomicCASOp.getInit(), inputOffsets, inputSizes, strides);
     Operation *tiledOp = b.create<triton::linalg_ext::AtomicCASOp>(
         loc, initSlice.getType(), ValueRange({inputSlice, cmpSlice, valSlice}),
-        initSlice);
+        initSlice, atomicCASOp.getMemoryOrder());
     return TilingResult{{tiledOp}, SmallVector<Value>(tiledOp->getResults())};
   }
 
@@ -801,7 +801,7 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::GatherAtomicCASOp>
         loc, initSlice.getType(),
         ValueRange(
             {gatherAtomicCASOp.input(), cmpSlice, valSlice, indiceSlice}),
-        initSlice);
+        initSlice, gatherAtomicCASOp.getMemoryOrder());
     return TilingResult{{tiledOp}, SmallVector<Value>(tiledOp->getResults())};
   }
 
@@ -875,6 +875,145 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::GatherAtomicCASOp>
   }
 };
 
+// Contiguous atomicRMW
+template <>
+struct LinalgExtOpTilingInterface<triton::linalg_ext::AtomicRMWOp>
+    : public TilingInterface::ExternalModel<
+          LinalgExtOpTilingInterface<triton::linalg_ext::AtomicRMWOp>,
+          triton::linalg_ext::AtomicRMWOp> {
+  /// Return the destination operands.
+  SmallVector<Value> getDestinationOperands(Operation *op, OpBuilder &b) const {
+    return llvm::cast<DestinationStyleOpInterface>(op).getDpsInits();
+  }
+
+  /// Return the loop iterator type.
+  SmallVector<utils::IteratorType> getLoopIteratorTypes(Operation *op) const {
+    triton::linalg_ext::AtomicRMWOp concreteOp =
+        cast<triton::linalg_ext::AtomicRMWOp>(op);
+    SmallVector<utils::IteratorType> loops(concreteOp.getInputType().getRank(),
+                                           utils::IteratorType::parallel);
+    return loops;
+  }
+
+  /// Tile init then update.
+  SmallVector<Range> getIterationDomain(Operation *op,
+                                        OpBuilder &builder) const {
+    Location loc = op->getLoc();
+    triton::linalg_ext::AtomicRMWOp concreteOp =
+        cast<triton::linalg_ext::AtomicRMWOp>(op);
+    OpFoldResult zero = builder.getIndexAttr(0);
+    OpFoldResult one = builder.getIndexAttr(1);
+    SmallVector<Range> ranges;
+    for (auto dim :
+         llvm::seq<int64_t>(0, concreteOp.getInputType().getRank())) {
+      OpFoldResult ub = getDim(builder, loc, concreteOp.input(), dim);
+      ranges.emplace_back(Range{zero, ub, one});
+    }
+    return ranges;
+  }
+
+  FailureOr<TilingResult>
+  getTiledImplementation(Operation *op, OpBuilder &b,
+                         ArrayRef<OpFoldResult> offsets,
+                         ArrayRef<OpFoldResult> sizes) const {
+    triton::linalg_ext::AtomicRMWOp atomicRMWOp =
+        cast<triton::linalg_ext::AtomicRMWOp>(op);
+    auto loc = op->getLoc();
+    auto oneAttr = b.getI64IntegerAttr(1);
+
+    SmallVector<Value, 3> tiledInputs, tiledInits;
+    // Use original src.
+    tiledInits.push_back(atomicRMWOp.src());
+    // Slice input and dst.
+    Value input = atomicRMWOp.input();
+    auto inputRank = input.getType().cast<ShapedType>().getRank();
+    SmallVector<OpFoldResult> inputStrides(inputRank, oneAttr);
+    Value tiledInput =
+        getSimpliedSlice(b, loc, input, offsets, sizes, inputStrides);
+    assert(tiledInput && "failed to get slice of input");
+    tiledInputs.push_back(tiledInput);
+    Value dst = atomicRMWOp.dst();
+    Value tiledDst =
+        getSimpliedSlice(b, loc, dst, offsets, sizes, inputStrides);
+    assert(tiledDst && "failed to get slice of dst");
+    tiledInits.push_back(tiledDst);
+
+    // Create tiled atomic_rmw.
+    triton::linalg_ext::AtomicRMWOp tiledAtomicRMWOp =
+        b.create<triton::linalg_ext::AtomicRMWOp>(loc, tiledInputs, tiledInits,
+                                                  atomicRMWOp.getAtomicType(),
+                                                  atomicRMWOp.getMemoryOrder());
+
+    return TilingResult{{tiledAtomicRMWOp},
+                        SmallVector<Value>(tiledAtomicRMWOp->getResults())};
+  }
+
+  LogicalResult
+  getResultTilePosition(Operation *op, OpBuilder &b, unsigned resultNumber,
+                        ArrayRef<OpFoldResult> offsets,
+                        ArrayRef<OpFoldResult> sizes,
+                        SmallVector<OpFoldResult> &resultOffsets,
+                        SmallVector<OpFoldResult> &resultSizes) const {
+    triton::linalg_ext::AtomicRMWOp atomicRMWOp =
+        cast<triton::linalg_ext::AtomicRMWOp>(op);
+    // Result 0 is src, we keep it unchanged.
+    if (resultNumber == 0) {
+      return failure();
+    }
+    resultOffsets.assign(offsets.begin(), offsets.end());
+    resultSizes.assign(sizes.begin(), sizes.end());
+    return success();
+  }
+
+  FailureOr<TilingResult>
+  generateResultTileValue(Operation *op, OpBuilder &b, unsigned resultNumber,
+                          ArrayRef<OpFoldResult> offsets,
+                          ArrayRef<OpFoldResult> sizes) const {
+    assert((resultNumber == 1) && "only support tile dst now.");
+    auto tilingInterfaceOp = cast<TilingInterface>(op);
+    FailureOr<TilingResult> tilingResult =
+        tilingInterfaceOp.getTiledImplementation(b, offsets, sizes);
+    if (failed(tilingResult) || tilingResult->tiledOps.size() != 1)
+      return op->emitOpError("failed to generate tiled implementation");
+
+    return tilingResult;
+  }
+
+  LogicalResult generateScalarImplementation(Operation *op, OpBuilder &b,
+                                             Location loc,
+                                             ValueRange ivs) const {
+    triton::linalg_ext::AtomicRMWOp concreteOp =
+        cast<triton::linalg_ext::AtomicRMWOp>(op);
+
+    OpBuilder::InsertionGuard guard(b);
+    auto inputRank = concreteOp.getInputType().getRank();
+    auto srcRank = concreteOp.getSrcType().getRank();
+    // Get Indices.
+    SmallVector<Value> index{ivs.begin() + 1, ivs.begin() + srcRank + 1};
+    for (auto i : llvm::seq<unsigned>(0, inputRank)) {
+      Value idx = b.create<arith::ConstantIndexOp>(loc, i);
+      Value ret = b.create<arith::IndexCastOp>(loc, b.getIndexType(), idx);
+      // Add indice to start point.
+      index[i] = b.create<arith::AddIOp>(loc, ret, index[i]);
+    }
+    // Get Input.
+    auto valueRank = concreteOp.getInputType().getRank();
+    SmallVector<Value> loadInput{ivs.begin(), ivs.begin() + valueRank};
+    Value inputValue =
+        b.create<memref::LoadOp>(loc, concreteOp.input(), loadInput);
+
+    // Get rmw Value.
+    Value rmwValue = b.create<memref::LoadOp>(loc, concreteOp.src(), index);
+    b.create<memref::StoreOp>(loc, rmwValue, concreteOp.dst(), loadInput);
+    if (failed(createMemrefAtomicRMW(b, loc, inputValue, concreteOp.src(),
+                                     index, concreteOp.getAtomicType())))
+      return failure();
+
+    return success();
+  }
+};
+
+// Discrete atomicRMW.
 template <>
 struct LinalgExtOpTilingInterface<triton::linalg_ext::GatherAtomicRMWOp>
     : public TilingInterface::ExternalModel<
@@ -1001,7 +1140,8 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::GatherAtomicRMWOp>
     // Create tiled atomic_rmw.
     triton::linalg_ext::GatherAtomicRMWOp tiledAtomicRMWOp =
         b.create<triton::linalg_ext::GatherAtomicRMWOp>(
-            loc, tiledInputs, tiledInits, atomicRMWOp.getAtomicType());
+            loc, tiledInputs, tiledInits, atomicRMWOp.getAtomicType(),
+            atomicRMWOp.getMemoryOrder());
 
     return TilingResult{{tiledAtomicRMWOp},
                         SmallVector<Value>(tiledAtomicRMWOp->getResults())};
@@ -1750,60 +1890,38 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::ScanOp>
       return op->emitOpError("tiling interface only support single input now.");
     SmallVector<Value> indices, scanBlkArgs;
     indices.append(ivs.begin(), ivs.end());
-    Value zero = b.create<arith::ConstantIndexOp>(loc, 0);
     Value one = b.create<arith::ConstantIndexOp>(loc, 1);
     int64_t scanDim = concreteOp.getDimensions()[0];
-    auto cond = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
-                                        indices[scanDim], zero);
+    Value size = getDimValue(b, loc, concreteOp.inputs()[0], scanDim);
+    size = b.create<arith::SubIOp>(loc, size, one);
+    if (concreteOp.getReverse())
+      indices[scanDim] = b.create<arith::SubIOp>(loc, size, indices[scanDim]);
     SmallVector<Value> accIndices;
     for (int i = 0; i < indices.size(); i++) {
       if (i != scanDim)
         accIndices.push_back(indices[i]);
     }
 
-    auto scfIf = b.create<scf::IfOp>(
-        loc, cond,
-        [&](OpBuilder &b, Location loc) {
-          auto value =
-              b.create<memref::LoadOp>(loc, concreteOp.inputs()[0], indices);
-          b.create<memref::StoreOp>(loc, value, concreteOp.outputs()[0],
-                                    indices);
-          b.create<scf::YieldOp>(loc);
-        },
-        [&](OpBuilder &b, Location loc) {
-          SmallVector<Value> indices(ivs.begin(), ivs.end());
-          Value iv = indices[scanDim];
-          scanBlkArgs.push_back(
-              b.create<memref::LoadOp>(loc, concreteOp.inputs()[0], indices));
-          Value ivMinusOne = b.create<arith::SubIOp>(loc, iv, one);
-          indices[scanDim] = ivMinusOne;
-          Value ov =
-              b.create<memref::LoadOp>(loc, concreteOp.outputs()[0], indices);
-          scanBlkArgs.push_back(ov);
-          scanBlkArgs.push_back(ov);
-        });
-
+    scanBlkArgs.push_back(
+        b.create<memref::LoadOp>(loc, concreteOp.inputs()[0], indices));
+    scanBlkArgs.push_back(
+        b.create<memref::LoadOp>(loc, concreteOp.outputs()[0], indices));
+    scanBlkArgs.push_back(
+        b.create<memref::LoadOp>(loc, concreteOp.inits()[0], accIndices));
     auto &srcBlock = concreteOp.getRegion().front();
-    Region &region = scfIf.getElseRegion();
     IRMapping bvm;
-    {
-      OpBuilder::InsertionGuard guard(b);
-      auto &block = region.front();
-      b.setInsertionPointToEnd(&block);
-      for (auto it : llvm::zip(srcBlock.getArguments(), scanBlkArgs)) {
-        bvm.map(std::get<0>(it), std::get<1>(it));
-      }
-      for (auto &blockOp : srcBlock.without_terminator()) {
-        b.clone(blockOp, bvm);
-      }
-      b.create<memref::StoreOp>(
-          loc, bvm.lookupOrDefault(srcBlock.getTerminator()->getOperand(0)),
-          concreteOp.outputs()[0], indices);
-      b.create<memref::StoreOp>(
-          loc, bvm.lookupOrDefault(srcBlock.getTerminator()->getOperand(0)),
-          concreteOp.inits()[0], accIndices);
-      b.create<scf::YieldOp>(loc);
+    for (auto it : llvm::zip(srcBlock.getArguments(), scanBlkArgs)) {
+      bvm.map(std::get<0>(it), std::get<1>(it));
     }
+    for (auto &blockOp : srcBlock.without_terminator()) {
+      b.clone(blockOp, bvm);
+    }
+    b.create<memref::StoreOp>(
+        loc, bvm.lookupOrDefault(srcBlock.getTerminator()->getOperand(0)),
+        concreteOp.outputs()[0], indices);
+    b.create<memref::StoreOp>(
+        loc, bvm.lookupOrDefault(srcBlock.getTerminator()->getOperand(0)),
+        concreteOp.inits()[0], accIndices);
     return success();
   }
 };
@@ -1820,6 +1938,7 @@ void mlir::triton::linalg_ext::registerExtOpTilingInterfaceExternalModels(
       +[](MLIRContext *ctx, triton::linalg_ext::LinalgExtDialect *dialect) {
         registerOne<triton::linalg_ext::ScatterOp>(ctx);
         registerOne<triton::linalg_ext::GatherOp>(ctx);
+        registerOne<triton::linalg_ext::AtomicRMWOp>(ctx);
         registerOne<triton::linalg_ext::GatherAtomicRMWOp>(ctx);
         registerOne<triton::linalg_ext::AtomicCASOp>(ctx);
         registerOne<triton::linalg_ext::GatherAtomicCASOp>(ctx);

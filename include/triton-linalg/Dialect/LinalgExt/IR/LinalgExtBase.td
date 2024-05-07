@@ -73,7 +73,7 @@ class LinalgExtBase_Op<string mnemonic, list<Trait> props>
 // Linalg ops that correspond to library calls operate on ShapedType as their
 // first operands. These may be optionally followed by non-view operands
 // depending on the specific Linalg op.
-class LinalgExtStructuredBase_Op<string mnemonic, list<Trait> props>
+class LinalgStructuredBase_Op<string mnemonic, list<Trait> props>
   : Op<LinalgExt_Dialect, mnemonic, !listconcat([
        SingleBlockImplicitTerminator<"linalg::YieldOp">,
        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,

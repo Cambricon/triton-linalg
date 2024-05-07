@@ -6,4 +6,5 @@ add_triton_library(MathToLinalg
 
   LINK_LIBS PUBLIC
   MLIRIR
+  MathExtDialect
 )

@@ -760,8 +760,7 @@ private:
 };
 } // namespace
 
-void MaskTracker::parse(Value operand, Location loc,
-                        RewriterBase &rewriter) {
+void MaskTracker::parse(Value operand, Location loc, RewriterBase &rewriter) {
   auto shapeTy = operand.getType().dyn_cast<ShapedType>();
   if (!shapeTy)
     return;
