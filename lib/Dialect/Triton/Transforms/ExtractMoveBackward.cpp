@@ -761,6 +761,7 @@ static void extractSliceFromCollapseShapeOp(tensor::CollapseShapeOp op,
     getExtractedValueFrom(collapseDst, state, loc, rewriter);
     return;
   }
+
   // If the reassociation is empty, the operand state is constructed based on
   // the rank of source.
   int64_t srcRank = op.getSrcType().getRank();

@@ -1,5 +1,5 @@
-add_triton_library(MathToLinalg
-  MathToLinalg.cpp
+add_triton_library(TritonToTensor
+  TritonToTensor.cpp
 
   DEPENDS
   TritonLinalgConverisonIncGen
