@@ -555,7 +555,6 @@ public:
     return success();
   }
 };
-
 } // namespace
 
 void triton::populateTritonLoadStoreToLinalgPatterns(

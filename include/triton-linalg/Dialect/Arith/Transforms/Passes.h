@@ -7,9 +7,9 @@
 #ifndef TRITON_LINALG_DIALECT_ARITH_PASSES_H
 #define TRITON_LINALG_DIALECT_ARITH_PASSES_H
 
-#include "triton-linalg/Dialect/Arith/Transforms/PassDetail.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassRegistry.h"
+#include "triton-linalg/Dialect/Arith/Transforms/PassDetail.h"
 
 namespace mlir {
 namespace triton {
