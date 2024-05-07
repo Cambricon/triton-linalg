@@ -1,0 +1,86 @@
+# Triton-Linalg
+/*.mlir
+*.o
+.tmp/
+
+# Ctags
+TAGS
+
+# Python
+*.pyc
+**/.ipynb_checkpoints/
+.pytype/
+*__pycache__*
+
+# Visual Studio files
+.env
+.vs/
+.vscode/
+*.sdf
+*.opensdf
+*.VC.opendb
+*.suo
+*.user
+
+# docs
+docs/**/build/
+docs/**/*.pdf
+docs/**/*.zip
+
+# macOS files
+.DS_Store
+
+# CMake artifacts
+build/
+build-*/
+CMakeFiles/
+cmake_install.cmake
+CMakeCache.txt
+
+# Bazel artifacts
+**/bazel-*
+external
+
+# Local-only config options
+configured.bazelrc
+user.bazelrc
+version_info.json
+
+# Emacs autosaves
+*~
+\#*\#
+
+# Vim swap files
+[._]*.sw[a-p]
+
+# Source indexing files
+compile_commands.json
+.cache/clangd
+.clangd/
+
+# Pyenv files
+.python-version
+*.venv
+.venv
+
+# Python deployment artifacts
+*.whl
+
+# Android Studio / Gradle files
+.cxx
+.gradle
+gradlew
+gradlew.bat
+gradle/
+local.properties
+
+# Archive files
+*.tar
+*.tar.*
+
+# coverage
+genhtml
+
+# cscope files
+cscope.*
+tags
