@@ -340,6 +340,12 @@ struct DivOpInferAxisInfoOpInterface
                               rhs.getConstantValue().value());
         divisibility.push_back(std::max<int64_t>(
             lhs.getDivisibility(d) / rhs.getConstantValue().value(), 1));
+      } else if (lhs.isConstantStrideDim(shape, d) &&
+                 rhs.isConstantStrideDim(shape, d)) {
+        divisibility.push_back(
+            std::gcd(lhs.getDivisibility(d), rhs.getDivisibility(d)));
+        stride.push_back(std::gcd(lhs.getStride(d), rhs.getStride(d)));
+        strideValue.push_back(0);
       } else {
         divisibility.push_back(AxisInfoExt::kInitValue);
         stride.push_back(AxisInfoExt::kInitValue);
@@ -443,6 +449,7 @@ struct CmpOpInferAxisInfoOpInterface
     std::optional<int64_t> constantValue;
     for (short d = 0; d < rank; ++d) {
       int64_t constancyHint = AxisInfoExt::kInitValue;
+      int64_t strideValueHint = AxisInfoExt::kStrideValueInitValue;
       if (lhsInfo.getConstantValue().has_value() &&
           rhsInfo.getConstantValue().has_value()) {
         constancyHint = lhsInfo.getConstancy(d);
@@ -452,6 +459,7 @@ struct CmpOpInferAxisInfoOpInterface
                             APInt(64, rhsInfo.getConstantValue().value()))
                             ? 1
                             : 0;
+        strideValueHint = 0;
       } else if (ltOrGtPredicate(cmpOp.getPredicate())) {
         // Lhs and rhs are both partial constants.
         constancyHint =
@@ -489,7 +497,7 @@ struct CmpOpInferAxisInfoOpInterface
 
       divisibility.push_back(AxisInfoExt::kInitValue);
       stride.push_back(constancyHint);
-      strideValue.push_back(0);
+      strideValue.push_back(strideValueHint);
     }
 
     return setResultAxisInfo(
@@ -650,23 +658,15 @@ struct MaxMinLogicalOpInferAxisInfoOpInterface
     auto &lhsInfo = argInfos[0];
     auto &rhsInfo = argInfos[1];
 
-    std::optional<int64_t> constantValue;
+    std::optional<int64_t> constantValue = std::nullopt;
     AxisInfoExt::DimVectorT stride, strideValue, divisibility;
     auto rank = lhsInfo.getRank();
     for (int d = 0; d < rank; ++d) {
-      if (!lhsInfo.getConstantValue().has_value() ||
-          !rhsInfo.getConstantValue().has_value()) {
-        divisibility.push_back(AxisInfoExt::kInitValue);
-        stride.push_back(AxisInfoExt::kInitValue);
-        strideValue.push_back(AxisInfoExt::kStrideValueInitValue);
-        continue;
-      }
-
       const AxisInfoExt *resInfo = nullptr;
-      if constexpr (llvm::is_one_of<OpTy, arith::MaxSIOp, arith::MaxUIOp,
-                                    arith::MinSIOp, arith::MinUIOp>::value) {
-        if constexpr (llvm::is_one_of<OpTy, arith::MaxSIOp,
-                                      arith::MaxUIOp>::value) {
+      if constexpr (llvm::is_one_of<OpTy, arith::MaxSIOp,
+                                    arith::MaxUIOp>::value) {
+        if (lhsInfo.getConstantValue().has_value() &&
+            rhsInfo.getConstantValue().has_value()) {
           constantValue = {std::max(lhsInfo.getConstantValue().value(),
                                     rhsInfo.getConstantValue().value())};
           if (lhsInfo.getConstantValue().value() >=
@@ -675,7 +675,16 @@ struct MaxMinLogicalOpInferAxisInfoOpInterface
           } else {
             resInfo = &rhsInfo;
           }
-        } else {
+          divisibility.push_back(resInfo->getDivisibility(d));
+          stride.push_back(resInfo->getStride(d));
+          strideValue.push_back(resInfo->getStrideValue(d));
+          continue;
+        }
+      }
+      if constexpr (llvm::is_one_of<OpTy, arith::MinSIOp,
+                                    arith::MinUIOp>::value) {
+        if (lhsInfo.getConstantValue().has_value() &&
+            rhsInfo.getConstantValue().has_value()) {
           constantValue = {std::min(lhsInfo.getConstantValue().value(),
                                     rhsInfo.getConstantValue().value())};
           if (lhsInfo.getConstantValue().value() <=
@@ -684,23 +693,36 @@ struct MaxMinLogicalOpInferAxisInfoOpInterface
           } else {
             resInfo = &rhsInfo;
           }
+          divisibility.push_back(resInfo->getDivisibility(d));
+          stride.push_back(resInfo->getStride(d));
+          strideValue.push_back(resInfo->getStrideValue(d));
+          continue;
         }
-
-        divisibility.push_back(resInfo->getDivisibility(d));
-        stride.push_back(resInfo->getStride(d));
-        strideValue.push_back(resInfo->getStrideValue(d));
-        continue;
       }
 
-      if constexpr (std::is_same_v<OpTy, arith::AndIOp>) {
-        constantValue = {lhsInfo.getConstantValue().value() &
-                         rhsInfo.getConstantValue().value()};
-      } else if constexpr (std::is_same_v<OpTy, arith::OrIOp>) {
-        constantValue = {lhsInfo.getConstantValue().value() |
-                         rhsInfo.getConstantValue().value()};
-      } else {
-        constantValue = {lhsInfo.getConstantValue().value() ^
-                         rhsInfo.getConstantValue().value()};
+      if constexpr (llvm::is_one_of<OpTy, arith::AndIOp, arith::OrIOp,
+                                    arith::XOrIOp>::value) {
+        if (lhsInfo.getConstantValue().has_value() &&
+            rhsInfo.getConstantValue().has_value()) {
+          if constexpr (std::is_same_v<OpTy, arith::AndIOp>) {
+            constantValue = {lhsInfo.getConstantValue().value() &
+                             rhsInfo.getConstantValue().value()};
+          } else if constexpr (std::is_same_v<OpTy, arith::OrIOp>) {
+            constantValue = {lhsInfo.getConstantValue().value() |
+                             rhsInfo.getConstantValue().value()};
+          } else if constexpr (std::is_same_v<OpTy, arith::XOrIOp>) {
+            constantValue = {lhsInfo.getConstantValue().value() ^
+                             rhsInfo.getConstantValue().value()};
+          }
+        }
+        if (lhsInfo.getStrideValue(d) == 0 && rhsInfo.getStrideValue(d) == 0) {
+          divisibility.push_back(
+              std::gcd(lhsInfo.getDivisibility(d), rhsInfo.getDivisibility(d)));
+          stride.push_back(
+              std::gcd(lhsInfo.getStride(d), rhsInfo.getStride(d)));
+          strideValue.push_back(0);
+          continue;
+        }
       }
 
       divisibility.push_back(AxisInfoExt::kInitValue);

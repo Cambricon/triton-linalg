@@ -1266,7 +1266,6 @@ void TritonToLinalgPass::runOnOperation() {
   target.addDynamicallyLegalOp<arith::SelectOp>([&](Operation *op) {
     auto resType = op->getResultTypes().front();
     return !resType.isa<ShapedType>() && converter.isLegal(op);
-    ;
   });
   target.addLegalOp<triton::GetProgramIdOp, triton::GetNumProgramsOp>();
 
