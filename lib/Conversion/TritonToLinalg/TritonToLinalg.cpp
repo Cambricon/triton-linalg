@@ -122,22 +122,6 @@ getBroadcastDimensions(ArrayRef<int64_t> srcShape, ArrayRef<int64_t> dstShape) {
   return dimensions;
 }
 
-static FailureOr<Type> getUnsignedTypeFromArgType(ArgTypes argT,
-                                                  OpBuilder &builder) {
-  switch (argT) {
-  case ArgTypes::UnsignedLong:
-    return builder.getIntegerType(64, false);
-  case ArgTypes::UnsignedInt:
-    return builder.getIntegerType(32, false);
-  case ArgTypes::UnsignedShort:
-    return builder.getIntegerType(16, false);
-  case ArgTypes::UnsignedChar:
-    return builder.getIntegerType(8, false);
-  default:
-    return failure();
-  }
-}
-
 static Value sliceFirst(ConversionPatternRewriter &rewriter, Location loc,
                         Value input, int64_t dim) {
   ShapedType inputType = input.getType().cast<ShapedType>();

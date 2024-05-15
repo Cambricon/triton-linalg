@@ -587,6 +587,18 @@ LogicalResult LibdeviceCallOp::verify() {
   return success();
 }
 
+LogicalResult ScalarLibdeviceCallOp::verify() {
+  // The inputs of ScalarLibdeviceCallOp should be scalar type.
+  for (auto v : getInputs()) {
+    if (v.getType().isa<ShapedType>())
+      return emitOpError() << "expects all input types are scalar type.";
+  }
+  // The result type should be scalar type.
+  if (getResult().getType().isa<ShapedType>())
+    return emitOpError() << "expects the result type is scalar type.";
+  return success();
+}
+
 //===----------------------------------------------------------------------===//
 // Implementation of BatchConv2DNhwcFhwcOp
 //===----------------------------------------------------------------------===//

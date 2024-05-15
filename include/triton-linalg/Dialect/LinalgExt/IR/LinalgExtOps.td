@@ -891,4 +891,44 @@ def LibdeviceCallOp : Op<LinalgExt_Dialect, "libdevice_call", [
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
 }
+
+//===----------------------------------------------------------------------===//
+// ScalarLibdeviceCall op.
+//===----------------------------------------------------------------------===//
+def ScalarLibdeviceCallOp : LinalgExt_PureOp<"scalar_libdevice_call", [NoMemoryEffect]> {
+  let summary = "LinalgExt scalar_libdevice_call op";
+  let description = [{
+    `linalg_ext.scalar_libdevice_call` is used to undertake operators that need to call
+    operators from the libdevice library which inputs and result type are both scalar.
+    It is generally used to undertake the TT_ExtElemwiseOp from triton.
+  Example:
+    ```
+      %add = linalg_ext.scalar_libdevice_call
+             ins(%arg0, %arg1 : i32, i32)
+             symbol = "__cn_scalar_add_s32" -> i32
+    ```
+  }];
+
+  let arguments = (ins
+    // Input args
+    Variadic<AnyType>:$inputs,
+    // function name
+    StrAttr:$symbol
+  );
+
+  let results = (outs AnyType:$result);
+  let assemblyFormat = [{
+      attr-dict
+      (`ins` `(` $inputs^ `:` type($inputs) `)`)?
+      `symbol` `=` $symbol
+      `->` type($result)
+    }];
+  let builders = [
+    OpBuilder<(ins "mlir::Type":$resultType, "ValueRange":$inputs, 
+        "StringAttr":$symbol, CArg<"ArrayRef<NamedAttribute>",
+        "{}">:$attributes)>,
+  ];
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+}
 #endif // TRITON_LINALG_DIALECT_LINALGEXT_IR_LINALGEXTOPS_TD
