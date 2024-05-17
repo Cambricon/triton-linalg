@@ -50,17 +50,17 @@ template <typename T> static int64_t leastCommonMultiple(T a, T b) {
 // AxisInfo
 //===----------------------------------------------------------------------===//
 
-AxisInfo AxisInfo::overrideByHint(Operation *op) const {
+AxisInfoExt AxisInfoExt::overrideByHint(Operation *op) const {
   return overrideAxisInfoByHint(op, divisibility, stride, strideValue,
                                 constantValue);
 }
 
-AxisInfo AxisInfo::getPessimisticValueState(Value value) {
+AxisInfoExt AxisInfoExt::getPessimisticValueState(Value value) {
   auto rank = 1;
   if (TensorType ty = value.getType().dyn_cast<TensorType>())
     rank = ty.getRank();
 
-  AxisInfo ret(DimVectorT(rank, kInitValue), DimVectorT(rank, kInitValue),
+  AxisInfoExt ret(DimVectorT(rank, kInitValue), DimVectorT(rank, kInitValue),
                DimVectorT(rank, kStrideValueInitValue));
   BlockArgument blockArg = value.dyn_cast<BlockArgument>();
   if (!blockArg || !blockArg.getOwner()->isEntryBlock()) {
@@ -74,8 +74,8 @@ AxisInfo AxisInfo::getPessimisticValueState(Value value) {
   }
 
   // Last of attributes that we care about.
-  AxisInfo::DimVectorT contiguity, divisibility, constancy;
-  SmallVector<std::pair<AxisInfo::DimVectorT *, std::string>> retVecs;
+  AxisInfoExt::DimVectorT contiguity, divisibility, constancy;
+  SmallVector<std::pair<AxisInfoExt::DimVectorT *, std::string>> retVecs;
   retVecs.push_back({&contiguity, "tt.contiguity"});
   retVecs.push_back({&divisibility, "tt.divisibility"});
   retVecs.push_back({&constancy, "tt.constancy"});
@@ -83,30 +83,30 @@ AxisInfo AxisInfo::getPessimisticValueState(Value value) {
   for (auto [vec, attrName] : retVecs) {
     Attribute attr = func.getArgAttr(blockArg.getArgNumber(), attrName);
     if (auto intAttr = attr.dyn_cast_or_null<IntegerAttr>())
-      *vec = AxisInfo::DimVectorT(rank, intAttr.getValue().getZExtValue());
+      *vec = AxisInfoExt::DimVectorT(rank, intAttr.getValue().getZExtValue());
     if (auto denseAttr = attr.dyn_cast_or_null<DenseElementsAttr>()) {
       auto vals = denseAttr.getValues<int>();
-      *vec = AxisInfo::DimVectorT(vals.begin(), vals.end());
+      *vec = AxisInfoExt::DimVectorT(vals.begin(), vals.end());
     }
   }
 
   if (divisibility.empty()) {
-    divisibility = AxisInfo::DimVectorT(rank, kInitValue);
+    divisibility = AxisInfoExt::DimVectorT(rank, kInitValue);
   }
 
   if (!constancy.empty()) {
     assert(contiguity.empty() &&
            "Get tt.constancy and tt.contiguity attribute at the same arg");
-    return AxisInfo(divisibility, constancy, DimVectorT(rank, 0));
+    return AxisInfoExt(divisibility, constancy, DimVectorT(rank, 0));
   }
   if (!contiguity.empty()) {
-    return AxisInfo(divisibility, contiguity, DimVectorT(rank, 1));
+    return AxisInfoExt(divisibility, contiguity, DimVectorT(rank, 1));
   }
-  return AxisInfo(divisibility, DimVectorT(rank, kInitValue),
+  return AxisInfoExt(divisibility, DimVectorT(rank, kInitValue),
                   DimVectorT(rank, kStrideValueInitValue));
 }
 
-AxisInfo AxisInfo::join(const AxisInfo &lhs, const AxisInfo &rhs) {
+AxisInfoExt AxisInfoExt::join(const AxisInfoExt &lhs, const AxisInfoExt &rhs) {
   auto lhsRank = lhs.getRank();
   auto rhsRank = rhs.getRank();
   // When rank equals to zero, means in unintialized state, just return the
@@ -135,11 +135,11 @@ AxisInfo AxisInfo::join(const AxisInfo &lhs, const AxisInfo &rhs) {
       rhs.getConstantValue().has_value() &&
       lhs.getConstantValue() == rhs.getConstantValue())
     constantValue = lhs.getConstantValue();
-  return AxisInfo(divisibility, stride, strideValue, constantValue);
+  return AxisInfoExt(divisibility, stride, strideValue, constantValue);
 }
 
-void AxisInfo::print(raw_ostream &os) const {
-  auto print = [&](StringRef name, const AxisInfo::DimVectorT &vec) {
+void AxisInfoExt::print(raw_ostream &os) const {
+  auto print = [&](StringRef name, const AxisInfoExt::DimVectorT &vec) {
     os << name << " = [";
     llvm::interleaveComma(vec, os);
     os << "]";
@@ -154,29 +154,29 @@ void AxisInfo::print(raw_ostream &os) const {
     os << "<none>";
 }
 
-AxisInfo
+AxisInfoExt
 triton::overrideAxisInfoByHint(Operation *op,
-                                const AxisInfo::DimVectorT &knownDivisibility,
-                                const AxisInfo::DimVectorT &knownStride,
-                                const AxisInfo::DimVectorT &knownStrideValue,
+                                const AxisInfoExt::DimVectorT &knownDivisibility,
+                                const AxisInfoExt::DimVectorT &knownStride,
+                                const AxisInfoExt::DimVectorT &knownStrideValue,
                                 std::optional<int64_t> constantValue) {
-  AxisInfo::DimVectorT divisibility = knownDivisibility, stride = knownStride,
+  AxisInfoExt::DimVectorT divisibility = knownDivisibility, stride = knownStride,
                        strideValue = knownStrideValue;
   if (Attribute attr = op->getAttr("tt.divisibility")) {
     auto vals = attr.cast<DenseElementsAttr>().getValues<int>();
-    divisibility = AxisInfo::DimVectorT(vals.begin(), vals.end());
+    divisibility = AxisInfoExt::DimVectorT(vals.begin(), vals.end());
   }
   if (Attribute attr = op->getAttr("tt.contiguity")) {
     auto vals = attr.cast<DenseElementsAttr>().getValues<int>();
-    stride = AxisInfo::DimVectorT(vals.begin(), vals.end());
-    strideValue = AxisInfo::DimVectorT(vals.size(), 1);
+    stride = AxisInfoExt::DimVectorT(vals.begin(), vals.end());
+    strideValue = AxisInfoExt::DimVectorT(vals.size(), 1);
   }
   if (Attribute attr = op->getAttr("tt.constancy")) {
     assert(!op->getAttr("tt.contiguity") &&
            "Get tt.constancy and tt.contiguity attribute at the same op");
     auto vals = attr.cast<DenseElementsAttr>().getValues<int>();
-    stride = AxisInfo::DimVectorT(vals.begin(), vals.end());
-    strideValue = AxisInfo::DimVectorT(vals.size(), 0);
+    stride = AxisInfoExt::DimVectorT(vals.begin(), vals.end());
+    strideValue = AxisInfoExt::DimVectorT(vals.size(), 0);
   }
-  return AxisInfo(divisibility, stride, strideValue, constantValue);
+  return AxisInfoExt(divisibility, stride, strideValue, constantValue);
 }

@@ -12,9 +12,6 @@
 #include <stdint.h>
 #include <type_traits>
 
-#include "triton-linalg//Interfaces/InferAxisInfoInterface.h"
-#include "triton-linalg/Transforms/InferAxisInfoInterfaceImpl.h"
-#include "triton-linalg/Dialect/Utils/RegistryUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -26,6 +23,9 @@
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
+#include "triton-linalg//Interfaces/InferAxisInfoInterface.h"
+#include "triton-linalg/Dialect/Utils/RegistryUtils.h"
+#include "triton-linalg/Transforms/InferAxisInfoInterfaceImpl.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
@@ -82,7 +82,7 @@ struct ConstantOpInferAxisInfoOpInterface
     : public InferAxisInfoInterface::ExternalModel<
           ConstantOpInferAxisInfoOpInterface, arith::ConstantOp> {
 
-  void inferAxisInfos(Operation *op, ArrayRef<AxisInfo> argInfos,
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
                       SetAxisInfoFn setResultAxisInfo) const {
     arith::ConstantOp constantOp = cast<arith::ConstantOp>(op);
     auto intAttr = constantOp.getValue().dyn_cast<IntegerAttr>();
@@ -90,8 +90,9 @@ struct ConstantOpInferAxisInfoOpInterface
       int64_t value = intAttr.getValue().getZExtValue();
 
       return setResultAxisInfo(constantOp.getResult(),
-                               AxisInfo({highestPowOf2Divisor(value)},
-                                        {AxisInfo::kInitValue}, {0}, {value}));
+                               AxisInfoExt({highestPowOf2Divisor(value)},
+                                           {AxisInfoExt::kInitValue}, {0},
+                                           {value}));
     }
 
     // TODO: generalize to dense attr.
@@ -101,13 +102,14 @@ struct ConstantOpInferAxisInfoOpInterface
       TensorType ty = splatAttr.getType().cast<TensorType>();
       return setResultAxisInfo(
           constantOp.getResult(),
-          AxisInfo(
-              AxisInfo::DimVectorT(ty.getRank(), highestPowOf2Divisor(value)),
-              AxisInfo::DimVectorT(ty.getShape().begin(), ty.getShape().end()),
-              AxisInfo::DimVectorT(ty.getRank(), 0), {value}));
+          AxisInfoExt(AxisInfoExt::DimVectorT(ty.getRank(),
+                                              highestPowOf2Divisor(value)),
+                      AxisInfoExt::DimVectorT(ty.getShape().begin(),
+                                              ty.getShape().end()),
+                      AxisInfoExt::DimVectorT(ty.getRank(), 0), {value}));
     }
 
-    return setResultAxisInfo(constantOp.getResult(), AxisInfo());
+    return setResultAxisInfo(constantOp.getResult(), AxisInfoExt());
   }
 };
 
@@ -116,7 +118,7 @@ struct CastOpInferAxisInfoOpInterface
     : public InferAxisInfoInterface::ExternalModel<
           CastOpInferAxisInfoOpInterface<CastOpTy>, CastOpTy> {
 
-  void inferAxisInfos(Operation *op, ArrayRef<AxisInfo> argInfos,
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
                       SetAxisInfoFn setResultAxisInfo) const {
     CastOpTy castOp = cast<CastOpTy>(op);
     assert(argInfos.size() == 1);
@@ -136,7 +138,7 @@ template <typename OpTy, typename ConcreteType>
 struct BinaryOpInferAxisInfoOpInterface
     : public InferAxisInfoInterface::ExternalModel<
           BinaryOpInferAxisInfoOpInterface<OpTy, ConcreteType>, OpTy> {
-  void inferAxisInfos(Operation *op, ArrayRef<AxisInfo> argInfos,
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
                       SetAxisInfoFn setResultAxisInfo) const {
     OpTy binaryOp = cast<OpTy>(op);
 
@@ -145,7 +147,7 @@ struct BinaryOpInferAxisInfoOpInterface
     auto &lhsInfo = argInfos[0];
     auto &rhsInfo = argInfos[1];
     auto rank = lhsInfo.getRank();
-    AxisInfo::DimVectorT divisibility, stride, strideValue;
+    AxisInfoExt::DimVectorT divisibility, stride, strideValue;
     auto constantValue =
         static_cast<const ConcreteType *>(this)->getConstantValue(
             binaryOp, lhsInfo, rhsInfo);
@@ -167,7 +169,7 @@ struct BinaryOpInferAxisInfoOpInterface
     }
     return setResultAxisInfo(
         binaryOp.getResult(),
-        AxisInfo(divisibility, stride, strideValue, constantValue));
+        AxisInfoExt(divisibility, stride, strideValue, constantValue));
   }
 };
 
@@ -175,21 +177,21 @@ template <typename OpTy>
 struct AddSubOpInferAxisInfoOpInterface
     : public BinaryOpInferAxisInfoOpInterface<
           OpTy, AddSubOpInferAxisInfoOpInterface<OpTy>> {
-  int64_t getStride(OpTy op, const AxisInfo &lhs, const AxisInfo &rhs,
+  int64_t getStride(OpTy op, const AxisInfoExt &lhs, const AxisInfoExt &rhs,
                     int dim) const {
     return std::gcd(lhs.getStride(dim), rhs.getStride(dim));
   }
 
-  int64_t getStrideValue(OpTy op, const AxisInfo &lhs, const AxisInfo &rhs,
-                         int dim) const {
-    if (lhs.getStrideValue(dim) == AxisInfo::kStrideValueInitValue ||
-        rhs.getStrideValue(dim) == AxisInfo::kStrideValueInitValue)
-      return AxisInfo::kStrideValueInitValue;
+  int64_t getStrideValue(OpTy op, const AxisInfoExt &lhs,
+                         const AxisInfoExt &rhs, int dim) const {
+    if (lhs.getStrideValue(dim) == AxisInfoExt::kStrideValueInitValue ||
+        rhs.getStrideValue(dim) == AxisInfoExt::kStrideValueInitValue)
+      return AxisInfoExt::kStrideValueInitValue;
     return std::abs(applyOp(lhs.getStrideValue(dim), rhs.getStrideValue(dim)));
   }
 
-  int64_t getDivisibility(OpTy op, const AxisInfo &lhs, const AxisInfo &rhs,
-                          int dim) const {
+  int64_t getDivisibility(OpTy op, const AxisInfoExt &lhs,
+                          const AxisInfoExt &rhs, int dim) const {
     // lhs = k * d_lhs = k * k' * gcd(d_lhs, d_rhs)
     // rhs = p * d_rhs = p * p' * gcd(d_lhs, d_rhs)
     // lhs + rhs = k * d_lhs + p * d_rhs = (k * d_lhs + p * d_rhs) * gcd(d_lhs,
@@ -197,8 +199,8 @@ struct AddSubOpInferAxisInfoOpInterface
     return std::gcd(lhs.getDivisibility(dim), rhs.getDivisibility(dim));
   }
 
-  std::optional<int64_t> getConstantValue(OpTy op, const AxisInfo &lhs,
-                                          const AxisInfo &rhs) const {
+  std::optional<int64_t> getConstantValue(OpTy op, const AxisInfoExt &lhs,
+                                          const AxisInfoExt &rhs) const {
     if (!lhs.getConstantValue().has_value() ||
         !rhs.getConstantValue().has_value()) {
       return {};
@@ -227,46 +229,47 @@ struct MulOpInferAxisInfoOpInterface
     : public BinaryOpInferAxisInfoOpInterface<arith::MulIOp,
                                               MulOpInferAxisInfoOpInterface> {
 
-  int64_t getConstancy(arith::MulIOp op, const AxisInfo &lhs,
-                       const AxisInfo &rhs, int dim) const {
+  int64_t getConstancy(arith::MulIOp op, const AxisInfoExt &lhs,
+                       const AxisInfoExt &rhs, int dim) const {
     return std::gcd(lhs.getConstancy(dim), rhs.getConstancy(dim));
   }
 
-  int64_t getStride(arith::MulIOp op, const AxisInfo &lhs, const AxisInfo &rhs,
-                    int dim) const {
+  int64_t getStride(arith::MulIOp op, const AxisInfoExt &lhs,
+                    const AxisInfoExt &rhs, int dim) const {
     return std::max(std::gcd(lhs.getConstancy(dim), rhs.getStride(dim)),
                     std::gcd(lhs.getStride(dim), rhs.getConstancy(dim)));
   }
 
-  int64_t getStrideValue(arith::MulIOp op, const AxisInfo &lhs,
-                         const AxisInfo &rhs, int dim) const {
-    if (lhs.getStrideValue(dim) == AxisInfo::kStrideValueInitValue ||
-        rhs.getStrideValue(dim) == AxisInfo::kStrideValueInitValue)
-      return AxisInfo::kStrideValueInitValue;
+  int64_t getStrideValue(arith::MulIOp op, const AxisInfoExt &lhs,
+                         const AxisInfoExt &rhs, int dim) const {
+    if (lhs.getStrideValue(dim) == AxisInfoExt::kStrideValueInitValue ||
+        rhs.getStrideValue(dim) == AxisInfoExt::kStrideValueInitValue)
+      return AxisInfoExt::kStrideValueInitValue;
 
     // lhs * cst
     auto lhsStrideValue =
         rhs.getConstantValue().has_value()
             ? lhs.getStrideValue(dim) * rhs.getConstantValue().value()
-            : AxisInfo::kStrideValueInitValue;
+            : AxisInfoExt::kStrideValueInitValue;
     // cst * rhs
     auto rhsStrideValue =
         lhs.getConstantValue().has_value()
             ? rhs.getStrideValue(dim) * lhs.getConstantValue().value()
-            : AxisInfo::kStrideValueInitValue;
+            : AxisInfoExt::kStrideValueInitValue;
     return std::max(lhsStrideValue, rhsStrideValue);
   }
 
-  int64_t getDivisibility(arith::MulIOp op, const AxisInfo &lhs,
-                          const AxisInfo &rhs, int dim) const {
+  int64_t getDivisibility(arith::MulIOp op, const AxisInfoExt &lhs,
+                          const AxisInfoExt &rhs, int dim) const {
     // lhs = k * d_lhs
     // rhs = p * d_rhs
     // lhs * rhs = k * d_lhs * p * d_rhs = k * p * d_lhs * d_rhs
     return lhs.getDivisibility(dim) * rhs.getDivisibility(dim);
   }
 
-  std::optional<int64_t> getConstantValue(arith::MulIOp op, const AxisInfo &lhs,
-                                          const AxisInfo &rhs) const {
+  std::optional<int64_t> getConstantValue(arith::MulIOp op,
+                                          const AxisInfoExt &lhs,
+                                          const AxisInfoExt &rhs) const {
     if (lhs.getConstantValue().has_value() &&
         rhs.getConstantValue().has_value())
       return {lhs.getConstantValue().value() * rhs.getConstantValue().value()};
@@ -278,7 +281,7 @@ template <typename OpTy>
 struct DivOpInferAxisInfoOpInterface
     : public InferAxisInfoInterface::ExternalModel<
           DivOpInferAxisInfoOpInterface<OpTy>, OpTy> {
-  void inferAxisInfos(Operation *op, ArrayRef<AxisInfo> argInfos,
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
                       SetAxisInfoFn setResultAxisInfo) const {
     OpTy divOp = cast<OpTy>(op);
     assert(argInfos.size() == 2 && "Expected two operands");
@@ -286,13 +289,13 @@ struct DivOpInferAxisInfoOpInterface
     auto resTy =
         divOp.getResult().getType().template dyn_cast<RankedTensorType>();
     if (!resTy)
-      return setResultAxisInfo(divOp.getResult(), AxisInfo{});
+      return setResultAxisInfo(divOp.getResult(), AxisInfoExt{});
     auto shape = resTy.getShape();
     short rank = resTy.getRank();
     auto &lhs = argInfos[0];
     auto &rhs = argInfos[1];
 
-    AxisInfo::DimVectorT divisibility, stride, strideValue;
+    AxisInfoExt::DimVectorT divisibility, stride, strideValue;
     std::optional<int64_t> constantValue;
     for (short d = 0; d < rank; ++d) {
       if ((rhs.getConstantValue().has_value() &&
@@ -338,15 +341,15 @@ struct DivOpInferAxisInfoOpInterface
         divisibility.push_back(std::max<int64_t>(
             lhs.getDivisibility(d) / rhs.getConstantValue().value(), 1));
       } else {
-        divisibility.push_back(AxisInfo::kInitValue);
-        stride.push_back(AxisInfo::kInitValue);
-        strideValue.push_back(AxisInfo::kStrideValueInitValue);
+        divisibility.push_back(AxisInfoExt::kInitValue);
+        stride.push_back(AxisInfoExt::kInitValue);
+        strideValue.push_back(AxisInfoExt::kStrideValueInitValue);
       }
     }
 
     return setResultAxisInfo(
         divOp.getResult(),
-        AxisInfo(divisibility, stride, strideValue, constantValue));
+        AxisInfoExt(divisibility, stride, strideValue, constantValue));
   }
 };
 
@@ -354,7 +357,7 @@ template <typename OpTy>
 struct RemOpInferAxisInfoOpInterface
     : public InferAxisInfoInterface::ExternalModel<
           RemOpInferAxisInfoOpInterface<OpTy>, OpTy> {
-  void inferAxisInfos(Operation *op, ArrayRef<AxisInfo> argInfos,
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
                       SetAxisInfoFn setResultAxisInfo) const {
     OpTy remOp = cast<OpTy>(op);
     assert(argInfos.size() == 2 && "Expected two operands");
@@ -362,13 +365,13 @@ struct RemOpInferAxisInfoOpInterface
     auto resTy =
         remOp.getResult().getType().template dyn_cast<RankedTensorType>();
     if (!resTy)
-      return setResultAxisInfo(remOp.getResult(), AxisInfo{});
+      return setResultAxisInfo(remOp.getResult(), AxisInfoExt{});
     auto shape = resTy.getShape();
     short rank = resTy.getRank();
     auto &lhs = argInfos[0];
     auto &rhs = argInfos[1];
 
-    AxisInfo::DimVectorT divisibility, stride, strideValue;
+    AxisInfoExt::DimVectorT divisibility, stride, strideValue;
     std::optional<int64_t> constantValue;
     for (short d = 0; d < rank; ++d) {
       if (rhs.getConstantValue().has_value() &&
@@ -408,38 +411,38 @@ struct RemOpInferAxisInfoOpInterface
                      std::gcd(lhs.getDivisibility(d), rhs.getDivisibility(d))));
         strideValue.push_back(1);
       } else {
-        divisibility.push_back(AxisInfo::kInitValue);
-        stride.push_back(AxisInfo::kInitValue);
-        strideValue.push_back(AxisInfo::kStrideValueInitValue);
+        divisibility.push_back(AxisInfoExt::kInitValue);
+        stride.push_back(AxisInfoExt::kInitValue);
+        strideValue.push_back(AxisInfoExt::kStrideValueInitValue);
       }
     }
 
     return setResultAxisInfo(
         remOp.getResult(),
-        AxisInfo(divisibility, stride, strideValue, constantValue));
+        AxisInfoExt(divisibility, stride, strideValue, constantValue));
   }
 };
 
 struct CmpOpInferAxisInfoOpInterface
     : public InferAxisInfoInterface::ExternalModel<
           CmpOpInferAxisInfoOpInterface, arith::CmpIOp> {
-  void inferAxisInfos(Operation *op, ArrayRef<AxisInfo> argInfos,
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
                       SetAxisInfoFn setResultAxisInfo) const {
     arith::CmpIOp cmpOp = cast<arith::CmpIOp>(op);
     assert(argInfos.size() == 2 && "Expected two operands");
 
     auto resTy = cmpOp.getResult().getType().dyn_cast<RankedTensorType>();
     if (!resTy)
-      return setResultAxisInfo(cmpOp.getResult(), AxisInfo{});
+      return setResultAxisInfo(cmpOp.getResult(), AxisInfoExt{});
     auto shape = resTy.getShape();
     short rank = resTy.getRank();
     auto &lhsInfo = argInfos[0];
     auto &rhsInfo = argInfos[1];
 
-    AxisInfo::DimVectorT divisibility, stride, strideValue;
+    AxisInfoExt::DimVectorT divisibility, stride, strideValue;
     std::optional<int64_t> constantValue;
     for (short d = 0; d < rank; ++d) {
-      int64_t constancyHint = AxisInfo::kInitValue;
+      int64_t constancyHint = AxisInfoExt::kInitValue;
       if (lhsInfo.getConstantValue().has_value() &&
           rhsInfo.getConstantValue().has_value()) {
         constancyHint = lhsInfo.getConstancy(d);
@@ -484,42 +487,42 @@ struct CmpOpInferAxisInfoOpInterface
         }
       }
 
-      divisibility.push_back(AxisInfo::kInitValue);
+      divisibility.push_back(AxisInfoExt::kInitValue);
       stride.push_back(constancyHint);
       strideValue.push_back(0);
     }
 
     return setResultAxisInfo(
         cmpOp.getResult(),
-        AxisInfo(divisibility, stride, strideValue, constantValue));
+        AxisInfoExt(divisibility, stride, strideValue, constantValue));
   }
 };
 
 struct ShLIOpInferAxisInfoOpInterface
     : public BinaryOpInferAxisInfoOpInterface<arith::ShLIOp,
                                               ShLIOpInferAxisInfoOpInterface> {
-  int64_t getStride(arith::ShLIOp op, const AxisInfo &lhs, const AxisInfo &rhs,
-                    int dim) const {
+  int64_t getStride(arith::ShLIOp op, const AxisInfoExt &lhs,
+                    const AxisInfoExt &rhs, int dim) const {
     if (rhs.getConstantValue().has_value())
       return lhs.getContiguity(dim);
-    return AxisInfo::kInitValue;
+    return AxisInfoExt::kInitValue;
   }
 
-  int64_t getStrideValue(arith::ShLIOp op, const AxisInfo &lhs,
-                         const AxisInfo &rhs, int dim) const {
+  int64_t getStrideValue(arith::ShLIOp op, const AxisInfoExt &lhs,
+                         const AxisInfoExt &rhs, int dim) const {
     if (rhs.getConstantValue().has_value()) {
       auto shift = rhs.getConstantValue().value();
       auto numBits = log2Int(shift);
       auto maxBits = log2Int(highestPowOf2Divisor<int64_t>(0));
       if (shift + numBits > maxBits)
-        return AxisInfo::kStrideValueInitValue;
+        return AxisInfoExt::kStrideValueInitValue;
       return lhs.getStrideValue(dim) << rhs.getConstantValue().value();
     }
-    return AxisInfo::kStrideValueInitValue;
+    return AxisInfoExt::kStrideValueInitValue;
   }
 
-  int64_t getDivisibility(arith::ShLIOp op, const AxisInfo &lhs,
-                          const AxisInfo &rhs, int dim) const {
+  int64_t getDivisibility(arith::ShLIOp op, const AxisInfoExt &lhs,
+                          const AxisInfoExt &rhs, int dim) const {
     auto shift = rhs.getConstantValue().has_value()
                      ? rhs.getConstantValue().value()
                      : rhs.getDivisibility(dim);
@@ -532,8 +535,9 @@ struct ShLIOpInferAxisInfoOpInterface
     return lhs.getDivisibility(dim) << shift;
   }
 
-  std::optional<int64_t> getConstantValue(arith::ShLIOp op, const AxisInfo &lhs,
-                                          const AxisInfo &rhs) const {
+  std::optional<int64_t> getConstantValue(arith::ShLIOp op,
+                                          const AxisInfoExt &lhs,
+                                          const AxisInfoExt &rhs) const {
     if (lhs.getConstantValue().has_value() &&
         rhs.getConstantValue().has_value())
       return {lhs.getConstantValue().value() << rhs.getConstantValue().value()};
@@ -545,33 +549,33 @@ template <typename OpTy>
 struct ShROpInferAxisInfoOpInterface
     : public BinaryOpInferAxisInfoOpInterface<
           OpTy, ShROpInferAxisInfoOpInterface<OpTy>> {
-  int64_t getStride(OpTy op, const AxisInfo &lhs, const AxisInfo &rhs,
+  int64_t getStride(OpTy op, const AxisInfoExt &lhs, const AxisInfoExt &rhs,
                     int dim) const {
     if (rhs.getConstantValue().has_value() &&
         rhs.getConstantValue().value() == 0)
       return lhs.getContiguity(dim);
-    return AxisInfo::kInitValue;
+    return AxisInfoExt::kInitValue;
   }
 
-  int64_t getStrideValue(OpTy op, const AxisInfo &lhs, const AxisInfo &rhs,
-                         int dim) const {
+  int64_t getStrideValue(OpTy op, const AxisInfoExt &lhs,
+                         const AxisInfoExt &rhs, int dim) const {
     if (rhs.getConstantValue().has_value() &&
         rhs.getConstantValue().value() == 0)
       return lhs.getStrideValue(dim);
-    return AxisInfo::kStrideValueInitValue;
+    return AxisInfoExt::kStrideValueInitValue;
   }
 
-  int64_t getDivisibility(OpTy op, const AxisInfo &lhs, const AxisInfo &rhs,
-                          int dim) const {
+  int64_t getDivisibility(OpTy op, const AxisInfoExt &lhs,
+                          const AxisInfoExt &rhs, int dim) const {
     if (rhs.getConstantValue().has_value())
-      return std::max<int64_t>(AxisInfo::kInitValue,
+      return std::max<int64_t>(AxisInfoExt::kInitValue,
                                lhs.getDivisibility(dim) /
                                    (1 << rhs.getConstantValue().value()));
-    return AxisInfo::kInitValue;
+    return AxisInfoExt::kInitValue;
   }
 
-  std::optional<int64_t> getConstantValue(OpTy op, const AxisInfo &lhs,
-                                          const AxisInfo &rhs) const {
+  std::optional<int64_t> getConstantValue(OpTy op, const AxisInfoExt &lhs,
+                                          const AxisInfoExt &rhs) const {
     if (lhs.getConstantValue().has_value() &&
         rhs.getConstantValue().has_value())
       return {lhs.getConstantValue().value() >> rhs.getConstantValue().value()};
@@ -583,7 +587,7 @@ struct SelectOpInferAxisInfoOpInterface
     : public InferAxisInfoInterface::ExternalModel<
           SelectOpInferAxisInfoOpInterface, arith::SelectOp> {
 
-  void inferAxisInfos(Operation *op, ArrayRef<AxisInfo> argInfos,
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
                       SetAxisInfoFn setResultAxisInfo) const {
     arith::SelectOp selectOp = cast<arith::SelectOp>(op);
     assert(argInfos.size() == 3 && "Expected three operands");
@@ -591,13 +595,13 @@ struct SelectOpInferAxisInfoOpInterface
     auto resTy =
         selectOp.getResult().getType().template dyn_cast<RankedTensorType>();
     if (!resTy)
-      return setResultAxisInfo(selectOp.getResult(), AxisInfo());
+      return setResultAxisInfo(selectOp.getResult(), AxisInfoExt());
     auto shape = resTy.getShape();
     auto rank = shape.size();
     auto &lhsInfo = argInfos[1];
     auto &rhsInfo = argInfos[2];
 
-    AxisInfo::DimVectorT divisibility, stride, strideValue;
+    AxisInfoExt::DimVectorT divisibility, stride, strideValue;
     std::optional<int64_t> constantValue;
     if (argInfos[0].getConstantValue().has_value()) {
       if (argInfos[0].getConstantValue() == 0) {
@@ -616,7 +620,7 @@ struct SelectOpInferAxisInfoOpInterface
         stride.push_back(std::gcd(
             std::gcd(lhsInfo.getStride(d), argInfos[0].getConstancy(d)),
             std::gcd(rhsInfo.getStride(d), argInfos[0].getConstancy(d))));
-        strideValue.push_back(AxisInfo::kStrideValueInitValue);
+        strideValue.push_back(AxisInfoExt::kStrideValueInitValue);
         divisibility.push_back(
             std::min(lhsInfo.getDivisibility(d), rhsInfo.getDivisibility(d)));
       }
@@ -628,7 +632,7 @@ struct SelectOpInferAxisInfoOpInterface
 
     return setResultAxisInfo(
         selectOp.getResult(),
-        AxisInfo(divisibility, stride, strideValue, constantValue));
+        AxisInfoExt(divisibility, stride, strideValue, constantValue));
   }
 };
 
@@ -639,7 +643,7 @@ struct MaxMinLogicalOpInferAxisInfoOpInterface
   static_assert(llvm::is_one_of<OpTy, arith::MaxSIOp, arith::MaxUIOp,
                                 arith::MinSIOp, arith::MinUIOp, arith::AndIOp,
                                 arith::OrIOp, arith::XOrIOp>::value);
-  void inferAxisInfos(Operation *op, ArrayRef<AxisInfo> argInfos,
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
                       SetAxisInfoFn setResultAxisInfo) const {
     OpTy concretOp = cast<OpTy>(op);
     assert(argInfos.size() == 2 && "Expected two operands");
@@ -647,18 +651,18 @@ struct MaxMinLogicalOpInferAxisInfoOpInterface
     auto &rhsInfo = argInfos[1];
 
     std::optional<int64_t> constantValue;
-    AxisInfo::DimVectorT stride, strideValue, divisibility;
+    AxisInfoExt::DimVectorT stride, strideValue, divisibility;
     auto rank = lhsInfo.getRank();
     for (int d = 0; d < rank; ++d) {
       if (!lhsInfo.getConstantValue().has_value() ||
           !rhsInfo.getConstantValue().has_value()) {
-        divisibility.push_back(AxisInfo::kInitValue);
-        stride.push_back(AxisInfo::kInitValue);
-        strideValue.push_back(AxisInfo::kStrideValueInitValue);
+        divisibility.push_back(AxisInfoExt::kInitValue);
+        stride.push_back(AxisInfoExt::kInitValue);
+        strideValue.push_back(AxisInfoExt::kStrideValueInitValue);
         continue;
       }
 
-      const AxisInfo *resInfo = nullptr;
+      const AxisInfoExt *resInfo = nullptr;
       if constexpr (llvm::is_one_of<OpTy, arith::MaxSIOp, arith::MaxUIOp,
                                     arith::MinSIOp, arith::MinUIOp>::value) {
         if constexpr (llvm::is_one_of<OpTy, arith::MaxSIOp,
@@ -699,13 +703,13 @@ struct MaxMinLogicalOpInferAxisInfoOpInterface
                          rhsInfo.getConstantValue().value()};
       }
 
-      divisibility.push_back(AxisInfo::kInitValue);
-      stride.push_back(AxisInfo::kInitValue);
-      strideValue.push_back(AxisInfo::kStrideValueInitValue);
+      divisibility.push_back(AxisInfoExt::kInitValue);
+      stride.push_back(AxisInfoExt::kInitValue);
+      strideValue.push_back(AxisInfoExt::kStrideValueInitValue);
     }
     return setResultAxisInfo(
         concretOp.getResult(),
-        AxisInfo(divisibility, stride, strideValue, constantValue));
+        AxisInfoExt(divisibility, stride, strideValue, constantValue));
   }
 };
 
@@ -713,14 +717,14 @@ struct MakeRangeOpInferAxisInfoOpInterface
     : public InferAxisInfoInterface::ExternalModel<
           MakeRangeOpInferAxisInfoOpInterface, triton::MakeRangeOp> {
 
-  void inferAxisInfos(Operation *op, ArrayRef<AxisInfo> argInfos,
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
                       SetAxisInfoFn setResultAxisInfo) const {
     triton::MakeRangeOp makeRangeOp = cast<triton::MakeRangeOp>(op);
     auto start = makeRangeOp.getStart();
     auto end = makeRangeOp.getEnd();
     return setResultAxisInfo(
         makeRangeOp.getResult(),
-        AxisInfo({highestPowOf2Divisor(start)}, {end - start}, {1}));
+        AxisInfoExt({highestPowOf2Divisor(start)}, {end - start}, {1}));
   }
 };
 
@@ -728,7 +732,7 @@ struct BroadcastOpInferAxisInfoOpInterface
     : public InferAxisInfoInterface::ExternalModel<
           BroadcastOpInferAxisInfoOpInterface, triton::BroadcastOp> {
 
-  void inferAxisInfos(Operation *op, ArrayRef<AxisInfo> argInfos,
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
                       SetAxisInfoFn setResultAxisInfo) const {
     triton::BroadcastOp broadcastOp = cast<triton::BroadcastOp>(op);
     assert(argInfos.size() == 1 && "Expected one operand");
@@ -746,7 +750,7 @@ struct BroadcastOpInferAxisInfoOpInterface
     assert(opShape.size() == retTy.getRank() &&
            "Input rank should be equal with output rank if input is not scalar "
            "for tt.broadcast");
-    AxisInfo::DimVectorT divisibility, stride, strideValue;
+    AxisInfoExt::DimVectorT divisibility, stride, strideValue;
     for (int d = 0; d < retTy.getRank(); ++d) {
       if (opTy) {
         divisibility.push_back(argInfos[0].getDivisibility(d));
@@ -760,8 +764,8 @@ struct BroadcastOpInferAxisInfoOpInterface
     }
 
     return setResultAxisInfo(broadcastOp.getResult(),
-                             AxisInfo(divisibility, stride, strideValue,
-                                      argInfos[0].getConstantValue()));
+                             AxisInfoExt(divisibility, stride, strideValue,
+                                         argInfos[0].getConstantValue()));
   }
 };
 
@@ -769,20 +773,20 @@ struct SplatOpInferAxisInfoOpInterface
     : public InferAxisInfoInterface::ExternalModel<
           SplatOpInferAxisInfoOpInterface, triton::SplatOp> {
 
-  void inferAxisInfos(Operation *op, ArrayRef<AxisInfo> argInfos,
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
                       SetAxisInfoFn setResultAxisInfo) const {
     triton::SplatOp splatOp = cast<triton::SplatOp>(op);
     assert(argInfos.size() == 1 && "Expected one operand");
     TensorType retTy = splatOp.getResult().getType().cast<TensorType>();
-    AxisInfo::DimVectorT divisibility, stride, strideValue;
+    AxisInfoExt::DimVectorT divisibility, stride, strideValue;
     for (int d = 0; d < retTy.getRank(); ++d) {
       divisibility.push_back(argInfos[0].getDivisibility(0));
       stride.push_back(retTy.getShape()[d]);
       strideValue.push_back(0);
     }
     return setResultAxisInfo(splatOp.getResult(),
-                             AxisInfo(divisibility, stride, strideValue,
-                                      argInfos[0].getConstantValue()));
+                             AxisInfoExt(divisibility, stride, strideValue,
+                                         argInfos[0].getConstantValue()));
   }
 };
 
@@ -790,23 +794,23 @@ struct ExpandDimsOpInferAxisInfoOpInterface
     : public InferAxisInfoInterface::ExternalModel<
           ExpandDimsOpInferAxisInfoOpInterface, triton::ExpandDimsOp> {
 
-  void inferAxisInfos(Operation *op, ArrayRef<AxisInfo> argInfos,
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
                       SetAxisInfoFn setResultAxisInfo) const {
     triton::ExpandDimsOp expandDimsOp = cast<triton::ExpandDimsOp>(op);
     assert(argInfos.size() == 1 && "Expected one operand");
 
     auto &opInfo = argInfos[0];
-    AxisInfo::DimVectorT divisibility = opInfo.getDivisibility();
-    AxisInfo::DimVectorT stride = opInfo.getStride();
-    AxisInfo::DimVectorT strideValue = opInfo.getStrideValue();
+    AxisInfoExt::DimVectorT divisibility = opInfo.getDivisibility();
+    AxisInfoExt::DimVectorT stride = opInfo.getStride();
+    AxisInfoExt::DimVectorT strideValue = opInfo.getStrideValue();
     divisibility.insert(divisibility.begin() + expandDimsOp.getAxis(),
-                        AxisInfo::kInitValue);
+                        AxisInfoExt::kInitValue);
     stride.insert(stride.begin() + expandDimsOp.getAxis(),
-                  AxisInfo::kInitValue);
+                  AxisInfoExt::kInitValue);
     strideValue.insert(strideValue.begin() + expandDimsOp.getAxis(), 0);
-    return setResultAxisInfo(
-        expandDimsOp->getResult(0),
-        AxisInfo(divisibility, stride, strideValue, opInfo.getConstantValue()));
+    return setResultAxisInfo(expandDimsOp->getResult(0),
+                             AxisInfoExt(divisibility, stride, strideValue,
+                                         opInfo.getConstantValue()));
   }
 };
 

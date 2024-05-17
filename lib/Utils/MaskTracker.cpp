@@ -1,4 +1,4 @@
-//===- MaskTracker.cpp - Trace the mask pattern ----------------*- C++ -*-===//
+//===- MaskTracker.cpp - Trace the mask pattern -----------------*- C++ -*-===//
 //
 // Copyright (C) [2022-2025] by Cambricon.
 //
@@ -468,32 +468,46 @@ private:
 };
 
 struct TransVisitor : public VisitorBase {
-  using VisitorBase::VisitorBase;
+  TransVisitor(Location loc, RewriterBase &rewriter, ArrayRef<int32_t> order)
+      : VisitorBase(loc, rewriter), order(order) {}
   template <typename T> LogicalResult operator()(T &self) {
     return transImpl<T>(self);
   }
 
 private:
+  ArrayRef<int32_t> order;
+
   template <typename T> LogicalResult transImpl(T &self) {
     return rewriter.notifyMatchFailure(loc, "Unsupported trans");
+  }
+
+  SmallVector<OpFoldResult> reorder(ArrayRef<OpFoldResult> input,
+                                    ArrayRef<int32_t> order) {
+    SmallVector<OpFoldResult> ret(input.size());
+    for (auto idx : llvm::seq<int64_t>(order.size())) {
+      ret[idx] = input[order[idx]];
+    }
+    return ret;
   }
 };
 
 template <> LogicalResult TransVisitor::transImpl(SimpleRange &self) {
-  std::reverse(self.dims.begin(), self.dims.end());
+  self.dims = reorder(self.dims, order);
   if (self.isTrackingAxis()) {
-    self.axis = self.dims.size() - 1 - self.axis;
+    auto it = llvm::find(order, self.axis);
+    assert(it != order.end() && "not found track axis");
+    self.axis = std::distance(order.begin(), it);
   }
   return success();
 }
 template <> LogicalResult TransVisitor::transImpl(Mask &self) {
-  std::reverse(self.dims.begin(), self.dims.end());
-  std::reverse(self.maskStarts.begin(), self.maskStarts.end());
-  std::reverse(self.maskEnds.begin(), self.maskEnds.end());
+  self.dims = reorder(self.dims, order);
+  self.maskStarts = reorder(self.maskStarts, order);
+  self.maskEnds = reorder(self.maskEnds, order);
   return success();
 }
 template <> LogicalResult TransVisitor::transImpl(Scalar &self) {
-  std::reverse(self.dims.begin(), self.dims.end());
+  self.dims = reorder(self.dims, order);
   return success();
 }
 
@@ -687,7 +701,8 @@ public:
     if (failed(ret))
       return failure();
 
-    if (failed(std::visit(TransVisitor(loc, rewriter), *ret)))
+    if (failed(
+            std::visit(TransVisitor(loc, rewriter, transOp.getOrder()), *ret)))
       return failure();
 
     return ret;

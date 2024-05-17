@@ -28,7 +28,7 @@ def InferAxisInfoInterface : OpInterface<"InferAxisInfoInterface"> {
       `argInfos` contains one `AxisInfo` for each argument to the op in ODS order.
     }],
     "void", "inferAxisInfos", (ins
-      "::llvm::ArrayRef<::mlir::triton::AxisInfo>":$argInfos,
+      "::llvm::ArrayRef<::mlir::triton::AxisInfoExt>":$argInfos,
       "::mlir::triton::SetAxisInfoFn":$setResultAxisInfo)
   >];
 }

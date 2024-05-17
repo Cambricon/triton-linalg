@@ -39,20 +39,20 @@ namespace triton {
 //===--------------------------------------------------------------------===//
 
 /// This lattice value represents known information on the axes of a lattice.
-class AxisInfo {
+class AxisInfoExt {
 public:
   using DimVectorT = SmallVector<int64_t, 4>;
   constexpr static int64_t kInitValue = 1;
   constexpr static int64_t kStrideValueInitValue = -1;
 
 public:
-  AxisInfo() : AxisInfo({}, {}, {}) {}
-  AxisInfo(ArrayRef<int64_t> knownDivisibility, ArrayRef<int64_t> knownStride,
-           ArrayRef<int64_t> knownStrideValue)
-      : AxisInfo(knownDivisibility, knownStride, knownStrideValue, {}) {}
-  AxisInfo(ArrayRef<int64_t> knownDivisibility, ArrayRef<int64_t> knownStride,
-           ArrayRef<int64_t> knownStrideValue,
-           std::optional<int64_t> knownConstantValue) {
+  AxisInfoExt() : AxisInfoExt({}, {}, {}) {}
+  AxisInfoExt(ArrayRef<int64_t> knownDivisibility,
+              ArrayRef<int64_t> knownStride, ArrayRef<int64_t> knownStrideValue)
+      : AxisInfoExt(knownDivisibility, knownStride, knownStrideValue, {}) {}
+  AxisInfoExt(ArrayRef<int64_t> knownDivisibility,
+              ArrayRef<int64_t> knownStride, ArrayRef<int64_t> knownStrideValue,
+              std::optional<int64_t> knownConstantValue) {
     divisibility.append(knownDivisibility.begin(), knownDivisibility.end());
     stride.append(knownStride.begin(), knownStride.end());
     strideValue.append(knownStrideValue.begin(), knownStrideValue.end());
@@ -107,22 +107,22 @@ public:
   }
 
   /// Comparison.
-  bool operator==(const AxisInfo &other) const {
+  bool operator==(const AxisInfoExt &other) const {
     return (divisibility == other.divisibility) && (stride == other.stride) &&
            (strideValue == other.strideValue) &&
            (constantValue == other.constantValue) && (rank == other.rank);
   }
 
-  AxisInfo overrideByHint(Operation *op) const;
+  AxisInfoExt overrideByHint(Operation *op) const;
 
   /// The pessimistic value state of the contiguity is unknown.
-  static AxisInfo getPessimisticValueState(MLIRContext *context = nullptr) {
-    return AxisInfo();
+  static AxisInfoExt getPessimisticValueState(MLIRContext *context = nullptr) {
+    return AxisInfoExt();
   }
-  static AxisInfo getPessimisticValueState(Value value);
+  static AxisInfoExt getPessimisticValueState(Value value);
 
   /// The gcd of both arguments for each dimension.
-  static AxisInfo join(const AxisInfo &lhs, const AxisInfo &rhs);
+  static AxisInfoExt join(const AxisInfoExt &lhs, const AxisInfoExt &rhs);
 
   void print(raw_ostream &os) const;
 
@@ -191,22 +191,23 @@ private:
   int rank{};
 };
 
-/// The type of the `setResultAxisInfo` callback provided to ops implementing
-/// InferAxisInfoInterface. It should be called once for each op result
-/// value and be passed the AxisInfo corresponding to that value.
-using SetAxisInfoFn = function_ref<void(Value, const AxisInfo &)>;
+/// The type of the `setResultAxisInfoExt` callback provided to ops implementing
+/// InferAxisInfoExtInterface. It should be called once for each op result
+/// value and be passed the AxisInfoExt corresponding to that value.
+using SetAxisInfoFn = function_ref<void(Value, const AxisInfoExt &)>;
 
-inline raw_ostream &operator<<(raw_ostream &os, const AxisInfo &info) {
+inline raw_ostream &operator<<(raw_ostream &os, const AxisInfoExt &info) {
   info.print(os);
   return os;
 }
 
 /// Override axis info by use provided attributes hint.
-AxisInfo overrideAxisInfoByHint(Operation *op,
-                                const AxisInfo::DimVectorT &knownDivisibility,
-                                const AxisInfo::DimVectorT &knownStride,
-                                const AxisInfo::DimVectorT &knownStrideValue,
-                                std::optional<int64_t> constantValue);
+AxisInfoExt
+overrideAxisInfoByHint(Operation *op,
+                       const AxisInfoExt::DimVectorT &knownDivisibility,
+                       const AxisInfoExt::DimVectorT &knownStride,
+                       const AxisInfoExt::DimVectorT &knownStrideValue,
+                       std::optional<int64_t> constantValue);
 
 } // namespace triton
 } // namespace mlir

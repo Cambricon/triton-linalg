@@ -147,7 +147,7 @@ static SmallVector<Value> reconstructPtrInBlock(Block *block, unsigned argIdx,
         startIdx++, info.offset().getType(), info.offset().getLoc());
     ret.push_back(blockArgOffset);
     // Reconstruct splat and addptr.
-    auto newPtr =
+    Value newPtr =
         rewriter.create<triton::SplatOp>(loc, rawArgVal.getType(), ptr)
             .getResult();
     newPtr = rewriter
@@ -199,7 +199,7 @@ static void reconstructAfterOp(Operation *op, Value rawPtr, unsigned startIdx,
       ptr = info.ptr();
       offset = op->getResult(startIdx);
     }
-    auto newptr =
+    Value newptr =
         rewriter.create<triton::SplatOp>(op->getLoc(), rawPtr.getType(), ptr)
             .getResult();
     newptr = rewriter
@@ -488,9 +488,9 @@ LogicalResult PtrStrengthReductionPattern<triton::TransOp>::matchAndRewrite(
       RankedTensorType::get(
           op.getResult().getType().cast<ShapedType>().getShape(),
           getElementTypeOrSelf(info->offset().getType())),
-      info->offset());
+      info->offset(), op.getOrder());
   auto newPtr = rewriter.create<triton::TransOp>(loc, op.getResult().getType(),
-                                                 info->ptr());
+                                                 info->ptr(), op.getOrder());
   rewriter.replaceOpWithNewOp<triton::AddPtrOp>(op, newPtr.getType(), newPtr,
                                                 newOffset);
   return success();
@@ -500,9 +500,9 @@ template <>
 LogicalResult PtrStrengthReductionPattern<triton::BitcastOp>::matchAndRewrite(
     triton::BitcastOp op, PatternRewriter &rewriter) const {
   auto loc = op.getLoc();
-  auto info = getSplatPtrAndOffset(op.getFrom());
+  auto info = getSplatPtrAndOffset(op.getSrc());
   if (failed(info)) {
-    auto splatOp = op.getFrom().getDefiningOp<triton::SplatOp>();
+    auto splatOp = op.getSrc().getDefiningOp<triton::SplatOp>();
     if (splatOp) {
       auto rawPtr = rewriter.create<triton::BitcastOp>(
           loc, getElementTypeOrSelf(op.getResult().getType()),

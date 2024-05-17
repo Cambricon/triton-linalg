@@ -27,7 +27,7 @@ class DataFlowSolver;
 namespace mlir {
 namespace triton {
 
-class AxisInfoLattice : public mlir::dataflow::Lattice<AxisInfo> {
+class AxisInfoLattice : public mlir::dataflow::Lattice<AxisInfoExt> {
 public:
   using Lattice::Lattice;
 };
@@ -36,10 +36,10 @@ public:
 // The main logical is modified from
 // include/triton/Analysis/AxisInfo.h in the triton repo.
 //===--------------------------------------------------------------------===//
-class AxisInfoAnalysis
+class AxisInfoAnalysisExt
     : public mlir::dataflow::SparseForwardDataFlowAnalysis<AxisInfoLattice> {
 public:
-  AxisInfoAnalysis(mlir::DataFlowSolver &solver);
+  AxisInfoAnalysisExt(mlir::DataFlowSolver &solver);
   using mlir::dataflow::SparseForwardDataFlowAnalysis<
       AxisInfoLattice>::getLatticeElement;
 
@@ -52,9 +52,9 @@ public:
                                     unsigned firstIndex) override;
 
   void setToEntryState(AxisInfoLattice *lattice) override {
-    propagateIfChanged(
-        lattice,
-        lattice->join(AxisInfo::getPessimisticValueState(lattice->getPoint())));
+    propagateIfChanged(lattice,
+                       lattice->join(AxisInfoExt::getPessimisticValueState(
+                           lattice->getPoint())));
   }
 };
 

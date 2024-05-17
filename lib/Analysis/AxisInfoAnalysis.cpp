@@ -1,4 +1,4 @@
-//===- AxisInfoAnalysis.cpp - Axis info Analysis ----------------*- C++ -*-===//
+//===- AxisInfoAnalysisExt.cpp - Axis info Analysis -------------*- C++ -*-===//
 //
 // Copyright (C) [2022-2025] by Cambricon.
 //
@@ -51,13 +51,13 @@ using namespace mlir::triton;
 //===--------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
-// AxisInfoAnalysis
+// AxisInfoAnalysisExt
 //===----------------------------------------------------------------------===//
 
-AxisInfoAnalysis::AxisInfoAnalysis(mlir::DataFlowSolver &solver)
+AxisInfoAnalysisExt::AxisInfoAnalysisExt(mlir::DataFlowSolver &solver)
     : dataflow::SparseForwardDataFlowAnalysis<AxisInfoLattice>(solver) {}
 
-void AxisInfoAnalysis::visitOperation(
+void AxisInfoAnalysisExt::visitOperation(
     Operation *op, ArrayRef<const AxisInfoLattice *> operands,
     ArrayRef<AxisInfoLattice *> results) {
   LLVM_DEBUG(llvm::dbgs() << "Inferring axis info for " << *op << "\n");
@@ -67,7 +67,7 @@ void AxisInfoAnalysis::visitOperation(
     return setAllToEntryStates(results);
   }
 
-  auto joinCallback = [op, results, this](Value v, const AxisInfo &info) {
+  auto joinCallback = [op, results, this](Value v, const AxisInfoExt &info) {
     auto result = v.dyn_cast<OpResult>();
     if (!result)
       return;
@@ -82,7 +82,7 @@ void AxisInfoAnalysis::visitOperation(
     propagateIfChanged(lattice, changed);
   };
 
-  SmallVector<AxisInfo, 4> argInfos(
+  SmallVector<AxisInfoExt, 4> argInfos(
       llvm::map_range(operands, [this](const AxisInfoLattice *val) {
         // As DataFlowFramework will not pass the lattice from the operand of
         // scf.yield to the result of scf.for, then get an empty AxisInfo,
@@ -94,7 +94,7 @@ void AxisInfoAnalysis::visitOperation(
   inferrable.inferAxisInfos(argInfos, joinCallback);
 }
 
-void AxisInfoAnalysis::visitNonControlFlowArguments(
+void AxisInfoAnalysisExt::visitNonControlFlowArguments(
     Operation *op, const RegionSuccessor &successor,
     ArrayRef<AxisInfoLattice *> argLattices, unsigned firstIndex) {
 
@@ -109,11 +109,11 @@ void AxisInfoAnalysis::visitNonControlFlowArguments(
     auto rank = getRank(val.getType());
     auto *lattice = getLatticeElement(val);
     propagateIfChanged(
-        lattice,
-        lattice->join(AxisInfo(
-            AxisInfo::DimVectorT(rank, divHint),
-            AxisInfo::DimVectorT(rank, AxisInfo::kInitValue),
-            AxisInfo::DimVectorT(rank, AxisInfo::kStrideValueInitValue))));
+        lattice, lattice->join(AxisInfoExt(
+                     AxisInfoExt::DimVectorT(rank, divHint),
+                     AxisInfoExt::DimVectorT(rank, AxisInfoExt::kInitValue),
+                     AxisInfoExt::DimVectorT(
+                         rank, AxisInfoExt::kStrideValueInitValue))));
   };
 
   if (auto forOp = dyn_cast<scf::ForOp>(op)) {
@@ -129,7 +129,7 @@ void AxisInfoAnalysis::visitNonControlFlowArguments(
         lowerBound.getValue().cast<IntegerAttr>().getValue().getZExtValue();
     auto stepVal =
         step.getValue().cast<IntegerAttr>().getValue().getZExtValue();
-    auto divHint = AxisInfo::kInitValue;
+    auto divHint = AxisInfoExt::kInitValue;
     auto k = std::gcd(lowerBoundVal, stepVal);
     if (k != 0)
       divHint = k;
