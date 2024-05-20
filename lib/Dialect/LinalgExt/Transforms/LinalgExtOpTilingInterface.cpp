@@ -59,7 +59,6 @@
 #include "llvm/Support/ErrorHandling.h"
 using namespace mlir;
 using namespace mlir::triton;
-using namespace mlir::triton;
 namespace mlir {
 class MLIRContext;
 } // namespace mlir
@@ -675,7 +674,7 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::AtomicCASOp>
         loc, atomicCASOp.getInit(), inputOffsets, inputSizes, strides);
     Operation *tiledOp = b.create<triton::linalg_ext::AtomicCASOp>(
         loc, initSlice.getType(), ValueRange({inputSlice, cmpSlice, valSlice}),
-        initSlice);
+        initSlice, atomicCASOp.getMemoryOrder());
     return TilingResult{{tiledOp}, SmallVector<Value>(tiledOp->getResults())};
   }
 
@@ -801,7 +800,7 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::GatherAtomicCASOp>
         loc, initSlice.getType(),
         ValueRange(
             {gatherAtomicCASOp.input(), cmpSlice, valSlice, indiceSlice}),
-        initSlice);
+        initSlice, gatherAtomicCASOp.getMemoryOrder());
     return TilingResult{{tiledOp}, SmallVector<Value>(tiledOp->getResults())};
   }
 
@@ -1001,7 +1000,8 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::GatherAtomicRMWOp>
     // Create tiled atomic_rmw.
     triton::linalg_ext::GatherAtomicRMWOp tiledAtomicRMWOp =
         b.create<triton::linalg_ext::GatherAtomicRMWOp>(
-            loc, tiledInputs, tiledInits, atomicRMWOp.getAtomicType());
+            loc, tiledInputs, tiledInits, atomicRMWOp.getAtomicType(),
+            atomicRMWOp.getMemoryOrder());
 
     return TilingResult{{tiledAtomicRMWOp},
                         SmallVector<Value>(tiledAtomicRMWOp->getResults())};

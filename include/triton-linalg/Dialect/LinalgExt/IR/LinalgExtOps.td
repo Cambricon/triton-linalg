@@ -276,12 +276,13 @@ def GatherAtomicRMWOp : LinalgExtBase_Op<"gather_atomic_rmw", [AttrSizedOperandS
     let arguments = (ins
       Variadic<TensorOrMemref>:$inputs,
       Variadic<TensorOrMemref>:$inits,
-      LinalgExt_AtomicTypeAttr:$atomic_type
+      LinalgExt_AtomicTypeAttr:$atomic_type,
+      LinalgExt_MemoryOrder:$memory_order
     );
     let results = (outs Variadic<TensorOrMemref>:$result);
 
     let assemblyFormat = [{
-      $atomic_type attr-dict
+      $atomic_type $memory_order attr-dict
       (`ins` `(` $inputs^ `:` type($inputs) `)`)?
       `outs` `(` $inits `:` type($inits) `)`
        (`->` type($result)^)?
@@ -289,7 +290,7 @@ def GatherAtomicRMWOp : LinalgExtBase_Op<"gather_atomic_rmw", [AttrSizedOperandS
     let hasFolder = 1;
     let builders = [
       OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$inits,
-        "AtomicType": $atomic_type,
+        "AtomicType": $atomic_type, "MemoryOrder": $memory_order,
         CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
     ];
     let extraClassDeclaration =
@@ -356,13 +357,14 @@ def AtomicCASOp : Op<LinalgExt_Dialect, "atomic_cas", [
 
   let arguments = (ins
     Variadic<TensorOrMemref>:$inputs,
-    TensorOrMemref:$init
+    TensorOrMemref:$init,
+    LinalgExt_MemoryOrder:$memory_order
   );
 
   let results = (outs Variadic<TensorOrMemref>:$results);
 
   let assemblyFormat = [{
-    attr-dict (`ins` `(` $inputs^ `:` type($inputs) `)`)?
+    $memory_order attr-dict (`ins` `(` $inputs^ `:` type($inputs) `)`)?
     `outs` `(` $init `:` type($init) `)`
     (`->` type($results)^)?
   }];
@@ -425,13 +427,14 @@ def GatherAtomicCASOp : Op<LinalgExt_Dialect, "gather_atomic_cas", [
 
   let arguments = (ins
     Variadic<TensorOrMemref>:$inputs,
-    TensorOrMemref:$init
+    TensorOrMemref:$init,
+    LinalgExt_MemoryOrder:$memory_order
   );
 
   let results = (outs Variadic<TensorOrMemref>:$results);
 
   let assemblyFormat = [{
-    attr-dict (`ins` `(` $inputs^ `:` type($inputs) `)`)?
+    $memory_order attr-dict (`ins` `(` $inputs^ `:` type($inputs) `)`)?
     `outs` `(` $init `:` type($init) `)`
     (`->` type($results)^)?
   }];

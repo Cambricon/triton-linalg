@@ -1477,8 +1477,9 @@ void GatherOp::getEffects(
 void GatherAtomicRMWOp::build(OpBuilder &builder, OperationState &result,
                               ValueRange inputs, ValueRange inits,
                               AtomicType atomicType,
+                              MemoryOrder memory_order,
                               ArrayRef<NamedAttribute> attributes) {
-  build(builder, result, TypeRange{}, inputs, inits, atomicType);
+  build(builder, result, TypeRange{}, inputs, inits, atomicType, memory_order);
   result.addAttributes(attributes);
 
   // Add output types for output arguments.

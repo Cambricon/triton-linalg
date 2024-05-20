@@ -39,4 +39,15 @@ def LinalgExt_AtomicTypeAttr: I32EnumAttr<
     ]> {
   let cppNamespace = "::mlir::triton::linalg_ext";
 }
+
+def LinalgExt_MemoryOrder : I32EnumAttr<
+    "MemoryOrder",
+    "memory order for atomic",
+    [
+      I32EnumAttrCase<"relaxed", 0>,
+      I32EnumAttrCase<"acquire", 1>,
+      I32EnumAttrCase<"release", 2>,
+      I32EnumAttrCase<"acq_rel", 3>]> {
+  let cppNamespace = "::mlir::triton::linalg_ext";
+}
 #endif // TRITON_LINALG_DIALECT_LINALGEXT_IR_LINALGEXTENUMS_TD
