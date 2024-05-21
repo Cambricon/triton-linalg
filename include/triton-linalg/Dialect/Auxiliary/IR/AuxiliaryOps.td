@@ -282,7 +282,7 @@ def PrintOp : Aux_Op<"print", [DeclareOpInterfaceMethods<MemoryEffectsOpInterfac
 // ScalarPrintOp
 //===----------------------------------------------------------------------===//
 
-def ScalarPrintOp : Aux_Op<"scalar.print", []> {
+def ScalarPrintOp : Aux_Op<"scalar.print", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "print operator";
   let description = [{
     `aux.scalar.print` takes a literal string prefix and one scalar argument that should be printed

@@ -341,6 +341,13 @@ LogicalResult PrintOp::verify() {
 //===----------------------------------------------------------------------===//
 // ScalarPrintOp
 //===----------------------------------------------------------------------===//
+void ScalarPrintOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+    effects.emplace_back(MemoryEffects::Write::get(), 0, false,
+                         SideEffects::DefaultResource::get());
+}
+
 LogicalResult ScalarPrintOp::verify() {
   int64_t numOfOperands = getNumOperands();
   if (numOfOperands > 1)
