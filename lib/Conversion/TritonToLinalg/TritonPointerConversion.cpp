@@ -10,13 +10,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "triton-linalg/Analysis/AxisInfoAnalysis.h"
 #include "triton-linalg/Conversion/TritonToLinalg/TritonPointerConversion.h"
 #include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
 #include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h"
-#include "triton-linalg/Dialect/Triton/Analysis/AxisInfoAnalysis.h"
 #include "triton-linalg/Dialect/Triton/Interfaces/InferAxisInfoInterface.h"
 #include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
-#include "triton-linalg/Dialect/Triton/Utils/OpFoldResultUtils.h"
+#include "triton-linalg/Utils/Utils.h"
 #include "triton-linalg/Dialect/Triton/Utils/PointerMetaInfoTracker.h"
 #include "triton-linalg/Dialect/Utils/Conventions.h"
 #include "triton-linalg/Dialect/Utils/ShapeUtils.h"
@@ -413,7 +413,7 @@ Value TritonPtrConversionBase::transformInputWithTransposeAndDimInfo(
 // TritonPtrLoadStoreOpConversionBase
 //===----------------------------------------------------------------------===//
 
-const AxisInfo *
+const triton::AxisInfoExt *
 TritonPtrLoadStoreOpConversionBase::getAxisInfo(Value ptr) const {
   auto *lattice = solver.lookupState<AxisInfoLattice>(ptr);
   if (!lattice)
@@ -422,7 +422,7 @@ TritonPtrLoadStoreOpConversionBase::getAxisInfo(Value ptr) const {
 }
 
 SmallVector<DimInfo> TritonPtrLoadStoreOpConversionBase::getDimInfos(
-    const AxisInfo *axisInfo, ArrayRef<int64_t> tensorShape) const {
+    const triton::AxisInfoExt *axisInfo, ArrayRef<int64_t> tensorShape) const {
   SmallVector<DimInfo> dimInfos;
   dimInfos.reserve(tensorShape.size());
   for (const auto &dim : llvm::enumerate(tensorShape)) {
@@ -438,7 +438,7 @@ SmallVector<DimInfo> TritonPtrLoadStoreOpConversionBase::getDimInfos(
 }
 
 SmallVector<int64_t> TritonPtrLoadStoreOpConversionBase::getPermutations(
-    const AxisInfo *axisInfo, ArrayRef<int64_t> tensorShape) const {
+    const triton::AxisInfoExt *axisInfo, ArrayRef<int64_t> tensorShape) const {
   // Switch the contiguous dim to the last dim.
   auto rank = axisInfo->getRank();
   assert(rank == tensorShape.size());
@@ -487,7 +487,7 @@ bool TritonPtrLoadStoreOpConversionBase::isBlockPtr(
 std::pair<Value, SmallVector<Value>>
 TritonPtrContiguousConversionBase::getOffsetAndStrides(
     Location loc, ArrayRef<int64_t> tensorShape, Value offset,
-    std::optional<MaskTracker> maskTracker, const AxisInfo *axisInfo,
+    std::optional<MaskTracker> maskTracker, const triton::AxisInfoExt *axisInfo,
     ConversionPatternRewriter &rewriter) const {
   size_t rank = tensorShape.size();
   // The strides:
@@ -514,7 +514,7 @@ TritonPtrContiguousConversionBase::getOffsetAndStrides(
       continue;
     }
     int64_t inferredStride = axisInfo->getStrideValue(i);
-    if (inferredStride != AxisInfo::kStrideValueInitValue) {
+    if (inferredStride != triton::AxisInfoExt::kStrideValueInitValue) {
       strides[i] = rewriter.create<arith::ConstantIndexOp>(loc, inferredStride);
       continue;
     }
@@ -623,7 +623,7 @@ Value TritonPtrScalarConversionBase::getMemRef(
 //===----------------------------------------------------------------------===//
 int64_t TritonPtrScatterConversionBase::getWindowRank(
     ArrayRef<int64_t> shape, ArrayRef<int64_t> perms,
-    std::optional<MaskTracker> tracker, const AxisInfo &axisInfo) const {
+    std::optional<MaskTracker> tracker, const triton::AxisInfoExt &axisInfo) const {
   auto rank = shape.size();
   int64_t windowRank = 0;
   int64_t stride = 1;
@@ -849,190 +849,6 @@ bool TritonPtrScatterConversionBase::checkIfConsiderMaskForWindowAnalysis(
 
 // Abbreviation for ScatteredInfo.
 using ScatteredInfo = TritonPtrScatterConversionBase::ScatteredInfo;
-
-FailureOr<std::pair<PtrInfo, ScatteredInfo>>
-TritonPtrScatterConversionBase::getPtrAndScatterInfo(
-    Location loc, Value ptr, Value mask, MaskTracker &maskTracker,
-    RankedTensorType tensorType, Operation *op,
-    ConversionPatternRewriter &rewriter, StringAttr cacheMode) const {
-  PtrInfo ptrInfo;
-  auto tensorShape = tensorType.getShape();
-
-  const auto *axisInfo = getAxisInfo(ptr);
-  // Set the pessimistic axis info if analysis fails.
-  AxisInfo pessmisticInfo = AxisInfo::getPessimisticValueState(ptr);
-  if (!axisInfo)
-    axisInfo = &pessmisticInfo;
-
-  // Analyze the dim order based on axisInfo.
-  ptrInfo.permutations = getPermutations(axisInfo, tensorShape);
-
-  // Analyze dim info.
-  ptrInfo.dimInfos = getDimInfos(axisInfo, tensorShape);
-
-  int64_t windowRank;
-  std::optional<MaskTracker> windowAnalysisMask = std::nullopt;
-  if (checkIfConsiderMaskForWindowAnalysis(op, ptrInfo.permutations,
-                                           ptrInfo.dimInfos, maskTracker))
-    windowAnalysisMask = maskTracker;
-  windowRank = getWindowRank(tensorShape, ptrInfo.permutations,
-                             windowAnalysisMask, *axisInfo);
-
-  int64_t rank = tensorType.getRank();
-  int64_t nonConstantDimNum = 0;
-  for (auto index : llvm::seq<int64_t>(0, rank))
-    if (!axisInfo->isConstantDim(tensorShape, index))
-      ++nonConstantDimNum;
-
-  if (mask) {
-    for (int64_t i = 0, nonConstantIndex = 0; i < rank; ++i) {
-      auto dim = ptrInfo.permutations[rank - 1 - i];
-      if (axisInfo->isConstantDim(tensorShape, dim))
-        continue;
-
-      // Only handle non-highest batch dimensions.
-      if (nonConstantIndex >= windowRank &&
-          nonConstantIndex < nonConstantDimNum - 1)
-        maskTracker.setDimensionStatus(dim, nullptr, nullptr, nullptr);
-
-      ++nonConstantIndex;
-    }
-  }
-
-  PointerMetaInfoTracker tracker;
-  if (failed(tracker.parse(ptr, loc, rewriter)))
-    return failure();
-
-  ptrInfo.sizes = getActualSizes(
-      loc, tensorType.getShape(),
-      mask ? std::optional<MaskTracker>(maskTracker) : std::nullopt, rewriter);
-
-  ptrInfo.memref =
-      getDynamicMemRef(loc, tracker.getBase(), tensorType, rewriter, cacheMode);
-
-  auto indice = tracker.getOffset();
-
-  ptrInfo.offsets = getMaskedOffsets(
-      tensorType.getRank(),
-      mask ? std::optional<MaskTracker>(maskTracker) : std::nullopt, rewriter);
-
-  ScatteredInfo scatteredInfo;
-  scatteredInfo.windowRank = windowRank;
-
-  scatteredInfo.indice = getIndiceOperandForScatteredOp(
-      loc, indice, scatteredInfo.windowRank, ptrInfo.offsets, ptrInfo.sizes,
-      ptrInfo.permutations, ptrInfo.dimInfos, rewriter);
-
-  scatteredInfo.mask = getMaskOperandForScatteredOp(
-      loc, mask, scatteredInfo.windowRank, ptrInfo.sizes, ptrInfo.permutations,
-      ptrInfo.dimInfos,
-      mask ? std::optional<MaskTracker>(maskTracker) : std::nullopt, rewriter);
-
-  return std::make_pair(ptrInfo, scatteredInfo);
-}
-
-/// Post process the gather result and get the final result.
-/// 1. Transforms gathered result and expand broadcast dimensions;
-/// 2. Selects gathered result or the `other` field by mask.
-Value TritonPtrScatterConversionBase::postProcessGatheredResult(
-    Location loc, Value result, Value mask, Value other,
-    ArrayRef<int64_t> permutations, ArrayRef<DimInfo> dimInfos,
-    ArrayRef<OpFoldResult> offsets, ArrayRef<OpFoldResult> sizes,
-    RankedTensorType resultType, MaskTracker &maskTracker,
-    ConversionPatternRewriter &rewriter) const {
-  if (!mask)
-    return transformResultWithTransposeAndDimInfo(result, permutations,
-                                                  dimInfos, sizes, rewriter);
-
-  // Check whether masks for all axes are parsed successfully.
-  auto maskTrackerStatus =
-      LogicalResult::success(!maskTracker.getSizes().empty() &&
-                             llvm::all_of(maskTracker.getSizes(), [](auto ofr) {
-                               return static_cast<bool>(ofr);
-                             }));
-
-  SmallVector<OpFoldResult> resultSizes = llvm::to_vector(llvm::map_range(
-      resultType.getShape(), [&rewriter](int64_t size) -> OpFoldResult {
-        return rewriter.getIndexAttr(size);
-      }));
-
-  // Handle special cases:
-  // 1. When there is a dimension whose mask tracker fails.
-  // 2. When the 'other' field is null.
-  // In such cases, we perform the following steps:
-  // a. Pad the gather result initially with empty value.
-  // b. Transform the intermediate result using dimension information and
-  // permutations.
-  // c. Finally, select the padded result or 'other' based on the mask.(Do
-  // nothing when other is null.)
-  if (failed(maskTrackerStatus) || !other) {
-    // Obtain transposed other type.
-    SmallVector<int64_t> otherShape = permutateAndRemoveBroadcastDims(
-        resultType.getShape(), permutations, dimInfos);
-    auto otherType =
-        RankedTensorType::get(otherShape, resultType.getElementType());
-    // Obtain transposed offsets and sizes.
-    auto transposedOffsets = permutateAndRemoveBroadcastDims<OpFoldResult>(
-        offsets, permutations, dimInfos);
-    auto transposedSizes = permutateAndRemoveBroadcastDims<OpFoldResult>(
-        sizes, permutations, dimInfos);
-
-    // Pad with empty value.
-    result =
-        getPadOrInsertOpWithOther(loc, Value(), otherType, result,
-                                  transposedOffsets, transposedSizes, rewriter);
-
-    // Transposed result back.
-    result = transformResultWithTransposeAndDimInfo(
-        result, permutations, dimInfos, resultSizes, rewriter);
-
-    // Select the final result based on the mask.
-    return selectByMask(loc, mask, result, other, rewriter);
-  }
-
-  // Handle a special case:
-  // * All dimension masks have been successfully analyzed, and the sizes
-  //   after masking are equal to the original sizes for broadcast dimensions.
-  // In such cases, we perform the following steps:
-  // a. Pad the gather result initially with the transformed `other`.
-  // b. Transform the intermediate result using dimension information and
-  // permutations.
-  if (!shouldApplyMaskForAnyBroadcastDim(dimInfos, sizes)) {
-    // Obtain transposed other type.
-    SmallVector<int64_t> otherShape = permutateAndRemoveBroadcastDims(
-        resultType.getShape(), permutations, dimInfos);
-    auto otherType =
-        RankedTensorType::get(otherShape, resultType.getElementType());
-    // Obtain transposed offsets and sizes.
-    auto transposedOffsets = permutateAndRemoveBroadcastDims<OpFoldResult>(
-        offsets, permutations, dimInfos);
-    auto transposedSizes = permutateAndRemoveBroadcastDims<OpFoldResult>(
-        sizes, permutations, dimInfos);
-
-    // Pad with transformed `other`.
-    auto zeroAttr = rewriter.getIndexAttr(0);
-    SmallVector<OpFoldResult> defaultOffsets(dimInfos.size(), zeroAttr);
-    auto transformedOther = transformInputWithTransposeAndDimInfo(
-        other, permutations, dimInfos, defaultOffsets, rewriter);
-    result =
-        getPadOrInsertOpWithOther(loc, transformedOther, otherType, result,
-                                  transposedOffsets, transposedSizes, rewriter);
-
-    // Transpose result back.
-    return transformResultWithTransposeAndDimInfo(
-        result, permutations, dimInfos, resultSizes, rewriter);
-  }
-
-  // For cases that all dimension masks have been successfully analyzed, and
-  // part of broadcast dimensions have masks. We perform the following steps:
-  // a. Transform the gather result and broadcast `BROADCAST` dims to masked
-  // size.
-  // b. Pad the intermediate result with `other`.
-  result = transformResultWithTransposeAndDimInfo(result, permutations,
-                                                  dimInfos, sizes, rewriter);
-  return getPadOrInsertOpWithOther(loc, other, resultType, result, offsets,
-                                   sizes, rewriter);
-}
 
 Value TritonPtrScatterConversionBase::getDynamicMemRef(
     Location loc, Value ptr, RankedTensorType tensorType,

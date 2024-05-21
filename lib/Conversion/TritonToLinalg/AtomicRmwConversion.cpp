@@ -95,7 +95,7 @@ public:
   matchAndRewrite(triton::AtomicRMWOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Type resultTy = op.getResult().getType();
-    // FIXME(zhengliutao): lower to llvm.atom directly.
+    // FIXME: lower to llvm.atom directly.
     if (resultTy.isa<RankedTensorType>())
       return failure();
 

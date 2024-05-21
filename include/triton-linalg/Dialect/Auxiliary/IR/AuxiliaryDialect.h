@@ -31,19 +31,19 @@
 // AuxiliaryDialect
 //===----------------------------------------------------------------------===//
 
-#include "include/triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOpsDialect.h.inc"
+#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOpsDialect.h.inc"
 
 //===----------------------------------------------------------------------===//
 // Auxiliary Dialect Enum Attributes
 //===----------------------------------------------------------------------===//
 
-#include "include/triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOpsEnums.h.inc"
+#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOpsEnums.h.inc"
 
 //===----------------------------------------------------------------------===//
 // Auxiliary Dialect Operations
 //===----------------------------------------------------------------------===//
 
 #define GET_OP_CLASSES
-#include "include/triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOps.h.inc"
+#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOps.h.inc"
 
 #endif // TRITON_DIALECT_AUXILIARY_IR_AUXILIARYDIALECT_H

@@ -28,7 +28,7 @@ class DataFlowSolver;
 class Operation;
 
 namespace triton {
-class AxisInfo;
+class AxisInfoExt;
 class TensorPointerMetaInfoTracker;
 class MaskTracker;
 
@@ -266,10 +266,10 @@ protected:
   TritonPtrLoadStoreOpConversionBase(mlir::DataFlowSolver &solver)
       : solver{solver} {}
 
-  SmallVector<DimInfo> getDimInfos(const AxisInfo *axisInfo,
+  SmallVector<DimInfo> getDimInfos(const triton::AxisInfoExt *axisInfo,
                                    ArrayRef<int64_t> tensorShape) const;
-  const triton::AxisInfo *getAxisInfo(Value ptr) const;
-  SmallVector<int64_t> getPermutations(const AxisInfo *axisInfo,
+  const triton::AxisInfoExt *getAxisInfo(Value ptr) const;
+  SmallVector<int64_t> getPermutations(const triton::AxisInfoExt *axisInfo,
                                        ArrayRef<int64_t> tensorShape) const;
 
   /// Get the actual size of each dim needed to be load.
@@ -296,7 +296,7 @@ protected:
   std::pair<Value, SmallVector<Value>>
   getOffsetAndStrides(Location loc, ArrayRef<int64_t> tensorShape, Value offset,
                       std::optional<MaskTracker> maskState,
-                      const AxisInfo *axisInfo,
+                      const triton::AxisInfoExt *axisInfo,
                       ConversionPatternRewriter &rewriter) const;
 
   FailureOr<PtrInfo>
@@ -335,24 +335,6 @@ protected:
                          ConversionPatternRewriter &rewriter,
                          StringAttr cacheMode = nullptr) const;
 
-  FailureOr<std::pair<PtrInfo, ScatteredInfo>>
-  getPtrAndScatterInfo(Location loc, Value ptr, Value mask,
-                       MaskTracker &maskTracker, RankedTensorType tensorType,
-                       Operation *op, ConversionPatternRewriter &rewriter,
-                       StringAttr cacheMode = nullptr) const;
-
-  /// Post process the gather result and get the final result.
-  /// 1. Transforms gathered result and expand broadcast dimensions;
-  /// 2. Selects gathered result or the `other` field by mask.
-  Value postProcessGatheredResult(Location loc, Value result, Value mask,
-                                  Value other, ArrayRef<int64_t> permutations,
-                                  ArrayRef<DimInfo> dimInfos,
-                                  ArrayRef<OpFoldResult> offsets,
-                                  ArrayRef<OpFoldResult> sizes,
-                                  RankedTensorType resultType,
-                                  MaskTracker &maskTracker,
-                                  ConversionPatternRewriter &rewriter) const;
-
 private:
   /// Check whether considering mask operand during the determination of
   /// contiguous dimension numbers. For `tt.store`, the optional mask operand
@@ -368,7 +350,7 @@ private:
   /// contiguous, and the masked size equals to window size, if tracker exists.
   int64_t getWindowRank(ArrayRef<int64_t> shape, ArrayRef<int64_t> perms,
                         std::optional<MaskTracker> tracker,
-                        const AxisInfo &axisInfo) const;
+                        const triton::AxisInfoExt &axisInfo) const;
 
   /// Get the indice operand needed in gather/scatter operations.
   Value getIndiceOperandForScatteredOp(

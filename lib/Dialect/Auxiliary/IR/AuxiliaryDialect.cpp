@@ -11,7 +11,7 @@
 #include <string>
 #include <tuple>
 
-#include "include/triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h"
+#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h"
 #include "llvm/ADT/ilist_iterator.h"
 
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h" // IWYU pragma: keep
@@ -52,7 +52,7 @@
 #include "llvm/Support/Casting.h"
 #define DEBUG_TYPE "aux-dialect"
 
-#include "include/triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOpsDialect.cpp.inc"
+#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOpsDialect.cpp.inc"
 using namespace mlir;
 using namespace mlir::triton;
 using namespace mlir::triton::aux;
@@ -126,7 +126,7 @@ void printSymbolAlias(OpAsmPrinter &p, Operation *op, StringAttr symName,
 // StoreResourceOp
 //===----------------------------------------------------------------------===//
 LogicalResult StoreResourceOp::verify() {
-  if (!(hasTensorSemantics() || hasBufferSemantics())) {
+  if (!(hasPureTensorSemantics() || hasPureBufferSemantics())) {
     return emitOpError() << "unsupported 'from' and 'to' type.";
   }
   auto from = getFrom();
@@ -376,16 +376,16 @@ LogicalResult ScalarPrintOp::verify() {
 void aux::AuxiliaryDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "include/triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOps.cpp.inc"
+#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOps.cpp.inc"
       >();
   addInterfaces<AuxiliaryInlinerInterface>();
 }
 
-#include "include/triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOpsEnums.cpp.inc"
+#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOpsEnums.cpp.inc"
 
 //===----------------------------------------------------------------------===//
 // TableGen'd op method definitions
 //===----------------------------------------------------------------------===//
 
 #define GET_OP_CLASSES
-#include "include/triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOps.cpp.inc"
+#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOps.cpp.inc"

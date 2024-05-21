@@ -103,3 +103,44 @@ FailureOr<Value> mlir::triton::getSplatValue(OpBuilder &builder,
     return failure();
   return fillVal;
 }
+
+
+/// Return the identity numeric value associated to the give op.
+std::optional<TypedAttr> mlir::triton::getNeutralElement(Operation *op) {
+  std::optional<arith::AtomicRMWKind> maybeKind =
+      llvm::TypeSwitch<Operation *, std::optional<arith::AtomicRMWKind>>(op)
+          // Floating-point operations.
+          .Case([](arith::AddFOp op) { return arith::AtomicRMWKind::addf; })
+          .Case([](arith::MulFOp op) { return arith::AtomicRMWKind::mulf; })
+          .Case([](arith::MaximumFOp op) { return arith::AtomicRMWKind::maximumf; })
+          .Case([](arith::MinimumFOp op) { return arith::AtomicRMWKind::minimumf; })
+          // Integer operations.
+          .Case([](arith::AddIOp op) { return arith::AtomicRMWKind::addi; })
+          .Case([](arith::OrIOp op) { return arith::AtomicRMWKind::ori; })
+          .Case([](arith::XOrIOp op) { return arith::AtomicRMWKind::ori; })
+          .Case([](arith::AndIOp op) { return arith::AtomicRMWKind::andi; })
+          .Case([](arith::MaxUIOp op) { return arith::AtomicRMWKind::maxu; })
+          .Case([](arith::MinUIOp op) { return arith::AtomicRMWKind::minu; })
+          .Case([](arith::MaxSIOp op) { return arith::AtomicRMWKind::maxs; })
+          .Case([](arith::MinSIOp op) { return arith::AtomicRMWKind::mins; })
+          .Case([](arith::MulIOp op) { return arith::AtomicRMWKind::muli; })
+          .Default([](Operation *op) { return std::nullopt; });
+  if (!maybeKind) {
+    return std::nullopt;
+  }
+
+  bool useOnlyFiniteValue = false;
+  auto fmfOpInterface = dyn_cast<arith::ArithFastMathInterface>(op);
+  if (fmfOpInterface) {
+    arith::FastMathFlagsAttr fmfAttr = fmfOpInterface.getFastMathFlagsAttr();
+    useOnlyFiniteValue =
+        bitEnumContainsAny(fmfAttr.getValue(), arith::FastMathFlags::ninf);
+  }
+
+  // Builder only used as helper for attribute creation.
+  OpBuilder b(op->getContext());
+  Type resultType = op->getResult(0).getType();
+
+  return getIdentityValueAttr(*maybeKind, resultType, b, op->getLoc(),
+                              useOnlyFiniteValue);
+}

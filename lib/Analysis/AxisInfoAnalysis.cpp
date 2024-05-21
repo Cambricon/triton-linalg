@@ -9,7 +9,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "triton-linalg/Analysis/AxisInfoAnalysis.h"
-#include "triton-linalg/Interfaces/InferAxisInfoInterface.h"
+#include "triton-linalg/Dialect/Triton/Interfaces/InferAxisInfoInterface.h"
 
 #include <assert.h>
 #include <numeric>

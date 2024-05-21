@@ -281,7 +281,7 @@ struct LinalgOpTilingInterface
                                              Location loc,
                                              ValueRange ivs) const {
     auto linalgOp = cast<linalg::LinalgOp>(op);
-    if (!linalgOp.hasBufferSemantics())
+    if (!linalgOp.hasPureBufferSemantics())
       return op->emitOpError("expected operation to have buffer semantics");
 
     SmallVector<Value> indexedValues;

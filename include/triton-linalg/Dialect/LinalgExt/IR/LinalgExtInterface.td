@@ -78,14 +78,14 @@ def LinalgExtInterface : OpInterface<"LinalgExtOp"> {
           .getTiedOpResult(opOperand);
     }
 
-    bool hasBufferSemantics() {
+    bool hasPureBufferSemantics() {
       return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
-          .hasBufferSemantics();
+          .hasPureBufferSemantics();
     }
 
-    bool hasTensorSemantics() {
+    bool hasPureTensorSemantics() {
       return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
-          .hasTensorSemantics();
+          .hasPureTensorSemantics();
     }
 
     /// Returns the value that expresses the shape of the output in terms of

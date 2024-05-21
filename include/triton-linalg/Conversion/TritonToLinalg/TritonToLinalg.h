@@ -11,7 +11,16 @@
 
 namespace mlir {
 class Pass;
+class RewritePatternSet;
+class ConversionTarget;
+class DataFlowSolver;
 namespace triton {
+class TritonLinalgTypeConverter;
+
+void populateAllTritonToLinalgPattern(RewritePatternSet &patterns,
+                                      TritonLinalgTypeConverter &converter,
+                                      ConversionTarget &target,
+                                      mlir::DataFlowSolver &solver);
 
 /// Create a pass to convert a subset of Triton ops to Linalg.
 std::unique_ptr<mlir::Pass> createTritonToLinalgPass();

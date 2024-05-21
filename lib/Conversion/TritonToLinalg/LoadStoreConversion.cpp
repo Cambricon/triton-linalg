@@ -284,97 +284,47 @@ public:
 
     auto loc = op.getLoc();
     auto mask = op.getMask();
-    MaskTracker maskTracker;
-    if (mask)
-      (void)maskTracker.parse(mask, loc, rewriter);
 
-    auto info = getPtrAndScatterInfo(
-        loc, op.getPtr(), mask, maskTracker, resultTy, op.getOperation(),
-        rewriter, getCacheModeAttr(op.getContext(), op.getCache()));
-    if (failed(info))
+    PointerMetaInfoTracker tracker;
+    if (failed(tracker.parse(op.getPtr(), loc, rewriter)))
       return failure();
-    auto &[ptrInfo, scatteredInfo] = *info;
-    Value sliceTensor = rewriter.create<bufferization::ToTensorOp>(
-        loc, ptrInfo.memref, true, true);
+    Value memref = getDynamicMemRef(loc, tracker.getBase(), resultTy, rewriter);
+    Value originTensor =
+        rewriter.create<bufferization::ToTensorOp>(loc, memref, true, true);
 
-    SmallVector<Value> gatherInputs{sliceTensor, scatteredInfo.indice};
-    if (scatteredInfo.mask)
-      gatherInputs.push_back(scatteredInfo.mask);
-
-    auto initShape = permutateAndRemoveBroadcastDims<OpFoldResult>(
-        ptrInfo.sizes, ptrInfo.permutations, ptrInfo.dimInfos);
-
-    // Reset the last windowRank - 1 dimensions to the size of original shape.
-    if (scatteredInfo.windowRank > 1) {
-      SmallVector<int64_t> originalShape = permutateAndRemoveBroadcastDims(
-          resultTy.getShape(), ptrInfo.permutations, ptrInfo.dimInfos);
-      int64_t rank = resultTy.getRank();
-      for (auto i : llvm::seq(rank - scatteredInfo.windowRank + 1, rank))
-        initShape[i] = rewriter.getIndexAttr(originalShape[i]);
+    // Get window.
+    auto window = op.getOther();
+    if (!window) {
+      window = rewriter.create<tensor::EmptyOp>(
+          op.getLoc(), resultTy.getShape(), resultTy.getElementType());
     }
+    window = flattenValueToMatchGatherScatter(rewriter, window);
 
-    Value init = rewriter.create<tensor::EmptyOp>(loc, initShape,
-                                                  resultTy.getElementType());
+    // Get value.
+    Value indices =
+        flattenValueToMatchGatherScatter(rewriter, tracker.getOffset());
 
-    auto reshapedGatherResTy = init.getType().cast<RankedTensorType>();
-    init = collapseLastNDimsToOneDim(rewriter, loc, init,
-                                     scatteredInfo.windowRank);
+    SmallVector<Value> gatherInputs{originTensor, indices};
 
-    bool needAddUnitBatchDim =
-        (reshapedGatherResTy.getRank() == scatteredInfo.windowRank);
-    // Add an additional unit batch dim when batch dim number is 0.
-    if (needAddUnitBatchDim) {
-      gatherInputs[1] = prependUnitDim(rewriter, loc, gatherInputs[1]);
-      // Add batch dim for mask if exists.
-      if (gatherInputs.size() > 2)
-        gatherInputs[2] = prependUnitDim(rewriter, loc, gatherInputs[2]);
-      init = prependUnitDim(rewriter, loc, init);
+    // Get mask.
+    if (op.getMask()) {
+      auto mask =
+          flattenValueToMatchGatherScatter(rewriter, op.getMask(), false);
+      gatherInputs.push_back(mask);
     }
 
     // Do gather operation.
     Value gatherRes = rewriter
                           .create<linalg_ext::GatherOp>(
-                              loc, gatherInputs, init,
+                              loc, gatherInputs, window,
                               /*dimensionMap=*/SmallVector<int64_t>({0}),
                               /*rangedData=*/false,
                               [](OpBuilder &b, Location loc, ValueRange args) {
                                 b.create<linalg_ext::ExtYieldOp>(loc, args[0]);
                               })
                           .getResult()[0];
-    // Remove the prepend unit batch dim.
-    if (needAddUnitBatchDim)
-      gatherRes = dropUnitFirstDim(rewriter, loc, gatherRes);
-
-    gatherRes =
-        reshapeGatherScatterValueTo(gatherRes, reshapedGatherResTy, rewriter);
-
-    // Since the last windowRank - 1 dimensions may contain all elements, we
-    // extract the masked part.
-    if (scatteredInfo.windowRank > 1 && mask) {
-      auto zeroAttr = rewriter.getIndexAttr(0);
-      auto maskOffsets = permutateAndRemoveBroadcastDims<OpFoldResult>(
-          maskTracker.getStarts(), ptrInfo.permutations, ptrInfo.dimInfos);
-      std::for_each(
-          maskOffsets.begin(), maskOffsets.end(),
-          [zeroAttr](auto &ofr) { ofr = ofr ? ofr : OpFoldResult(zeroAttr); });
-
-      auto maskSizes = permutateAndRemoveBroadcastDims<OpFoldResult>(
-          ptrInfo.sizes, ptrInfo.permutations, ptrInfo.dimInfos);
-
-      auto oneAttr = rewriter.getIndexAttr(1);
-      SmallVector<OpFoldResult> maskStrides(maskOffsets.size(), oneAttr);
-      gatherRes = rewriter
-                      .create<tensor::ExtractSliceOp>(
-                          loc, gatherRes, maskOffsets, maskSizes, maskStrides)
-                      .getResult();
-    }
-
-    auto res = postProcessGatheredResult(loc, gatherRes, mask, op.getOther(),
-                                         ptrInfo.permutations, ptrInfo.dimInfos,
-                                         ptrInfo.offsets, ptrInfo.sizes,
-                                         resultTy, maskTracker, rewriter);
-
-    rewriter.replaceOp(op, res);
+    gatherRes = reshapeGatherScatterValueTo(gatherRes, resultTy, rewriter);
+    rewriter.replaceOp(op, gatherRes.getDefiningOp()->getResults());
 
     return success();
   }
@@ -403,49 +353,44 @@ public:
       return failure();
 
     auto loc = op.getLoc();
-    auto mask = op.getMask();
-    MaskTracker maskTracker;
-    if (mask)
-      (void)maskTracker.parse(mask, loc, rewriter);
 
-    auto info = getPtrAndScatterInfo(
-        loc, op.getPtr(), mask, maskTracker, valueTy, op.getOperation(),
-        rewriter, getCacheModeAttr(op.getContext(), op.getCache()));
-    if (failed(info))
+    PointerMetaInfoTracker tracker;
+    if (failed(tracker.parse(op.getPtr(), loc, rewriter)))
       return failure();
-    auto [ptrInfo, scatteredInfo] = *info;
 
-    Value sliceTensor = rewriter.create<bufferization::ToTensorOp>(
-        loc, ptrInfo.memref, true, true);
+    Value memref = getDynamicMemRef(loc, tracker.getBase(), valueTy, rewriter);
+    Value originTensor =
+        rewriter.create<bufferization::ToTensorOp>(loc, memref);
+    // Get scatter init.
+    Value scatterInit = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), getDim(rewriter, loc, originTensor, 0),
+        valueTy.getElementType());
 
-    // Get scatter update.
-    Value update = getUpdateOperandForScatterOp(
-        loc, op.getValue(), scatteredInfo.windowRank, ptrInfo, rewriter);
-    SmallVector<Value> scatterInputs{update, scatteredInfo.indice};
+    // Get indices and updates.
+    Value indices =
+        flattenValueToMatchGatherScatter(rewriter, tracker.getOffset());
+    Value updates = flattenValueToMatchGatherScatter(rewriter, op.getValue());
 
-    // Get scatter mask.
-    if (scatteredInfo.mask)
-      scatterInputs.push_back(scatteredInfo.mask);
-    // Add an additional unit batch dim when batch dim number is 0.
-    auto indiceTy = scatteredInfo.indice.getType().cast<RankedTensorType>();
-    // The last dim of indice represents points of coordinates.
-    if (indiceTy.getRank() == 1) {
-      for (size_t i = 0; i < scatterInputs.size(); ++i)
-        scatterInputs[i] = prependUnitDim(rewriter, loc, scatterInputs[i]);
+    SmallVector<Value> scatterInputs{updates, indices};
+    // Get mask.
+    auto mask = op.getMask();
+    if (mask) {
+      mask = flattenValueToMatchGatherScatter(rewriter, mask, false);
+      scatterInputs.push_back(mask);
     }
 
     Value scatterRes = rewriter
                            .create<linalg_ext::ScatterOp>(
-                               loc, scatterInputs, sliceTensor,
+                               loc, scatterInputs, scatterInit,
                                SmallVector<int64_t>({0}), false, true,
                                [](OpBuilder &b, Location loc, ValueRange args) {
                                  b.create<linalg_ext::ExtYieldOp>(loc, args[0]);
                                })
                            ->getResult(0);
 
-    rewriter.create<aux::StoreResourceOp>(loc, sliceTensor, scatterRes);
+    rewriter.create<aux::StoreResourceOp>(op.getLoc(), originTensor,
+                                          scatterRes);
     rewriter.eraseOp(op);
-
     return success();
   }
 
@@ -526,7 +471,7 @@ public:
     sliceTensor = rewriter.create<linalg::CopyOp>(loc, sliceTensor, emptyTensor)
                       .getResultTensors()[0];
 
-    if (!op.getBoundaryCheck() || op.getBoundaryCheck()->empty()) {
+    if (op.getBoundaryCheck().empty()) {
       sliceTensor = transformResultWithTransposeAndDimInfo(
           sliceTensor, permutations, dimInfos, sizes, rewriter);
       rewriter.replaceOp(op, sliceTensor);
@@ -600,7 +545,7 @@ public:
     SmallVector<OpFoldResult> defaultOffsets(dimInfos.size(), zeroAttr);
     value = transformInputWithTransposeAndDimInfo(value, permutations, dimInfos,
                                                   defaultOffsets, rewriter);
-    if (op.getBoundaryCheck() && !op.getBoundaryCheck()->empty()) {
+    if (!op.getBoundaryCheck().empty()) {
       auto rank = value.getType().cast<ShapedType>().getRank();
       value = rewriter.create<tensor::ExtractSliceOp>(
           loc, value, SmallVector<OpFoldResult>(rank, rewriter.getIndexAttr(0)),

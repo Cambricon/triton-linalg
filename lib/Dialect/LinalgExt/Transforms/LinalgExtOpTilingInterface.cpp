@@ -1646,7 +1646,7 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::ScanOp>
                          ArrayRef<OpFoldResult> sizes) const {
     triton::linalg_ext::ScanOp concreteOp =
         cast<triton::linalg_ext::ScanOp>(op);
-    // FIXME(liangyuefeng): support multi operands in tiling interface.
+    // FIXME: support multi operands in tiling interface.
     if ((concreteOp.getNumDpsInputs() != 1) ||
         (concreteOp.getNumDpsInits() != 2))
       return op->emitOpError("tiling interface only support single input now.");
@@ -1677,7 +1677,7 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::ScanOp>
     }
 
     SmallVector<Type, 4> resultTypes;
-    if (concreteOp.hasTensorSemantics()) {
+    if (concreteOp.hasPureTensorSemantics()) {
       resultTypes.push_back(tiledOperands[1].getType());
       resultTypes.push_back(tiledOperands[2].getType());
     }
@@ -1744,7 +1744,7 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::ScanOp>
                                              ValueRange ivs) const {
     triton::linalg_ext::ScanOp concreteOp =
         cast<triton::linalg_ext::ScanOp>(op);
-    // FIXME(liangyuefeng): support multi operands in tiling interface.
+    // FIXME: support multi operands in tiling interface.
     if ((concreteOp.getNumDpsInputs() != 1) ||
         (concreteOp.getNumDpsInits() != 2))
       return op->emitOpError("tiling interface only support single input now.");

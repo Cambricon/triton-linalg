@@ -34,6 +34,8 @@ Value createScalarOrSplatConstant(OpBuilder &builder, Location loc, Type type,
 
 /// Get splat value from the arith.constant op.
 FailureOr<Value> getSplatValue(OpBuilder &builder, arith::ConstantOp op);
+
+std::optional<TypedAttr> getNeutralElement(Operation *op);
 } // namespace triton
 } // namespace mlir
 

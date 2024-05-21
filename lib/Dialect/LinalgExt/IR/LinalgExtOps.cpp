@@ -54,9 +54,9 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
-#include "mlir/include/mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/include/mlir/IR/BuiltinTypes.h"
-#include "mlir/include/mlir/IR/Matchers.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
+#include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Matchers.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/PointerUnion.h"
@@ -1513,7 +1513,7 @@ LogicalResult AtomicCASOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
 void AtomicCASOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  if (!hasBufferSemantics()) {
+  if (!hasPureBufferSemantics()) {
     effects.emplace_back(MemoryEffects::Read::get(), input(),
                          SideEffects::DefaultResource::get());
     effects.emplace_back(MemoryEffects::Write::get(), input(),
@@ -1534,7 +1534,7 @@ LogicalResult GatherAtomicCASOp::fold(FoldAdaptor,
 void GatherAtomicCASOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  if (!hasBufferSemantics()) {
+  if (!hasPureBufferSemantics()) {
     effects.emplace_back(MemoryEffects::Read::get(), input(),
                          SideEffects::DefaultResource::get());
     effects.emplace_back(MemoryEffects::Write::get(), input(),
@@ -1775,7 +1775,7 @@ struct FoldStaticZeroPadding : public OpRewritePattern<linalg_ext::PadOp> {
 
   LogicalResult matchAndRewrite(linalg_ext::PadOp op,
                                 PatternRewriter &rewriter) const override {
-    if (!op.hasTensorSemantics()) {
+    if (!op.hasPureTensorSemantics()) {
       return failure();
     }
     if (!op.hasZeroLowPad() || !op.hasZeroHighPad())
@@ -1790,7 +1790,7 @@ struct FoldStaticPadding final : public OpRewritePattern<linalg_ext::PadOp> {
   using OpRewritePattern<linalg_ext::PadOp>::OpRewritePattern;
   LogicalResult matchAndRewrite(linalg_ext::PadOp op,
                                 PatternRewriter &rewriter) const override {
-    if (!op.hasTensorSemantics()) {
+    if (!op.hasPureTensorSemantics()) {
       return failure();
     }
 

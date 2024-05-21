@@ -40,6 +40,7 @@ def TritonToLinalgPass : Pass<"convert-triton-to-linalg", "ModuleOp"> {
       "linalg_ext::LinalgExtDialect", "scf::SCFDialect",
       "arith::ArithDialect", "triton::aux::AuxiliaryDialect",
       "bufferization::BufferizationDialect",
+      "func::FuncDialect",
   ];
 }
 #endif // TRITON_LINALG_CONVERSION_PASSES_TD

@@ -17,7 +17,6 @@
 namespace mlir {
 class Pass;
 namespace triton {
-
 #define GEN_PASS_REGISTRATION
 #include "triton-linalg/Conversion/Passes.h.inc"
 

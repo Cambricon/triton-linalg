@@ -13,7 +13,7 @@
 #include <optional>
 #include <utility>
 
-#include "triton-linalg/Dialect/Arith/Passes.h"
+#include "triton-linalg/Dialect/Arith/Transforms/Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributeInterfaces.h"

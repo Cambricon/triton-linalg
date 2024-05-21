@@ -12,7 +12,7 @@
 #ifndef TRITON_LINALG_DIALECT_LINALGEXT_IR_LINALGEXTSTRUCTEDOPS_TD
 #define TRITON_LINALG_DIALECT_LINALGEXT_IR_LINALGEXTSTRUCTEDOPS_TD
 
-include "include/triton-linalg/Dialect/LinalgExt/IR/LinalgExtBase.td"
+include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtBase.td"
 
 //===----------------------------------------------------------------------===//
 // Op definition for BatchConv2DNhwcFhwcOp

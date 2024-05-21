@@ -15,22 +15,23 @@
 #include <vector>
 
 #include "triton-linalg/Analysis/Utils.h"
+#include "triton-linalg/Utils/Utils.h"
 #include "triton-linalg/Conversion/ArithToLinalg/ArithToLinalg.h"
 #include "triton-linalg/Conversion/MathToLinalg/MathToLinalg.h"
 #include "triton-linalg/Conversion/PassDetail.h"
 #include "triton-linalg/Conversion/TritonToLinalg/AtomicCASConversion.h"
 #include "triton-linalg/Conversion/TritonToLinalg/AtomicRmwConversion.h"
 #include "triton-linalg/Conversion/TritonToLinalg/LoadStoreConversion.h"
-#include "triton-linalg/Conversion/TritonToLinalg/TritonToLinalg.h" // IWYU pragma: keep
+#include "triton-linalg/Conversion/TritonToLinalg/TritonToLinalg.h"
 #include "triton-linalg/Conversion/TritonToLinalg/TypeConverter.h"
 #include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
-#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h" // IWYU pragma: keep
+#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h"
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
 #include "triton-linalg/Dialect/LinalgExt/Utils/Utils.h"
-#include "triton-linalg/Dialect/Triton/Analysis/AxisInfoAnalysis.h"
+#include "triton-linalg/Analysis/AxisInfoAnalysis.h"
 #include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
 #include "triton-linalg/Dialect/Utils/Conventions.h"
-#include "triton/Common/Common.h"
+#include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
@@ -491,7 +492,11 @@ struct TritonDotPattern : public OpConversionPattern<triton::DotOp> {
     auto matmulOp = rewriter.replaceOpWithNewOp<linalg::MatmulOp>(
         op, TypeRange{op.getType()}, ValueRange{input, filter}, bias);
 
-    bool allowTf32 = op.getAllowTF32();
+    auto inputPrecision = op.getInputPrecision();
+    if (inputPrecision == triton::InputPrecision::TF32x3)
+      return op->emitError("Unsupport tf32x3 precision mode");
+
+    bool allowTf32 = (inputPrecision == triton::InputPrecision::TF32);
     if (allowTf32)
       matmulOp->setAttr(getAttrAllowTF32(), UnitAttr::get(op->getContext()));
     return success();
@@ -512,7 +517,7 @@ struct TritonBitcastPattern : public OpConversionPattern<triton::BitcastOp> {
     // Scalar case.
     if (!resultTy) {
       rewriter.replaceOpWithNewOp<arith::BitcastOp>(op, type,
-                                                    adaptor.getFrom());
+                                                    adaptor.getSrc());
       return success();
     }
 
@@ -575,7 +580,7 @@ struct TritonReducePattern : public OpConversionPattern<triton::ReduceOp> {
         if (!payloadOp)
           break;
         std::optional<TypedAttr> fillValAttr =
-            arith::getNeutralElement(payloadOp);
+            triton::getNeutralElement(payloadOp);
         // When the requirements are not met, go to the later general
         // implementation.
         if (!fillValAttr.has_value())
@@ -1037,7 +1042,7 @@ public:
       if (!resultTy) {
         rewriter.create<aux::ScalarPrintOp>(loc, operand, prefix);
       } else {
-        auto printOp = rewriter.create<aux::PrintOp>(loc, resultTy, operand,
+        auto printOp = rewriter.create<aux::PrintOp>(loc, resultTy,
                                                      operand, prefix);
         DominanceInfo dom(op->getParentOp());
         operand.replaceUsesWithIf(printOp.getResult(),
@@ -1270,12 +1275,28 @@ void TritonToLinalgPass::runOnOperation() {
   target.addLegalOp<triton::GetProgramIdOp, triton::GetNumProgramsOp>();
 
   auto solver = createDataFlowSolver();
-  solver->load<AxisInfoAnalysis>();
+  solver->load<AxisInfoAnalysisExt>();
   if (failed(solver->initializeAndRun(getOperation())))
     return signalPassFailure();
 
   // Rewrite patterns.
   RewritePatternSet patterns(context);
+  populateAllTritonToLinalgPattern(patterns, converter, target, *solver);
+
+  if (failed(
+          applyPartialConversion(getOperation(), target, std::move(patterns))))
+    return signalPassFailure();
+}
+
+std::unique_ptr<mlir::Pass> mlir::triton::createTritonToLinalgPass() {
+  return std::make_unique<TritonToLinalgPass>();
+}
+
+void mlir::triton::populateAllTritonToLinalgPattern(RewritePatternSet &patterns,
+                                                    TritonLinalgTypeConverter &converter,
+                                                    ConversionTarget &target,
+                                                    mlir::DataFlowSolver &solver) {
+  auto *context = patterns.getContext();
   scf::populateSCFStructuralTypeConversionsAndLegality(converter, patterns,
                                                        target);
   patterns.add<OptimizationBarrierOpPattern, GPUBarrierOpPattern>(converter,
@@ -1286,14 +1307,8 @@ void TritonToLinalgPass::runOnOperation() {
   populateArithConversionPatterns(patterns);
   populateMathToLinalgPatterns(patterns);
 
-  populateTritonLoadStoreToLinalgPatterns(patterns, converter, *solver);
-  populateTritonAtomicCASToLinalgPatterns(patterns, converter, *solver);
-  populateTritonAtomicRmwToLinalgPatterns(patterns, converter, *solver);
-  if (failed(
-          applyPartialConversion(getOperation(), target, std::move(patterns))))
-    return signalPassFailure();
-}
+  populateTritonLoadStoreToLinalgPatterns(patterns, converter, solver);
+  populateTritonAtomicCASToLinalgPatterns(patterns, converter, solver);
+  populateTritonAtomicRmwToLinalgPatterns(patterns, converter, solver);
 
-std::unique_ptr<mlir::Pass> mlir::triton::createTritonToLinalgPass() {
-  return std::make_unique<TritonToLinalgPass>();
 }

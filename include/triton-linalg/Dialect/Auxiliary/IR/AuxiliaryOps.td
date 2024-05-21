@@ -11,8 +11,8 @@
 #ifndef TRITON_DIALECT_AUXILIARY_IR_AUXILIARYOPS_TD
 #define TRITON_DIALECT_AUXILIARY_IR_AUXILIARYOPS_TD
 
-include "include/triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.td"
-include "include/triton-linalg/Dialect/Auxiliary/IR/AuxiliaryTypes.td"
+include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.td"
+include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryTypes.td"
 include "mlir/Dialect/LLVMIR/LLVMOpBase.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
@@ -64,7 +64,7 @@ def StoreResourceOp : Aux_Op<"store"> {
       return !value.getType().isa<ShapedType>();
     }
 
-    bool hasBufferSemantics() {
+    bool hasPureBufferSemantics() {
       return ::llvm::all_of(getOperands(),
         [&](const Value& opOperand) {
           return isScalar(opOperand) ||
@@ -72,7 +72,7 @@ def StoreResourceOp : Aux_Op<"store"> {
         });
     }
 
-    bool hasTensorSemantics() {
+    bool hasPureTensorSemantics() {
       return ::llvm::all_of(getOperands(),
         [&](const Value& opOperand) {
           return isScalar(opOperand) ||
@@ -262,7 +262,7 @@ def PrintOp : Aux_Op<"print", [DeclareOpInterfaceMethods<MemoryEffectsOpInterfac
   }];
 
   let extraClassDeclaration = [{
-    bool hasBufferSemantics() {
+    bool hasPureBufferSemantics() {
       return ::llvm::all_of(getOperands(),
         [&](const Value& opOperand) {
           return opOperand.getType().isa<::mlir::MemRefType>();

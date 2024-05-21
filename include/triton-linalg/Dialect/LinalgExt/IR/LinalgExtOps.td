@@ -11,7 +11,7 @@
 #ifndef TRITON_LINALG_DIALECT_LINALGEXT_IR_LINALGEXTOPS_TD
 #define TRITON_LINALG_DIALECT_LINALGEXT_IR_LINALGEXTOPS_TD
 
-include "include/triton-linalg/Dialect/LinalgExt/IR/LinalgExtBase.td"
+include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtBase.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 //===----------------------------------------------------------------------===//
 // Op definition for ScatterOp
