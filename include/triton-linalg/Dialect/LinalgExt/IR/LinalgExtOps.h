@@ -12,6 +12,7 @@
 #include "triton-linalg/Interfaces/InferResultTypeOpInterface.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
+#include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/Dialect/SCF/IR/DeviceMappingInterface.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 // IWYU pragma: end_keep

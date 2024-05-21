@@ -21,12 +21,12 @@
 #include <vector>
 
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
-#include "triton-linalg/Dialect/Utils/MemRefUtils.h"
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Complex/IR/Complex.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
+#include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
@@ -132,6 +132,43 @@ static void getGenericEffectsImpl(
                          SideEffects::DefaultResource::get());
   }
 }
+
+//===----------------------------------------------------------------------===//
+// BEGIN copied from mlir/lib/Dialect/Linalg/IR/LinalgOps.cpp
+//===----------------------------------------------------------------------===//
+static void getGenericEffectsImpl(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects,
+    LinalgOp linalgOp) {
+  SmallVector<Value> inputOperands = linalgOp.getDpsInputs();
+  for (auto [index, operand] : llvm::enumerate(inputOperands)) {
+    if (!llvm::isa<MemRefType>(operand.getType()))
+      continue;
+    if (linalgOp.payloadUsesValueFromOperand(&linalgOp->getOpOperand(index))) {
+      effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
+                           /*effectOnFullRegion=*/true,
+                           SideEffects::DefaultResource::get());
+    }
+  }
+  unsigned inputOperandSize = inputOperands.size();
+
+  for (auto [index, operand] : llvm::enumerate(linalgOp.getDpsInits())) {
+    if (!llvm::isa<MemRefType>(operand.getType()))
+      continue;
+    if (linalgOp.payloadUsesValueFromOperand(
+            &linalgOp->getOpOperand(index + inputOperandSize))) {
+      effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
+                           /*effectOnFullRegion=*/true,
+                           SideEffects::DefaultResource::get());
+    }
+    effects.emplace_back(MemoryEffects::Write::get(), operand, /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
+                         SideEffects::DefaultResource::get());
+  }
+}
+//===----------------------------------------------------------------------===//
+// END copied from mlir/lib/Dialect/Linalg/IR/LinalgOps.cpp
+//===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
 // Parse and print functions from LinalgOps.cpp
@@ -762,14 +799,13 @@ void BatchConv2DNhwcFhwcOp::print(OpAsmPrinter &p) {
 
 LogicalResult BatchConv2DNhwcFhwcOp::fold(FoldAdaptor,
                                           SmallVectorImpl<OpFoldResult> &) {
-  return foldMemRefCast(*this);
+  return memref::foldMemRefCast(*this);
 }
 
 void BatchConv2DNhwcFhwcOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  getGenericEffectsImpl(effects, cast<LinalgOp>(getOperation()));
 }
 
 //===----------------------------------------------------------------------===//
@@ -843,7 +879,7 @@ void MakeRangeOp::print(OpAsmPrinter &p) {
 }
 
 LogicalResult MakeRangeOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
-  return foldMemRefCast(*this);
+  return memref::foldMemRefCast(*this);
 }
 
 void MakeRangeOp::getEffects(
@@ -993,7 +1029,7 @@ void Im2ColOp::print(OpAsmPrinter &p) {
 }
 
 LogicalResult Im2ColOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
-  return foldMemRefCast(*this);
+  return memref::foldMemRefCast(*this);
 }
 
 void Im2ColOp::getEffects(
@@ -1172,7 +1208,7 @@ LogicalResult ScatterOp::verify() {
 }
 
 LogicalResult ScatterOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
-  return foldMemRefCast(*this);
+  return memref::foldMemRefCast(*this);
 }
 
 void ScatterOp::getEffects(
@@ -1224,7 +1260,7 @@ void ScanOp::getEffects(
 }
 
 LogicalResult ScanOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
-  return foldMemRefCast(*this);
+  return memref::foldMemRefCast(*this);
 }
 
 LogicalResult ScanOp::verify() {
@@ -1461,7 +1497,7 @@ LogicalResult GatherOp::verify() {
 }
 
 LogicalResult GatherOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
-  return foldMemRefCast(*this);
+  return memref::foldMemRefCast(*this);
 }
 
 void GatherOp::getEffects(
@@ -1507,7 +1543,7 @@ LogicalResult GatherAtomicRMWOp::verify() {
 // Implementation of AtomicCASOp
 //===----------------------------------------------------------------------===//
 LogicalResult AtomicCASOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
-  return foldMemRefCast(*this);
+  return memref::foldMemRefCast(*this);
 }
 
 void AtomicCASOp::getEffects(
@@ -1528,7 +1564,7 @@ void AtomicCASOp::getEffects(
 //===----------------------------------------------------------------------===//
 LogicalResult GatherAtomicCASOp::fold(FoldAdaptor,
                                       SmallVectorImpl<OpFoldResult> &) {
-  return foldMemRefCast(*this);
+  return memref::foldMemRefCast(*this);
 }
 
 void GatherAtomicCASOp::getEffects(
@@ -1546,7 +1582,7 @@ void GatherAtomicCASOp::getEffects(
 
 LogicalResult GatherAtomicRMWOp::fold(FoldAdaptor,
                                       SmallVectorImpl<OpFoldResult> &) {
-  return foldMemRefCast(*this);
+  return memref::foldMemRefCast(*this);
 }
 
 void GatherAtomicRMWOp::getEffects(
@@ -1956,7 +1992,7 @@ void PadOp::build(OpBuilder &builder, OperationState &result, Value input,
 }
 
 LogicalResult PadOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
-  return foldMemRefCast(*this);
+  return memref::foldMemRefCast(*this);
 }
 
 void PadOp::getEffects(
@@ -2015,6 +2051,7 @@ LogicalResult PadOp::verify() {
 }
 
 /////// Operations corresponding to library calls defined with Tablegen ////////
+#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtNamedStructuredOps.yamlgen.cpp.inc"
 
 #define GET_OP_CLASSES
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.cpp.inc"

@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "triton-linalg/Dialect/Arith/Transforms/Passes.h"
+#include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
@@ -44,64 +45,6 @@ using namespace mlir::triton;
 namespace mlir {
 class MLIRContext;
 } // namespace mlir
-
-/// Derive the specific max/min semantics based on the type of compare and the
-/// operand relationship between compare and select.
-static std::optional<Operation *> getCmpSelectResult(PatternRewriter &rewriter,
-                                                     Location loc,
-                                                     arith::CmpFOp op,
-                                                     bool operandsSwapped) {
-  auto predicate = op.getPredicate();
-  auto lhs = op.getLhs();
-  auto rhs = op.getRhs();
-  switch (predicate) {
-  case arith::CmpFPredicate::OGT:
-  case arith::CmpFPredicate::UGT:
-  case arith::CmpFPredicate::OGE:
-  case arith::CmpFPredicate::UGE:
-    return operandsSwapped ? rewriter.create<arith::MinimumFOp>(loc, lhs, rhs)
-                           : rewriter.create<arith::MaximumFOp>(loc, lhs, rhs);
-  case arith::CmpFPredicate::OLT:
-  case arith::CmpFPredicate::ULT:
-  case arith::CmpFPredicate::OLE:
-  case arith::CmpFPredicate::ULE:
-    return operandsSwapped ? rewriter.create<arith::MaximumFOp>(loc, lhs, rhs)
-                           : rewriter.create<arith::MinimumFOp>(loc, lhs, rhs);
-  default:
-    return std::nullopt;
-  }
-}
-
-/// Derive the specific max/min semantics based on the type of compare and the
-/// operand relationship between compare and select.
-static std::optional<Operation *> getCmpSelectResult(PatternRewriter &rewriter,
-                                                     Location loc,
-                                                     arith::CmpIOp op,
-                                                     bool operandsSwapped) {
-  auto predicate = op.getPredicate();
-  auto lhs = op.getLhs();
-  auto rhs = op.getRhs();
-  switch (predicate) {
-  case arith::CmpIPredicate::sgt:
-  case arith::CmpIPredicate::sge:
-    return operandsSwapped ? rewriter.create<arith::MinSIOp>(loc, lhs, rhs)
-                           : rewriter.create<arith::MaxSIOp>(loc, lhs, rhs);
-  case arith::CmpIPredicate::ugt:
-  case arith::CmpIPredicate::uge:
-    return operandsSwapped ? rewriter.create<arith::MinUIOp>(loc, lhs, rhs)
-                           : rewriter.create<arith::MaxUIOp>(loc, lhs, rhs);
-  case arith::CmpIPredicate::slt:
-  case arith::CmpIPredicate::sle:
-    return operandsSwapped ? rewriter.create<arith::MaxSIOp>(loc, lhs, rhs)
-                           : rewriter.create<arith::MinSIOp>(loc, lhs, rhs);
-  case arith::CmpIPredicate::ult:
-  case arith::CmpIPredicate::ule:
-    return operandsSwapped ? rewriter.create<arith::MaxUIOp>(loc, lhs, rhs)
-                           : rewriter.create<arith::MinUIOp>(loc, lhs, rhs);
-  default:
-    return std::nullopt;
-  }
-}
 
 namespace {
 ///
@@ -171,6 +114,7 @@ struct ScalarDivToMul final : public OpRewritePattern<arith::DivFOp> {
 /// ```
 ///   %0 = arith.maximumf %arg0, %arg1 : f32
 /// ```
+/// FIXME(anxinqi): wrong conversion in float type, fix in GENESIS-1238
 struct CanonicalizeCmpSelectToMinMax final
     : public OpRewritePattern<arith::SelectOp> {
   using OpRewritePattern<arith::SelectOp>::OpRewritePattern;
@@ -181,33 +125,7 @@ struct CanonicalizeCmpSelectToMinMax final
     if (!cmpOp || !isa<arith::CmpFOp, arith::CmpIOp>(cmpOp)) {
       return failure();
     }
-
-    // Get cmp op mode.
-    std::optional<arith::CmpFOp> cmpFOp;
-    std::optional<arith::CmpIOp> cmpIOp;
-    if (isa<arith::CmpFOp>(cmpOp)) {
-      cmpFOp = cast<arith::CmpFOp>(cmpOp);
-    } else {
-      cmpIOp = cast<arith::CmpIOp>(cmpOp);
-    }
-    // Get specific max/min semantics.
-    std::optional<Operation *> maxMinOp;
-    auto loc = op.getLoc();
-    if (op->getOperand(1) == cmpOp->getOperand(0) &&
-        op->getOperand(2) == cmpOp->getOperand(1)) {
-      if (cmpFOp) {
-        maxMinOp = getCmpSelectResult(rewriter, loc, *cmpFOp, false);
-      } else if (cmpIOp) {
-        maxMinOp = getCmpSelectResult(rewriter, loc, *cmpIOp, false);
-      }
-    } else if (op->getOperand(1) == cmpOp->getOperand(1) &&
-               op->getOperand(2) == cmpOp->getOperand(0)) {
-      if (cmpFOp) {
-        maxMinOp = getCmpSelectResult(rewriter, loc, *cmpFOp, true);
-      } else if (cmpIOp) {
-        maxMinOp = getCmpSelectResult(rewriter, loc, *cmpIOp, true);
-      }
-    }
+    auto maxMinOp = getCmpSelectResult(rewriter, cmpOp, op); 
     if (!maxMinOp) {
       return mlir::failure();
     }
@@ -234,6 +152,78 @@ public:
   }
 };
 
+/// Check whether the graph is constructed by nan statement
+/// operations and the cmp-select pattern can be optimized to `OpTy`.
+/// The nan structure region as follows:
+///             bArg0    bArg1
+///               ||  \   /
+///               ||   cmpf
+///               ||     |
+///              cmpf    |
+///                 \   /
+///                  ori bArg0 bArg1
+///                   |  /    /
+///                   select
+template <typename OpTy>
+class CanonicalizeNanStatement : public OpRewritePattern<arith::SelectOp> {
+public:
+  explicit CanonicalizeNanStatement(MLIRContext *ctx)
+      : OpRewritePattern<arith::SelectOp>(ctx) {}
+
+  LogicalResult matchAndRewrite(arith::SelectOp selectOp,
+                                PatternRewriter &rewriter) const override {
+    using mlir::matchers::m_Any;
+    // Nan pattern match.
+    auto nanStatementPattern = m_Op<arith::SelectOp>(
+        m_Op<arith::OrIOp>(m_Op<arith::CmpFOp>(m_Any(), m_Any()),
+                           m_Op<arith::CmpFOp>(m_Any(), m_Any())),
+        m_Any(), m_Any());
+    if (!nanStatementPattern.match(selectOp)) {
+      return failure();
+    }
+    auto trueVal = selectOp.getTrueValue();
+    auto falseVal = selectOp.getFalseValue();
+    // Collect block arg cmp users.
+    llvm::SmallSetVector<Operation *, 2> cmpOps;
+    for (auto user = trueVal.getUsers().begin(); user != trueVal.getUsers().end();
+         user++) {
+      if (isa<arith::CmpFOp>(*user)) {
+        cmpOps.insert(*user);
+      }
+    }
+    for (auto user = falseVal.getUsers().begin();
+         user != falseVal.getUsers().end(); user++) {
+      if (isa<arith::CmpFOp>(*user)) {
+        cmpOps.insert(*user);
+      }
+    }
+    // Must be two cmp ops.
+    if (cmpOps.size() != 2) {
+      return failure();
+    }
+    // One of cmp op must be une predicate and has same operands.
+    if (llvm::count_if(cmpOps, [](Operation *op) {
+          auto nanCmp = cast<arith::CmpFOp>(op);
+          return (nanCmp.getPredicate() == arith::CmpFPredicate::UNE) &&
+                 (nanCmp.getLhs() == nanCmp.getRhs());
+        }) != 1) {
+      return failure();
+    }
+    // Find non-une cmp op.
+    auto *minMaxCmp = llvm::find_if(cmpOps, [](Operation *op) {
+      auto cmp = cast<arith::CmpFOp>(op);
+      return cmp.getPredicate() != arith::CmpFPredicate::UNE;
+    });
+    // Check if cmp and select can be optimized to min/max.
+    auto minMaxOp = getCmpSelectResult(rewriter, *minMaxCmp, selectOp);
+    if (!minMaxOp.has_value() || !isa_and_nonnull<OpTy>(minMaxOp.value())) {
+      return failure();
+    }
+    rewriter.replaceOpWithNewOp<OpTy>(selectOp, trueVal, falseVal);
+    return success();
+  }
+};
+
 struct ArithCanonicalizerPass
     : public arith_ext::ArithCanonicalizerBase<ArithCanonicalizerPass> {
   ArithCanonicalizerPass() = default;
@@ -245,7 +235,9 @@ struct ArithCanonicalizerPass
     RewritePatternSet patterns(ctx);
     patterns.add<ScalarDivToMul, CanonicalizeCmpSelectToMinMax,
                  CanonicalizeArithI1Pattern<arith::MulIOp, arith::AndIOp>,
-                 CanonicalizeArithI1Pattern<arith::AddIOp, arith::XOrIOp>>(
+                 CanonicalizeArithI1Pattern<arith::AddIOp, arith::XOrIOp>,
+		 CanonicalizeNanStatement<arith::MaximumFOp>,
+		 CanonicalizeNanStatement<arith::MinimumFOp>>(
         patterns.getContext());
     if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
       return signalPassFailure();

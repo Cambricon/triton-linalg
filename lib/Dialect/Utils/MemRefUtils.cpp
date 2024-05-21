@@ -58,18 +58,6 @@ class MLIRContext;
 using namespace mlir;
 using namespace mlir::triton;
 
-LogicalResult mlir::triton::foldMemRefCast(Operation *op) {
-  bool folded = false;
-  for (OpOperand &operand : op->getOpOperands()) {
-    auto castOp = operand.get().getDefiningOp<memref::CastOp>();
-    if (castOp && memref::CastOp::canFoldIntoConsumerOp(castOp)) {
-      operand.set(castOp.getOperand());
-      folded = true;
-    }
-  }
-  return success(folded);
-}
-
 /// Try to get the broadcast dimensions from 'srcTy' to 'dstTy', if successful,
 /// return the broadcast dimensions, otherwise return failure. The broadcast
 /// rules are as follows: 1)The rank of ``dstTy`` must be greater than the rank

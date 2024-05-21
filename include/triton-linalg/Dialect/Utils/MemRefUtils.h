@@ -32,13 +32,6 @@ class ViewLikeOpInterface;
 namespace mlir {
 namespace triton {
 
-/// This is a common class used for patterns of the form
-/// ```
-///    someop(memrefcast(%src)) -> someop(%src)
-/// ```
-/// It folds the source of the memref.cast into the root operation directly.
-LogicalResult foldMemRefCast(Operation *op);
-
 /// Try to get the broadcast dimensions from 'srcTy' to 'dstTy', if successful,
 /// return the broadcast dimensions, otherwise return failure.
 FailureOr<SmallVector<int64_t>> getBroadcastDimensions(MemRefType dstTy,
