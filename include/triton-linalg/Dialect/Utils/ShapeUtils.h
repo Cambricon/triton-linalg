@@ -24,6 +24,21 @@ namespace triton {
 ///   [1, 3] -> false
 bool isConsecutive(llvm::ArrayRef<int64_t> value);
 
+/// Slice source by the given offsets/sizes/strides.
+Value getSlice(OpBuilder &b, Location loc, Value source,
+               ArrayRef<OpFoldResult> offsets, ArrayRef<OpFoldResult> sizes,
+               ArrayRef<OpFoldResult> strides);
+
+/// Return whether should tile on given dim or not.
+bool isNoTile(OpFoldResult tileSize, OpFoldResult offset,
+              ArrayRef<int64_t> shape, int64_t dim);
+
+/// Convert constant value to attribute OpFoldResult.
+OpFoldResult canonicalizeOpFoldResult(OpFoldResult in);
+
+/// Convert constant value to attribute on OpFoldResult vector.
+SmallVector<OpFoldResult> canonicalizeOpFoldResult(ArrayRef<OpFoldResult> in);
+
 /// Get dim as value or attr from given value's dim dimension.
 OpFoldResult getDim(OpBuilder &builder, Location loc, Value v, int64_t dim);
 

@@ -43,6 +43,50 @@ bool mlir::triton::isConsecutive(llvm::ArrayRef<int64_t> array) {
   });
 }
 
+/// Returns a memref.subview or a tensor.extract_slice based on the type of the
+/// `source`.
+Value mlir::triton::getSlice(OpBuilder &b, Location loc, Value source,
+                              ArrayRef<OpFoldResult> offsets,
+                              ArrayRef<OpFoldResult> sizes,
+                              ArrayRef<OpFoldResult> strides) {
+  return TypeSwitch<Type, Value>(source.getType())
+      .Case<RankedTensorType>([&](RankedTensorType t) -> Value {
+        return b.create<tensor::ExtractSliceOp>(loc, source, offsets, sizes,
+                                                strides);
+      })
+      .Case<MemRefType>([&](MemRefType type) -> Value {
+        return b.create<memref::SubViewOp>(loc, source, offsets, sizes,
+                                           strides);
+      })
+      .Default([&](Type t) { return nullptr; });
+}
+
+bool mlir::triton::isNoTile(OpFoldResult tileSize, OpFoldResult offset,
+                             ArrayRef<int64_t> shape, int64_t dim) {
+  auto maybeIntTileSize = getConstantIntValue(tileSize);
+  if (maybeIntTileSize.has_value()) {
+    return maybeIntTileSize.value() == 0 ||
+           maybeIntTileSize.value() == shape[dim];
+  }
+  auto maybeIntOffset = getConstantIntValue(offset);
+  return maybeIntOffset.has_value();
+}
+
+
+
+OpFoldResult mlir::triton::canonicalizeOpFoldResult(OpFoldResult in) {
+  if (in.is<Attribute>())
+    return in;
+  return getAsOpFoldResult(in.get<Value>());
+}
+
+SmallVector<OpFoldResult>
+mlir::triton::canonicalizeOpFoldResult(ArrayRef<OpFoldResult> in) {
+  return llvm::to_vector(llvm::map_range(in, [](OpFoldResult ofr) {
+    return mlir::triton::canonicalizeOpFoldResult(ofr);
+  }));
+}
+
 Value mlir::triton::getDimValue(OpBuilder &builder, Location loc, Value v,
                                  int64_t dim) {
   ShapedType type = v.getType().cast<ShapedType>();
