@@ -836,7 +836,7 @@ def LibdeviceCallOp : Op<LinalgExt_Dialect, "libdevice_call", [
       %add = linalg_ext.libdevice_call
              ins(%arg0, %arg1 : tensor<16x10x10x64xi32>, tensor<16x10x10x64xi32>)
              outs(%fill : tensor<16x10x10x64xi32>)
-             symbol = "__cn_vector_add_s32" -> tensor<16x10x10x64xi32>
+             symbol = "__vector_add_s32" -> tensor<16x10x10x64xi32>
     ```
   }];
 
