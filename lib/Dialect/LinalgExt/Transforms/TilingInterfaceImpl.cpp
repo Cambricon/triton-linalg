@@ -82,10 +82,8 @@ void replaceTiledOperandsForScalar<triton::linalg_ext::MakeRangeOp>(
     Location loc, Operation *op, OpBuilder &b, ArrayRef<OpFoldResult> sizes,
     SmallVector<Value> &offsetValues, SmallVector<Value> &tiledOperands) {
   auto makeRange = dyn_cast<triton::linalg_ext::MakeRangeOp>(op);
-  Value offsetVar =
-      offsetValues[0].getDefiningOp<affine::AffineApplyOp>().getResult();
   Value newStartValue =
-      b.create<arith::IndexCastOp>(loc, b.getI32Type(), offsetVar);
+      b.create<arith::IndexCastOp>(loc, b.getI32Type(), offsetValues[0]);
   SmallVector<Value> sizeValues =
       getValueOrCreateConstantIndexOp(b, loc, sizes);
   Value sizeValue =
