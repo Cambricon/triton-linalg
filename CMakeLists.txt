@@ -7,5 +7,3 @@ add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(bin)
 add_subdirectory(test)
-
-add_triton_plugin(TritonLinalg ${CMAKE_CURRENT_SOURCE_DIR}/triton_linalg.cc LINK_LIBS AuxiliaryDialect LinalgExtDialect)
