@@ -412,13 +412,26 @@ Value TritonPtrConversionBase::transformInputWithTransposeAndDimInfo(
 //===----------------------------------------------------------------------===//
 // TritonPtrLoadStoreOpConversionBase
 //===----------------------------------------------------------------------===//
-
 const triton::AxisInfoExt *
 TritonPtrLoadStoreOpConversionBase::getAxisInfo(Value ptr) const {
   auto *lattice = solver.lookupState<AxisInfoLattice>(ptr);
   if (!lattice)
     return nullptr;
   return &lattice->getValue();
+}
+
+SmallVector<OpFoldResult> TritonPtrLoadStoreOpConversionBase::getMaskedOffsets(
+    int64_t rank, std::optional<MaskTracker> maskTracker,
+    ConversionPatternRewriter &rewriter) const {
+  auto zeroAttr = rewriter.getIndexAttr(0);
+  SmallVector<OpFoldResult> offsets(rank, zeroAttr);
+  if (maskTracker)
+    offsets = SmallVector<OpFoldResult>(maskTracker->getStarts());
+  // Reassign start point which is failed to analyze to 0.
+  std::for_each(offsets.begin(), offsets.end(), [zeroAttr](auto &ofr) {
+    ofr = ofr ? ofr : OpFoldResult(zeroAttr);
+  });
+  return offsets;
 }
 
 SmallVector<DimInfo> TritonPtrLoadStoreOpConversionBase::getDimInfos(
@@ -621,235 +634,6 @@ Value TritonPtrScalarConversionBase::getMemRef(
 //===----------------------------------------------------------------------===//
 // TritonPtrScatterConversionBase
 //===----------------------------------------------------------------------===//
-int64_t TritonPtrScatterConversionBase::getWindowRank(
-    ArrayRef<int64_t> shape, ArrayRef<int64_t> perms,
-    std::optional<MaskTracker> tracker, const triton::AxisInfoExt &axisInfo) const {
-  auto rank = shape.size();
-  int64_t windowRank = 0;
-  int64_t stride = 1;
-  for (size_t i = 0; i < rank; ++i) {
-    auto dim = perms[rank - 1 - i];
-    // If fail to analyze mask tracker, stop searching.
-    if (tracker && !tracker->getStarts()[dim])
-      break;
-
-    // Check whether current dimension is broadcastable.
-    if (axisInfo.isConstantDim(shape, dim))
-      continue;
-
-    // Check whether current dimension is contiguous.
-    if (!axisInfo.isStrideDim(shape, dim) ||
-        axisInfo.getStrideValue(dim) != stride)
-      break;
-
-    ++windowRank;
-
-    // If only use part of current dim, stop searching.
-    if (tracker) {
-      auto size = getConstantIntValue(tracker->getSizes()[dim]);
-      if (!size || size != shape[dim])
-        break;
-    }
-
-    // Update stride value for previous dim.
-    stride *= shape[dim];
-  }
-
-  return windowRank;
-}
-
-SmallVector<OpFoldResult> TritonPtrLoadStoreOpConversionBase::getMaskedOffsets(
-    int64_t rank, std::optional<MaskTracker> maskTracker,
-    ConversionPatternRewriter &rewriter) const {
-  auto zeroAttr = rewriter.getIndexAttr(0);
-  SmallVector<OpFoldResult> offsets(rank, zeroAttr);
-  if (maskTracker)
-    offsets = SmallVector<OpFoldResult>(maskTracker->getStarts());
-  // Reassign start point which is failed to analyze to 0.
-  std::for_each(offsets.begin(), offsets.end(), [zeroAttr](auto &ofr) {
-    ofr = ofr ? ofr : OpFoldResult(zeroAttr);
-  });
-  return offsets;
-}
-
-Value TritonPtrScatterConversionBase::getIndiceOperandForScatteredOp(
-    Location loc, Value originIndice, int64_t windowRank,
-    ArrayRef<OpFoldResult> offsets, ArrayRef<OpFoldResult> sizes,
-    ArrayRef<int64_t> permutations, ArrayRef<DimInfo> dimInfos,
-    ConversionPatternRewriter &rewriter) const {
-  auto zeroAttr = rewriter.getIndexAttr(0);
-  SmallVector<OpFoldResult> defaultOffsets(dimInfos.size(), zeroAttr);
-  auto indice = transformInputWithTransposeAndDimInfo(
-      originIndice, permutations, dimInfos, defaultOffsets, rewriter);
-
-  auto indiceType = indice.getType().dyn_cast<RankedTensorType>();
-  int64_t rank = indiceType.getRank();
-  unsigned batch = rank - windowRank;
-
-  // Set extract slice sizes info by resetting the dim size of window to 1.
-  auto indiceSizes = permutateAndRemoveBroadcastDims<OpFoldResult>(
-      sizes, permutations, dimInfos);
-  auto oneAttr = rewriter.getIndexAttr(1);
-  std::fill(indiceSizes.begin() + batch, indiceSizes.end(),
-            OpFoldResult(oneAttr));
-
-  // Set extract slice offsets info.
-  // 1. Set offsets of batch dims and the first window dim to the start
-  // of mask state.
-  // 2. Set offsets of other window dims to 0.
-  auto transposedOffsets = permutateAndRemoveBroadcastDims<OpFoldResult>(
-      offsets, permutations, dimInfos);
-  SmallVector<OpFoldResult> indiceOffsets(rank, zeroAttr);
-  std::copy(transposedOffsets.begin(), transposedOffsets.begin() + batch,
-            indiceOffsets.begin());
-  // Add mask start of the first window dim.
-  if (windowRank > 0)
-    indiceOffsets[batch] = transposedOffsets[batch];
-
-  // Set extract slice strides to 1.
-  SmallVector<OpFoldResult> indiceStrides(rank, oneAttr);
-  indice = extractSliceAndDropLastNdims(loc, indice, indiceOffsets, indiceSizes,
-                                        indiceStrides, rank - batch, rewriter);
-  // Add a unit dim to the last.
-  indice = appendUnitDim(rewriter, loc, indice);
-
-  return indice;
-}
-
-Value TritonPtrScatterConversionBase::getMaskOperandForScatteredOp(
-    Location loc, Value originMask, int64_t windowRank,
-    ArrayRef<OpFoldResult> sizes, ArrayRef<int64_t> permutations,
-    ArrayRef<DimInfo> dimInfos, std::optional<MaskTracker> maskTracker,
-    ConversionPatternRewriter &rewriter) const {
-  if (!maskTracker)
-    return Value();
-
-  // If the mask tracker for a broadcast dim fails, perform reduction with
-  // arith.ori operation to determine whether the specific indice is masked.
-  SmallVector<int64_t> reductionDims;
-  for (const auto &[index, dimInfo] : llvm::enumerate(dimInfos)) {
-    if (dimInfo.isBroadcastDim() &&
-        !static_cast<bool>(maskTracker->getSizes()[index]))
-      reductionDims.push_back(index);
-  }
-  Value mask = originMask;
-  if (!reductionDims.empty()) {
-    auto maskTy = originMask.getType().cast<ShapedType>();
-    assert((!ShapedType::isDynamicShape(maskTy.getShape())) &&
-           "value shape should be static");
-    SmallVector<int64_t> shape(maskTy.getShape());
-    SmallVector<int64_t> initShape;
-    for (size_t i = 0, j = 0; i < shape.size(); ++i) {
-      if (j >= reductionDims.size() || i != reductionDims[j])
-        initShape.push_back(shape[i]);
-      else
-        ++j;
-    }
-    Value init = rewriter.create<tensor::EmptyOp>(loc, initShape,
-                                                  maskTy.getElementType());
-    auto identity = getIdentityValueAttr(
-        arith::AtomicRMWKind::ori, maskTy.getElementType(), rewriter, loc);
-    Value constantOp = rewriter.create<arith::ConstantOp>(loc, identity);
-    Value reductionInit = rewriter
-                              .create<linalg::FillOp>(
-                                  loc, ValueRange{constantOp}, ValueRange{init})
-                              .result();
-    Value reductionMask =
-        rewriter
-            .create<linalg::ReduceOp>(
-                loc, ValueRange{originMask}, ValueRange{reductionInit},
-                reductionDims,
-                [](OpBuilder &b, Location loc, ValueRange args) {
-                  Value res = b.create<arith::OrIOp>(loc, args[0], args[1]);
-                  b.create<linalg::YieldOp>(loc, res);
-                })
-            .getResult(0);
-    // Broadcast the reduced mask to the original shape.
-    Value maskInit =
-        rewriter.create<tensor::EmptyOp>(loc, shape, maskTy.getElementType());
-    mask = rewriter
-               .create<linalg::BroadcastOp>(loc, reductionMask, maskInit,
-                                            reductionDims)
-               ->getResult(0);
-  }
-
-  auto zeroAttr = rewriter.getIndexAttr(0);
-  SmallVector<OpFoldResult> starts(maskTracker->getStarts());
-  SmallVector<OpFoldResult> transposedStarts =
-      permutateAndRemoveBroadcastDims<OpFoldResult>(starts, permutations,
-                                                    dimInfos);
-  std::for_each(starts.begin(), starts.end(), [zeroAttr](auto &ofr) {
-    ofr = ofr ? ofr : OpFoldResult(zeroAttr);
-  });
-  int64_t rank = transposedStarts.size();
-  int64_t batch = rank - windowRank;
-  // Cases which need mask in gather/scatter operations:
-  // 1. For cases with batch = 0.
-  // 2. For cases with batch > 0, and there exists batch dims whose mask is
-  // failed to analyze.
-  bool needMask =
-      batch == 0 ||
-      std::any_of(transposedStarts.begin(), transposedStarts.begin() + batch,
-                  [](auto ofr) { return !static_cast<bool>(ofr); });
-  if (!needMask)
-    return Value();
-
-  // Only assign the starts of mask tracker for broadcast dimensions.
-  for (const auto &dimInfo : llvm::enumerate(dimInfos))
-    if (!dimInfo.value().isBroadcastDim())
-      starts[dimInfo.index()] = zeroAttr;
-  mask = transformInputWithTransposeAndDimInfo(mask, permutations, dimInfos,
-                                               starts, rewriter);
-  // Drop the last windowRank dims.
-  auto oneAttr = rewriter.getIndexAttr(1);
-  SmallVector<OpFoldResult> strides(rank, oneAttr);
-  SmallVector<OpFoldResult> transposedSizes =
-      permutateAndRemoveBroadcastDims<OpFoldResult>(sizes, permutations,
-                                                    dimInfos);
-  std::for_each(
-      transposedStarts.begin(), transposedStarts.end(),
-      [zeroAttr](auto &ofr) { ofr = ofr ? ofr : OpFoldResult(zeroAttr); });
-  return extractSliceAndDropLastNdims(loc, mask, transposedStarts,
-                                      transposedSizes, strides, windowRank,
-                                      rewriter);
-}
-
-bool TritonPtrScatterConversionBase::checkIfConsiderMaskForWindowAnalysis(
-    Operation *op, ArrayRef<int64_t> permutations, ArrayRef<DimInfo> dimInfos,
-    const MaskTracker &tracker) const {
-  if (auto storeOp = dyn_cast<triton::StoreOp>(op))
-    return static_cast<bool>(storeOp.getMask());
-
-  auto loadOp = dyn_cast<triton::LoadOp>(op);
-  assert(loadOp && "unsupport operation type.");
-  // Retrieve the memory model based on module attribute.
-  auto module = op->getParentOfType<ModuleOp>();
-  if (!isLinearMemory(module))
-    return static_cast<bool>(loadOp.getMask());
-
-  if (!loadOp.getOther())
-    return false;
-
-  // If all dims are analyzed successfully, just igonore mask.
-  if (llvm::all_of(tracker.getStarts(),
-                   [](auto ofr) { return static_cast<bool>(ofr); }))
-    return false;
-
-  auto starts = permutateAndRemoveBroadcastDims<OpFoldResult>(
-      tracker.getStarts(), permutations, dimInfos);
-  if (starts.empty())
-    return false;
-
-  // There is a tradeoff between two strategies when other exists:
-  // a. Contiguously load and select by mask; b. Masked load.
-  // Currently, we force to contiguously load only when mask of the last
-  // dimension is failed to analyze.
-  return static_cast<bool>(starts.back());
-}
-
-// Abbreviation for ScatteredInfo.
-using ScatteredInfo = TritonPtrScatterConversionBase::ScatteredInfo;
-
 Value TritonPtrScatterConversionBase::getDynamicMemRef(
     Location loc, Value ptr, RankedTensorType tensorType,
     ConversionPatternRewriter &rewriter, StringAttr cacheMode) const {

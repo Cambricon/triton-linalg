@@ -320,12 +320,6 @@ class TritonPtrScatterConversionBase
     : public TritonPtrLoadStoreOpConversionBase {
   using TritonPtrLoadStoreOpConversionBase::TritonPtrLoadStoreOpConversionBase;
 
-public:
-  struct ScatteredInfo {
-    int64_t windowRank;
-    Value indice, mask;
-  };
-
 protected:
   /// Get the dynamic memref, it returns as follow:
   /// ```mlir
@@ -334,39 +328,6 @@ protected:
   Value getDynamicMemRef(Location loc, Value ptr, RankedTensorType tensorType,
                          ConversionPatternRewriter &rewriter,
                          StringAttr cacheMode = nullptr) const;
-
-private:
-  /// Check whether considering mask operand during the determination of
-  /// contiguous dimension numbers. For `tt.store`, the optional mask operand
-  /// must be accounted for, if exists. For `tt.load`, mask is considered only
-  /// when executing on linear memory mode and analysis of the last dimension
-  /// fails.
-  bool checkIfConsiderMaskForWindowAnalysis(Operation *op,
-                                            ArrayRef<int64_t> permutations,
-                                            ArrayRef<DimInfo> dimInfos,
-                                            const MaskTracker &tracker) const;
-
-  /// Get the rank of scattered io window. Dimensions in window must be
-  /// contiguous, and the masked size equals to window size, if tracker exists.
-  int64_t getWindowRank(ArrayRef<int64_t> shape, ArrayRef<int64_t> perms,
-                        std::optional<MaskTracker> tracker,
-                        const triton::AxisInfoExt &axisInfo) const;
-
-  /// Get the indice operand needed in gather/scatter operations.
-  Value getIndiceOperandForScatteredOp(
-      Location loc, Value originIndice, int64_t windowRank,
-      ArrayRef<OpFoldResult> offsets, ArrayRef<OpFoldResult> sizes,
-      ArrayRef<int64_t> permutations, ArrayRef<DimInfo> dimInfos,
-      ConversionPatternRewriter &rewriter) const;
-
-  /// Get the mask operand needed in gather/scatter operations.
-  Value getMaskOperandForScatteredOp(Location loc, Value originMask,
-                                     int64_t windowRank,
-                                     ArrayRef<OpFoldResult> sizes,
-                                     ArrayRef<int64_t> permutations,
-                                     ArrayRef<DimInfo> dimInfos,
-                                     std::optional<MaskTracker> maskTracker,
-                                     ConversionPatternRewriter &rewriter) const;
 };
 
 class TritonTensorPtrLoadStoreOpConversionBase
