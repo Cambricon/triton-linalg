@@ -1,10 +1,10 @@
 # triton-linalg
 
-A shared middle-layer for the Triton Compiler. Currently, it has successfully supported the Cambrian backend as a front-end representation,
+A project dedicated to converting the Triton Dialect to the Linalg Dialect for the Triton compiler. Currently, it has successfully supported the Cambricon backend as a front-end representation,
 and functionally, it is capable of handling nearly all features of the Triton language.
 
-In the era of artificial intelligence, numerous domain-specific architectures (DSA) have emerged to meet performance demands. 
-To optimize the efficiency of program executed on these architectures, designers often define a series of coarse-grained operators. 
+In the era of artificial intelligence, numerous domain-specific architectures (DSA) have emerged to meet performance demands.
+To optimize the efficiency of program executed on these architectures, designers often define a series of coarse-grained operators.
 These operators are tailor-made for specific tasks, enabling the hardware to handle complex computational
 demands more efficiently. For this purpose, the `triton-linalg` repository adheres to several principles during the conversion process:
 
@@ -95,10 +95,10 @@ As part of the conversion process, there are three important analyses:
 
 ### Conversion
 
-We introduce the `TritonToLinalg` conversion pass that converts the `triton` dialects to the `linalg` dialect on *tensors*. 
-This means the resulting IR is fully compatible with `linalg` tiling and fusion transformation passes. 
+We introduce the `TritonToLinalg` conversion pass that converts the `triton` dialects to the `linalg` dialect on *tensors*.
+This means the resulting IR is fully compatible with `linalg` tiling and fusion transformation passes.
 As mentioned in the `Pointer analysis`'s description, we do however have to deal with memref instructions at the
-load and store boundaries and have to convert them to tensors using `bufferization.to_tensor`. 
+load and store boundaries and have to convert them to tensors using `bufferization.to_tensor`.
 Here's a simple example of what the IR looks like:
 
 <a id="add_kernel"></a>
@@ -157,9 +157,10 @@ module {
 Important details to note is the handling of pointers(not block pointers) for `tt.load` and `tt.store` operations.
 The pointers are mainly categorized into continuous(pointer to a tensor) and discrete cases.
 
-1. Continuous case: 
+1. Continuous case:
    + Based on the pointer tensor information obtained from `AxisInfoAnalysis`, combined with the offsets tracked by the `Pointer Offsets Tracker`, the actual pointer offsets/strides can be calculated. Then, using `aux.view`, `buffertion.to_tensor` and `linalg.copy`, it is converted to tensor semantics.
-2 Discrete case: 
+
+2. Discrete case:
    + We cannot deduce continuity, nor can we determine the actual size of the space pointed to by the pointer. Therefore, we assume that the pointer points to an infinitely large space. Then using `aux.view`, `buffertion.to_tensor` and `linalg_ext.gather`, it is converted to tensor semantics.
 
 ### Transforms
@@ -223,5 +224,4 @@ module {
 
 ## Related work
 
-Its approach is similar to Microsoft's [triton-shared](https://github.com/microsoft/triton-shared.git),
-the main difference is the pointer analysis.
+ - [triton-shared](https://github.com/microsoft/triton-shared.git)
