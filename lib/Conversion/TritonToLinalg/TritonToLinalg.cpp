@@ -14,7 +14,6 @@
 #include <utility>
 #include <vector>
 
-#include "triton-linalg/Analysis/Utils.h"
 #include "triton-linalg/Utils/Utils.h"
 #include "triton-linalg/Conversion/ArithToLinalg/ArithToLinalg.h"
 #include "triton-linalg/Conversion/MathToLinalg/MathToLinalg.h"
@@ -33,6 +32,9 @@
 #include "triton-linalg/Dialect/Utils/Conventions.h"
 #include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
+#include "mlir/Analysis/DataFlow/ConstantPropagationAnalysis.h"
+#include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
+#include "mlir/Analysis/DataFlow/SparseAnalysis.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -93,7 +95,6 @@ class MLIRContext;
 
 using namespace mlir;
 using namespace triton;
-using namespace triton::dataflow;
 
 /// Return a new shape that contains the equal elements of srcShape and
 /// dstShape.
@@ -1274,7 +1275,9 @@ void TritonToLinalgPass::runOnOperation() {
   });
   target.addLegalOp<triton::GetProgramIdOp, triton::GetNumProgramsOp>();
 
-  auto solver = createDataFlowSolver();
+  auto solver = std::make_unique<mlir::DataFlowSolver>();
+  solver->load<mlir::dataflow::DeadCodeAnalysis>();
+  solver->load<mlir::dataflow::SparseConstantPropagation>();
   solver->load<AxisInfoAnalysisExt>();
   if (failed(solver->initializeAndRun(getOperation())))
     return signalPassFailure();
