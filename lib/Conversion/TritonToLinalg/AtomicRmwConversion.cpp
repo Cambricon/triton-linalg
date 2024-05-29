@@ -10,6 +10,7 @@
 #include "triton-linalg/Conversion/TritonToLinalg/AtomicRmwConversion.h"
 #include "triton-linalg/Conversion/TritonToLinalg/TritonPointerConversion.h"
 #include "triton-linalg/Conversion/TritonToLinalg/TypeConverter.h"
+#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
 #include "triton-linalg/Dialect/Triton/Utils/PointerMetaInfoTracker.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -140,10 +141,14 @@ public:
     if (!maybeKind)
       return failure();
 
+    auto maybeMemoryOrder = triton::getLinalgExtAtomicMemoryOrder(op.getSem());
+    if (failed(maybeMemoryOrder))
+      return failure();
+
     SmallVector<Value> atomicInits{originTensor, atomicResultInit};
     Value atomicResult = rewriter
                              .create<linalg_ext::GatherAtomicRMWOp>(
-                                 loc, atomicInputs, atomicInits, *maybeKind)
+                                 loc, atomicInputs, atomicInits, *maybeKind, *maybeMemoryOrder)
                              .getResult()[1];
     Value scalarRet =
         rewriter
@@ -228,10 +233,14 @@ public:
     if (!maybeKind)
       return failure();
 
+    auto maybeMemoryOrder = getLinalgExtAtomicMemoryOrder(op.getSem());
+    if (failed(maybeMemoryOrder))
+      return failure();
+
     SmallVector<Value> atomicInits{originTensor, atomicResultInit};
     Value out = rewriter
                     .create<linalg_ext::GatherAtomicRMWOp>(
-                        loc, atomicInputs, atomicInits, *maybeKind)
+                        loc, atomicInputs, atomicInits, *maybeKind, *maybeMemoryOrder)
                     ->getResult(1);
 
     // Reshape output to origin shape.

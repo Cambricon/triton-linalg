@@ -9,6 +9,7 @@
 #include "triton-linalg/Conversion/TritonToLinalg/AtomicCASConversion.h"
 #include "triton-linalg/Conversion/TritonToLinalg/TritonPointerConversion.h"
 #include "triton-linalg/Conversion/TritonToLinalg/TypeConverter.h"
+#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
 #include "triton-linalg/Dialect/Triton/Utils/PointerMetaInfoTracker.h"
 #include "triton-linalg/Dialect/Utils/ShapeUtils.h"
@@ -82,9 +83,14 @@ public:
     auto init = rewriter.create<tensor::EmptyOp>(
         loc, originTensorTy.getShape(), originTensorTy.getElementType());
 
+    auto maybeMemoryOrder = triton::getLinalgExtAtomicMemoryOrder(op.getSem());
+    if (failed(maybeMemoryOrder))
+      return failure();
+
     rewriter.create<triton::linalg_ext::AtomicCASOp>(
         loc, originTensor.getType(),
-        ValueRange({originTensor, cmpValue, valValue}), init);
+        ValueRange({originTensor, cmpValue, valValue}), init,
+        *maybeMemoryOrder);
     Value scalarRet =
         rewriter
             .create<tensor::ExtractOp>(loc, op.getResult().getType(), init,
@@ -132,11 +138,17 @@ public:
 
     auto init = rewriter.create<tensor::EmptyOp>(loc, resultTy.getShape(),
                                                  resultTy.getElementType());
+
+    auto maybeMemoryOrder = triton::getLinalgExtAtomicMemoryOrder(op.getSem());
+    if (failed(maybeMemoryOrder))
+      return failure();
+
     Value ret =
         rewriter
             .create<triton::linalg_ext::AtomicCASOp>(
                 loc, op.getResult().getType(),
-                ValueRange({originTensor, op.getCmp(), op.getVal()}), init)
+                ValueRange({originTensor, op.getCmp(), op.getVal()}), init,
+                *maybeMemoryOrder)
             .getResults()[0];
     rewriter.replaceOp(op, ret);
     return success();
@@ -173,11 +185,14 @@ public:
         rewriter.create<bufferization::ToTensorOp>(loc, memref, true, true);
     auto init = rewriter.create<tensor::EmptyOp>(loc, resultTy.getShape(),
                                                  resultTy.getElementType());
+    auto maybeMemoryOrder = triton::getLinalgExtAtomicMemoryOrder(op.getSem());
+    if (failed(maybeMemoryOrder))
+      return failure();
     rewriter.replaceOpWithNewOp<triton::linalg_ext::GatherAtomicCASOp>(
         op, op.getResult().getType(),
         ValueRange(
             {originTensor, op.getCmp(), op.getVal(), tracker.getOffset()}),
-        init);
+        init, *maybeMemoryOrder);
     return success();
   }
 };

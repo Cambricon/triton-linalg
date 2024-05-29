@@ -123,3 +123,20 @@ StringAttr mlir::triton::getCacheModeAttr(MLIRContext *context,
     return nullptr;
   }
 }
+
+FailureOr<triton::linalg_ext::MemoryOrder>
+mlir::triton::getLinalgExtAtomicMemoryOrder(triton::MemSemantic memSem) {
+  switch (memSem) {
+  case triton::MemSemantic::RELAXED:
+    return triton::linalg_ext::MemoryOrder::relaxed;
+  case triton::MemSemantic::ACQUIRE:
+    return triton::linalg_ext::MemoryOrder::acquire;
+  case triton::MemSemantic::RELEASE:
+    return triton::linalg_ext::MemoryOrder::release;
+  case triton::MemSemantic::ACQUIRE_RELEASE:
+    return triton::linalg_ext::MemoryOrder::acq_rel;
+  default:
+    llvm_unreachable("Invalid MemoryOrder");
+    return failure();
+  }
+}

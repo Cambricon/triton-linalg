@@ -102,18 +102,13 @@ public:
         getDynamicDimsValue(rewriter, loc, sliceTensor));
     sliceTensor = rewriter.create<linalg::CopyOp>(loc, sliceTensor, emptyTensor)
                       .getResultTensors()[0];
-    if (!op.getMask()) {
-      sliceTensor = transformResultWithTransposeAndDimInfo(
-          sliceTensor, ptrInfo->permutations, ptrInfo->dimInfos, ptrInfo->sizes,
-          rewriter);
-      rewriter.replaceOp(op, sliceTensor);
-      return success();
-    }
-
     sliceTensor = transformResultWithTransposeAndDimInfo(
         sliceTensor, ptrInfo->permutations, ptrInfo->dimInfos, ptrInfo->sizes,
         rewriter);
-
+    if (!op.getMask()) {
+      rewriter.replaceOp(op, sliceTensor);
+      return success();
+    }
     sliceTensor = getPadOrInsertOpWithOther(
         loc, op.getOther(),
         RankedTensorType::get(resultTy.getShape(), resultTy.getElementType()),
@@ -283,8 +278,6 @@ public:
       return failure();
 
     auto loc = op.getLoc();
-    auto mask = op.getMask();
-
     PointerMetaInfoTracker tracker;
     if (failed(tracker.parse(op.getPtr(), loc, rewriter)))
       return failure();
@@ -448,7 +441,7 @@ public:
       return rewriter.notifyMatchFailure(
           loc, "Load with tensor pointers do not have mask and other");
 
-    TensorPointerMetaInfoTracker tracker;
+    triton::TensorPointerMetaInfoTracker tracker;
     if (tracker.parse(op.getPtr(), loc, rewriter).failed())
       return failure();
     SmallVector<int64_t> permutations =
@@ -526,7 +519,7 @@ public:
       return rewriter.notifyMatchFailure(
           loc, "Store with tensor pointers do not have mask");
 
-    TensorPointerMetaInfoTracker tracker;
+    triton::TensorPointerMetaInfoTracker tracker;
     if (tracker.parse(op.getPtr(), loc, rewriter).failed())
       return failure();
 
@@ -561,7 +554,6 @@ public:
     return success();
   }
 };
-
 } // namespace
 
 void triton::populateTritonLoadStoreToLinalgPatterns(
@@ -571,7 +563,7 @@ void triton::populateTritonLoadStoreToLinalgPatterns(
   patterns
       .add<TritonContiguousLoadOpConversion, TritonContiguousStoreOpConversion,
            TritonScalarLoadOpConversion, TritonScalarStoreOpConversion>(
-          converter, context, solver, 1);
+          converter, context, solver, 100);
   // Make gather/scatter pattern run at last.
   patterns
       .add<TritonScatteredLoadOpConversion, TritonScatteredStoreOpConversion>(
