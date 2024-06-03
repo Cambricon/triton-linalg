@@ -26,6 +26,10 @@ namespace scf {
 class SCFDialect;
 } // namespace scf
 
+namespace tensor {
+class TensorDialect;
+} // namespace tensor
+
 namespace triton {
 class TritonDialect;
 } // namespace triton

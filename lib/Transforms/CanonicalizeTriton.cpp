@@ -7,6 +7,7 @@
 #include <assert.h>
 #include <memory>
 #include <optional>
+#include <stddef.h>
 #include <stdint.h>
 #include <utility>
 
@@ -15,11 +16,15 @@
 #include "triton-linalg//Utils/MaskTracker.h"
 #include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/IR/BuiltinAttributeInterfaces.h" // IWYU pragma: keep
+#include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Operation.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/IR/Region.h"
 #include "mlir/IR/TypeUtilities.h"
@@ -40,6 +45,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/ADT/TypeSwitch.h"
 #include "llvm/ADT/ilist_iterator.h"
 #include "llvm/ADT/iterator.h"
 #include "llvm/ADT/iterator_range.h"
@@ -51,6 +57,53 @@ using namespace triton;
 namespace mlir {
 class MLIRContext;
 } // namespace mlir
+
+bool isAllOneSizeType(ShapedType inputType) {
+  return inputType.getRank() == 0 ||
+         llvm::all_of(inputType.getShape(),
+                      [](int64_t size) { return size == int64_t(1); });
+}
+
+/// Get base mask value before broadcasting.
+static std::optional<Value> getBaseMaskVal(Value maskVal) {
+  Value baseMaskVal = nullptr;
+  if (maskVal) {
+    // If the mask value is a 0-rank tensor or a tensor with all dimensions of
+    // one-size, return it.
+    // For example:
+    // - %mask : tensor<i1>
+    // - %mask = tensor<1x1xi1>
+    if (auto maskTy = maskVal.getType().dyn_cast<ShapedType>()) {
+      if (isAllOneSizeType(maskTy))
+        return maskVal;
+    }
+
+    // The origin mask must be obtained by broadcasting an i1.
+    auto defineOp = maskVal.getDefiningOp();
+    if (defineOp) {
+      llvm::TypeSwitch<Operation *>(defineOp)
+          // %mask = tt.splat i1 -> <axbxi1>
+          .Case<triton::SplatOp>(
+              [&](triton::SplatOp splatOp) { baseMaskVal = splatOp.getSrc(); })
+          // %mask = tt.broadcast tensor<i1> -> <axbxi1>
+          // %mask = tt.broadcast tensor<1x1xi1> -> <ax1xbx1xi1>
+          .Case<triton::BroadcastOp>([&](triton::BroadcastOp broadcastOp) {
+            Value src = broadcastOp.getSrc();
+            if (isAllOneSizeType(src.getType().cast<ShapedType>()))
+              baseMaskVal = src;
+          })
+          // %mask = arith.constant dense : tensor<axbxi1>
+          .Case<arith::ConstantOp>([&](arith::ConstantOp constantOp) {
+            auto value = constantOp.getValue().dyn_cast<DenseElementsAttr>();
+            if (value && value.isSplat())
+              baseMaskVal = constantOp.getResult();
+          });
+    }
+  }
+  if (baseMaskVal)
+    return baseMaskVal;
+  return std::nullopt;
+}
 
 namespace {
 /// MaskOpsOrganizer is a template class designed for reorganizing
@@ -343,6 +396,122 @@ public:
   }
 };
 
+/// This pattern applies to memory access operations like `tt.load` and
+/// `tt.store`. If their mask is created through broadcasting an `i1`, it
+/// results in subsequent conversion to scalar memory access operations. This
+/// pattern converts memory access operations with this specific mask into
+/// `scf.if` + the memory access operation(without mask).
+///
+/// Example 1:
+///
+/// ``` mlir
+///   %other = arith.constant dense<0.000000e+00> : tensor<1x1024xf32>
+///   %mask = tt.splat %bool : i1 -> tensor<1x1024xi1>
+///   %res = tt.load %ptr, %mask, %other : tensor<1x1024x!tt.ptr<f32>>
+///   tt.return %res : tensor<1x1024xf32>
+/// ```
+/// is converted to:
+/// ``` mlir
+///   %constant = arith.constant dense<0.000000e+00> : tensor<1x1024xf32>
+///   %res = scf.if (%bool) -> tensor<1x1024xf32> {
+///     %load = tt.load %ptr : tensor<1x1024x!tt.ptr<f32>>
+///     scf.yield %load : tensor<1x1024xf32>
+///   } else {
+///     scf.yield %constant : tensor<1x1024xf32>
+///   }
+///   tt.return %res : tensor<1x1024xf32>
+/// ```
+///
+/// Example 2:
+///
+/// ``` mlir
+///   %mask = tt.splat %bool : i1 -> tensor<1x1024xi1>
+///   tt.store %ptr, %val, %mask : tensor<1x1024x!tt.ptr<f32>>
+/// ```
+/// is converted to:
+/// ``` mlir
+///   scf.if (%bool) {
+///     tt.store %ptr, %val : tensor<1x1024x!tt.ptr<f32>>
+///   }
+/// ```
+///
+/// Example 3:
+///
+/// ``` mlir
+///   %mask = tt.splat %bool : i1 -> tensor<64x64xi1>
+///   %res = tt.atomic_rmw fadd, relaxed, gpu, %ptr, %val, %mask :
+///       (tensor<64x64x!tt.ptr<f32>>, tensor<64x64xf32>, tensor<64x64xi1>)
+///        -> tensor<64x64xf32>
+///   tt.return %res : tensor<64x64xf32>
+/// ```
+/// is converted to:
+/// ``` mlir
+///   %constant = arith.constant dense<0.000000e+00> : tensor<64x64xi1>
+///   %res = scf.if (%bool) -> tensor<64x64xf32> {
+///     %atomic = tt.atomic_rmw fadd, relaxed, gpu, %ptr, %val :
+///         (tensor<64x64x!tt.ptr<f32>>, tensor<64x64xf32>) -> tensor<64x64xf32>
+///     scf.yield %atomic : tensor<64x64xf32>
+///   } else {
+///     scf.yield %constant : tensor<64x64xf32>
+///   }
+///   tt.return %res : tensor<64x64xf32>
+/// ```
+template <typename OpTy>
+class CanonicalizeTtMaskAccessPattern : public OpRewritePattern<OpTy> {
+  using OpRewritePattern<OpTy>::OpRewritePattern;
+  LogicalResult matchAndRewrite(OpTy op,
+                                PatternRewriter &rewriter) const override {
+    // This pattern only support load, store and atomic_rmw op.
+    if (!(llvm::isa<triton::LoadOp>(op) || llvm::isa<triton::StoreOp>(op) ||
+          llvm::isa<triton::AtomicRMWOp>(op)))
+      return failure();
+
+    std::optional<Value> baseMaskVal = getBaseMaskVal(op.getMask());
+    if (!baseMaskVal.has_value())
+      return failure();
+
+    auto loc = op->getLoc();
+    auto resTypes = op->getResultTypes();
+    // Create scf.if op.
+    Value condVal = baseMaskVal.value();
+    if (auto condValType = condVal.getType().dyn_cast<ShapedType>()) {
+      Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+      SmallVector<Value> indices;
+      for (int64_t i = 0; i < condValType.getRank(); ++i)
+        indices.push_back(zero);
+      condVal =
+          rewriter.create<tensor::ExtractOp>(loc, condVal, ValueRange(indices));
+    }
+    scf::IfOp ifOp = rewriter.create<scf::IfOp>(loc,
+                                                /*resultTypes*/ resTypes,
+                                                /*cond*/ condVal,
+                                                /*addElseBlock*/ true);
+
+    // Create new op in then region.
+    // Then region: new op(without mask) + yield(if new op has result)
+    rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+    op.getMaskMutable().clear();
+    auto newOp = rewriter.clone(*op);
+    if (auto loadOp = llvm::dyn_cast<triton::LoadOp>(*newOp))
+      loadOp.getOtherMutable().clear();
+
+    if (resTypes.empty()) {
+      rewriter.eraseOp(op);
+    } else {
+      rewriter.create<scf::YieldOp>(loc, newOp->getResults());
+      // If else region is empty, it will be fold in canonicalize.
+      // Else region: constant(0) + yield.
+      rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
+      // If the processed op has results, it will has only one result.
+      Value zeroVal = rewriter.create<arith::ConstantOp>(
+          loc, resTypes.front(), rewriter.getZeroAttr(resTypes.front()));
+      rewriter.create<scf::YieldOp>(loc, zeroVal);
+      rewriter.replaceOp(op, ifOp);
+    }
+
+    return success();
+  }
+};
 
 struct CanonicalizeTritonPass
     : public CanonicalizeTritonBase<CanonicalizeTritonPass> {
@@ -360,8 +529,10 @@ struct CanonicalizeTritonPass
     });
 
     RewritePatternSet patterns(&ctx);
-    patterns.insert<CanonicalizeTtBroadCastPattern, CanonicalizeTtLoadPattern>(
-        &ctx);
+    patterns.insert<CanonicalizeTtBroadCastPattern, CanonicalizeTtLoadPattern,
+                    CanonicalizeTtMaskAccessPattern<triton::LoadOp>,
+                    CanonicalizeTtMaskAccessPattern<triton::StoreOp>,
+                    CanonicalizeTtMaskAccessPattern<triton::AtomicRMWOp>>(&ctx);
 
     if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                             std::move(patterns)))) {

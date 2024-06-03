@@ -20,7 +20,8 @@ def CanonicalizeTriton : Pass<"canonicalize-triton", "::mlir::ModuleOp"> {
   }];
   let constructor = "mlir::triton::createCanonicalizeTritonPass()";
   let dependentDialects = [
-      "triton::TritonDialect"
+      "arith::ArithDialect", "scf::SCFDialect",
+      "tensor::TensorDialect", "triton::TritonDialect"
   ];
 }
 
