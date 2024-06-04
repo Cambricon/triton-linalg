@@ -177,7 +177,7 @@ LogicalResult PointerMetaInfoTracker::parseOp<triton::BroadcastOp>(
   return success();
 }
 
-LogicalResult
+FailureOr<bool>
 PointerMetaInfoTracker::parse(Value operand, Location loc,
                               ConversionPatternRewriter &rewriter) {
   auto *defOp = operand.getDefiningOp();
@@ -209,13 +209,15 @@ PointerMetaInfoTracker::parse(Value operand, Location loc,
               return ret;
             })
             .Default([](Operation *) { return failure(); });
-    if (res.succeeded() || !isProcessedSuccessfully)
-      return res;
+    if (res.succeeded())
+      return isProcessedSuccessfully;
+    if (res.failed() && !isProcessedSuccessfully)
+      return failure(); // res
   }
   if (!operand.getType().isa<triton::PointerType>())
     return rewriter.notifyMatchFailure(
         loc, "only support base ptr of triton scalar pointer");
   this->base = operand;
   this->offset = rewriter.create<arith::ConstantIntOp>(loc, 0, 32);
-  return success();
+  return true;
 }

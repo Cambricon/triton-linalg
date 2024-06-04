@@ -350,12 +350,12 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::ScatterOp>
           ValueRange({windowIndicesAndMask[0], windowIndicesAndMask[1],
                       windowIndicesAndMask[2]}),
           tiledInit, dimensionMap, concreteOp.getRangedData(),
-          concreteOp.getOverlapWindow());
+          concreteOp.getOverlapWindow(), concreteOp.getSignedIndice());
     } else {
       tiledScatterOp = b.create<triton::linalg_ext::ScatterOp>(
           loc, ValueRange({windowIndicesAndMask[0], windowIndicesAndMask[1]}),
           tiledInit, dimensionMap, concreteOp.getRangedData(),
-          concreteOp.getOverlapWindow());
+          concreteOp.getOverlapWindow(), concreteOp.getSignedIndice());
     }
 
     // Clean body region.
@@ -522,11 +522,13 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::GatherOp>
           loc,
           ValueRange(
               {tiledInput, windowIndicesAndMask[1], windowIndicesAndMask[2]}),
-          windowIndicesAndMask[0], dimensionMap, concreteOp.getRangedData());
+          windowIndicesAndMask[0], dimensionMap, concreteOp.getRangedData(),
+          concreteOp.getSignedIndice());
     } else {
       tiledGatherOp = b.create<triton::linalg_ext::GatherOp>(
           loc, ValueRange({tiledInput, windowIndicesAndMask[1]}),
-          windowIndicesAndMask[0], dimensionMap, concreteOp.getRangedData());
+          windowIndicesAndMask[0], dimensionMap, concreteOp.getRangedData(),
+          concreteOp.getSignedIndice());
     }
 
     // Clean body region.

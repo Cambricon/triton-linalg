@@ -68,7 +68,8 @@ def ScatterOp : LinalgExtBase_Op<"scatter", []> {
       TensorOrMemref:$init,
       DenseI64ArrayAttr:$dimension_map,
       DefaultValuedAttr<BoolAttr, "true">:$ranged_data,
-      DefaultValuedAttr<BoolAttr, "true">:$overlap_window
+      DefaultValuedAttr<BoolAttr, "true">:$overlap_window,
+      DefaultValuedAttr<BoolAttr, "true">:$signed_indice
     );
     let results = (outs Variadic<AnyTensor>:$result);
     let regions = (region SizedRegion<1>:$region);
@@ -77,6 +78,7 @@ def ScatterOp : LinalgExtBase_Op<"scatter", []> {
       attr-dict `dimension_map` `=` $dimension_map
                 `ranged_data` `(` $ranged_data `)`
                 `overlap_window` `(` $overlap_window `)`
+                `signed_indice` `(` $signed_indice `)`
       (`ins` `(` $inputs^ `:` type($inputs) `)`)?
       `outs` `(` $init `:` type($init) `)`
       $region (`->` type($result)^)?
@@ -86,6 +88,7 @@ def ScatterOp : LinalgExtBase_Op<"scatter", []> {
       OpBuilder<(ins "ValueRange":$inputs, "Value":$init,
         "ArrayRef<int64_t>": $dimensionMap, "bool":$rangedData,
         "bool":$overlapWindow,
+        "bool":$signed_indice,
         CArg<"function_ref<void(OpBuilder &, Location, ValueRange)>", "{}">:$region,
         CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
     ];
@@ -182,7 +185,8 @@ def GatherOp : LinalgExtBase_Op<"gather", []> {
       Variadic<TensorOrMemref>:$inputs,
       TensorOrMemref:$init,
       DenseI64ArrayAttr:$dimension_map,
-      DefaultValuedAttr<BoolAttr, "true">:$ranged_data
+      DefaultValuedAttr<BoolAttr, "true">:$ranged_data,
+      DefaultValuedAttr<BoolAttr, "true">:$signed_indice
     );
     let results = (outs Variadic<AnyTensor>:$result);
     let regions = (region SizedRegion<1>:$region);
@@ -190,6 +194,7 @@ def GatherOp : LinalgExtBase_Op<"gather", []> {
     let assemblyFormat = [{
       attr-dict `dimension_map` `=` $dimension_map
                 `ranged_data` `(` $ranged_data `)`
+                `signed_indice` `(` $signed_indice `)`
       (`ins` `(` $inputs^ `:` type($inputs) `)`)?
       `outs` `(` $init `:` type($init) `)`
       $region (`->` type($result)^)?
@@ -197,7 +202,8 @@ def GatherOp : LinalgExtBase_Op<"gather", []> {
     let hasFolder = 1;
     let builders = [
       OpBuilder<(ins "ValueRange":$inputs, "Value":$init,
-        "ArrayRef<int64_t>": $dimensionMap, "bool":$rangedData,
+        "ArrayRef<int64_t>": $dimensionMap,
+        "bool":$rangedData, "bool":$signed_indice,
         CArg<"function_ref<void(OpBuilder &, Location, ValueRange)>", "{}">:$region,
         CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
     ];

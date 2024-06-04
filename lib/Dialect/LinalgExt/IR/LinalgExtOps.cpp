@@ -1072,12 +1072,13 @@ static bool checkDimensionsMatch(ShapedType t1, ShapedType t2,
 
 void ScatterOp::build(
     OpBuilder &builder, OperationState &result, ValueRange inputs, Value init,
-    ArrayRef<int64_t> dimensionMap, bool rangedData, bool overlapWindow,
+    ArrayRef<int64_t> dimensionMap, bool rangedData,
+    bool overlapWindow, bool signedIndice,
     function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
     ArrayRef<NamedAttribute> attributes) {
   build(builder, result, TypeRange{}, inputs, init,
         DenseI64ArrayAttr::get(builder.getContext(), dimensionMap), rangedData,
-        overlapWindow);
+        overlapWindow, signedIndice);
   result.addAttributes(attributes);
 
   // Add output types for `RankedTensorType` output arguments.
@@ -1363,11 +1364,11 @@ LogicalResult ScanOp::verify() {
 //===----------------------------------------------------------------------===//
 void GatherOp::build(
     OpBuilder &builder, OperationState &result, ValueRange inputs, Value init,
-    ArrayRef<int64_t> dimensionMap, bool rangedData,
+    ArrayRef<int64_t> dimensionMap, bool rangedData, bool signedIndice,
     function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
     ArrayRef<NamedAttribute> attributes) {
   build(builder, result, TypeRange{}, inputs, init,
-        DenseI64ArrayAttr::get(builder.getContext(), dimensionMap), rangedData);
+        DenseI64ArrayAttr::get(builder.getContext(), dimensionMap), rangedData, signedIndice);
   result.addAttributes(attributes);
 
   // Add output types for `RankedTensorType` output arguments.
