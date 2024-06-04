@@ -31,6 +31,7 @@
 #include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
 #include "triton-linalg/Dialect/Utils/Conventions.h"
 #include "triton-linalg/Dialect/Utils/ArithUtils.h"
+#include "triton-linalg/Dialect/MathExt/IR/Math.h" // IWYU pragma: keep
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Analysis/DataFlow/ConstantPropagationAnalysis.h"
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
@@ -1409,6 +1410,15 @@ struct TritonPreciseDivFOpPattern
   }
 };
 
+struct TritonMulhiuiPattern : public OpConversionPattern<triton::MulhiUIOp> {
+  using OpConversionPattern<triton::MulhiUIOp>::OpConversionPattern;
+  LogicalResult
+  matchAndRewrite(triton::MulhiUIOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<math_ext::MulhiUIOp>(op, adaptor.getOperands());
+    return success();
+  }
+};
 
 } // namespace
 
@@ -1424,7 +1434,7 @@ populateTritonToLinalgPatterns(RewritePatternSet &patterns,
            TritonIntToPtrPattern, TritonTransPattern, TritonReturnOpConversion,
            TritonCallOpPattern, TritonFuncOpPattern, TritonViewPattern,
            TritonPrintPattern, TritonAssertOpPattern, TritonScanPattern,
-           TritonScanReturnPattern, TritonJoinPattern,
+           TritonScanReturnPattern, TritonJoinPattern, TritonMulhiuiPattern,
            TritonSplitPattern, TritonClampFOpPattern,
            TritonPreciseSqrtOpPattern, TritonPreciseDivFOpPattern>(converter,
                                                                    context);
@@ -1465,7 +1475,8 @@ void triton::TritonToLinalgPass::runOnOperation() {
       tensor::TensorDialect, memref::MemRefDialect, linalg::LinalgDialect,
       triton::linalg_ext::LinalgExtDialect, scf::SCFDialect>(
       [&](Operation *op) { return converter.isLegal(op); });
-  target.addDynamicallyLegalDialect<arith::ArithDialect, math::MathDialect>(
+  target.addDynamicallyLegalDialect<arith::ArithDialect, math::MathDialect,
+      math_ext::MathExtDialect>(
       [&](Operation *op) {
         return !op->getResultTypes().front().isa<ShapedType>();
       });
