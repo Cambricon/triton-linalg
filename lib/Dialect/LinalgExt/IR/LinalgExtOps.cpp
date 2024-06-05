@@ -1233,10 +1233,10 @@ void ScanOp::getAsmResultNames(function_ref<void(Value, StringRef)> setNameFn) {
 
 void ScanOp::build(
     OpBuilder &builder, OperationState &result, ValueRange inputs,
-    ValueRange inits, ArrayRef<int64_t> dimension,
+    ValueRange inits, ArrayRef<int64_t> dimension, bool reverse,
     function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
     ArrayRef<NamedAttribute> attributes) {
-  build(builder, result, TypeRange{}, inputs, inits, dimension);
+  build(builder, result, TypeRange{}, inputs, inits, dimension, reverse);
   result.addAttributes(attributes);
 
   // Add output types for `RankedTensorType` output arguments.

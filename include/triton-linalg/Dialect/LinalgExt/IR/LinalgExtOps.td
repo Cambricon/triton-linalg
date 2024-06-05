@@ -746,14 +746,16 @@ def ScanOp : LinalgExtBase_Op<"scan", [
     // Output arg and init arg
     Variadic<TensorOrMemref>:$inits,
     // Dimension arg
-    DenseI64ArrayAttr:$dimensions
+    DenseI64ArrayAttr:$dimensions,
+    // Reverse arg
+    BoolAttr:$reverse
   );
   let results = (outs Variadic<TensorOrMemref>:$results);
   let regions = (region SizedRegion<1>:$combiner);
 
   let builders = [
     OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$inits,
-      "ArrayRef<int64_t>":$dimensions,
+      "ArrayRef<int64_t>":$dimensions, "bool":$reverse,
       "function_ref<void(OpBuilder &, Location, ValueRange)>",
       CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
   ];
@@ -763,6 +765,7 @@ def ScanOp : LinalgExtBase_Op<"scan", [
     `ins` `(` $inputs `:` type($inputs) `)`
     `outs` `(` $inits `:` type($inits) `)`
     `dimensions` `=` $dimensions
+    `reverse` `=` $reverse
     $combiner (`->` type($results)^)?
   }];
 

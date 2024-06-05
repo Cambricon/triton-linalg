@@ -126,17 +126,19 @@ getBroadcastDimensions(ArrayRef<int64_t> srcShape, ArrayRef<int64_t> dstShape) {
 }
 
 static Value sliceFirst(ConversionPatternRewriter &rewriter, Location loc,
-                        Value input, int64_t dim) {
+                        Value input, int64_t dim, bool reverse=false) {
   ShapedType inputType = input.getType().cast<ShapedType>();
   auto sizes =
       llvm::to_vector(llvm::map_range(inputType.getShape(), [&](int64_t t) {
         return OpFoldResult(rewriter.getI64IntegerAttr(t));
       }));
   int64_t rank = inputType.getRank();
-  // Retrieve slice sizes of input.
-  sizes[dim] = rewriter.getIndexAttr(1);
   // Retrieve slice offsets of input.
   SmallVector<OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
+  if (reverse)
+    offsets[dim] = rewriter.getIndexAttr(inputType.getDimSize(dim) - 1);
+  // Retrieve slice sizes of input.
+  sizes[dim] = rewriter.getIndexAttr(1);
   // Retrieve slice strides of input.
   SmallVector<OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
   // Create the slice of input.
@@ -145,7 +147,7 @@ static Value sliceFirst(ConversionPatternRewriter &rewriter, Location loc,
 }
 
 static Value sliceRemaining(ConversionPatternRewriter &rewriter, Location loc,
-                            Value input, int64_t dim) {
+                            Value input, int64_t dim, bool reverse=false) {
   ShapedType inputType = input.getType().cast<ShapedType>();
   auto sizes =
       llvm::to_vector(llvm::map_range(inputType.getShape(), [&](int64_t t) {
@@ -156,7 +158,8 @@ static Value sliceRemaining(ConversionPatternRewriter &rewriter, Location loc,
   sizes[dim] = rewriter.getIndexAttr(inputType.getDimSize(dim) - 1);
   // Retrieve slice offsets of input.
   SmallVector<OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
-  offsets[dim] = rewriter.getIndexAttr(1);
+  if (!reverse)
+    offsets[dim] = rewriter.getIndexAttr(1);
   // Retrieve slice strides of input.
   SmallVector<OpFoldResult> strides(rank, rewriter.getIndexAttr(1));
   // Create the slice of input.
@@ -1174,7 +1177,8 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
 
       // 1. Slice the remaining elements of input operands.
       {
-        Value slice = sliceRemaining(rewriter, loc, inputVal, op.getAxis());
+        Value slice = sliceRemaining(rewriter, loc, inputVal,
+			             op.getAxis(), op.getReverse());
         // Create output tensor
         auto sliceShape = slice.getType().cast<ShapedType>().getShape();
         Value empty = rewriter.create<tensor::EmptyOp>(
@@ -1186,7 +1190,8 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
       // 2. Slice the first elements of input operands, and use them as init
       //    operands' init value.
       {
-        Value slice = sliceFirst(rewriter, loc, inputVal, op.getAxis());
+        Value slice = sliceFirst(rewriter, loc, inputVal,
+			         op.getAxis(), op.getReverse());
         SmallVector<int64_t> collapseDstShape;
         ShapedType sliceTy = slice.getType().cast<ShapedType>();
         for (int64_t i = 0; i < rank; ++i) {
@@ -1212,7 +1217,8 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
     auto scanOp = rewriter.create<triton::linalg_ext::ScanOp>(
         loc, /*resultTypes=*/SmallVector<Type>(resultTypes),
         /*inputs=*/inputVals, /*inits=*/initVals,
-        /*dimensions=*/ArrayRef<int64_t>{op.getAxis()});
+        /*dimensions=*/ArrayRef<int64_t>{op.getAxis()},
+	/*reverse=*/op.getReverse());
     auto &block = op->getRegion(0).front();
     block.addArgument(block.getArgumentTypes()[0], loc);
     rewriter.replaceAllUsesWith(block.getArgument(1), block.getArgument(2));
@@ -1231,7 +1237,8 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
 
     // Retrieve insert offsets of result tensor.
     SmallVector<OpFoldResult> insertOffsets(rank, rewriter.getIndexAttr(0));
-    insertOffsets[op.getAxis()] = rewriter.getIndexAttr(1);
+    if (!op.getReverse())
+      insertOffsets[op.getAxis()] = rewriter.getIndexAttr(1);
 
     // Retrieve insert strides of result tensor.
     SmallVector<OpFoldResult> insertStrides(rank, rewriter.getIndexAttr(1));

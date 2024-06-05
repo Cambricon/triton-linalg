@@ -1751,60 +1751,37 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::ScanOp>
       return op->emitOpError("tiling interface only support single input now.");
     SmallVector<Value> indices, scanBlkArgs;
     indices.append(ivs.begin(), ivs.end());
-    Value zero = b.create<arith::ConstantIndexOp>(loc, 0);
     Value one = b.create<arith::ConstantIndexOp>(loc, 1);
     int64_t scanDim = concreteOp.getDimensions()[0];
-    auto cond = b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
-                                        indices[scanDim], zero);
+    Value size = getDimValue(b, loc, concreteOp.inputs()[0], scanDim);
+    size = b.create<arith::SubIOp>(loc, size, one);
+    if (concreteOp.getReverse())
+      indices[scanDim] = b.create<arith::SubIOp>(loc, size, indices[scanDim]);
     SmallVector<Value> accIndices;
     for (int i = 0; i < indices.size(); i++) {
       if (i != scanDim)
         accIndices.push_back(indices[i]);
     }
-
-    auto scfIf = b.create<scf::IfOp>(
-        loc, cond,
-        [&](OpBuilder &b, Location loc) {
-          auto value =
-              b.create<memref::LoadOp>(loc, concreteOp.inputs()[0], indices);
-          b.create<memref::StoreOp>(loc, value, concreteOp.outputs()[0],
-                                    indices);
-          b.create<scf::YieldOp>(loc);
-        },
-        [&](OpBuilder &b, Location loc) {
-          SmallVector<Value> indices(ivs.begin(), ivs.end());
-          Value iv = indices[scanDim];
-          scanBlkArgs.push_back(
-              b.create<memref::LoadOp>(loc, concreteOp.inputs()[0], indices));
-          Value ivMinusOne = b.create<arith::SubIOp>(loc, iv, one);
-          indices[scanDim] = ivMinusOne;
-          Value ov =
-              b.create<memref::LoadOp>(loc, concreteOp.outputs()[0], indices);
-          scanBlkArgs.push_back(ov);
-          scanBlkArgs.push_back(ov);
-        });
-
+    scanBlkArgs.push_back(
+        b.create<memref::LoadOp>(loc, concreteOp.inputs()[0], indices));
+    scanBlkArgs.push_back(
+        b.create<memref::LoadOp>(loc, concreteOp.outputs()[0], indices));
+    scanBlkArgs.push_back(
+        b.create<memref::LoadOp>(loc, concreteOp.inits()[0], accIndices));
     auto &srcBlock = concreteOp.getRegion().front();
-    Region &region = scfIf.getElseRegion();
     IRMapping bvm;
-    {
-      OpBuilder::InsertionGuard guard(b);
-      auto &block = region.front();
-      b.setInsertionPointToEnd(&block);
-      for (auto it : llvm::zip(srcBlock.getArguments(), scanBlkArgs)) {
-        bvm.map(std::get<0>(it), std::get<1>(it));
-      }
-      for (auto &blockOp : srcBlock.without_terminator()) {
-        b.clone(blockOp, bvm);
-      }
-      b.create<memref::StoreOp>(
-          loc, bvm.lookupOrDefault(srcBlock.getTerminator()->getOperand(0)),
-          concreteOp.outputs()[0], indices);
-      b.create<memref::StoreOp>(
-          loc, bvm.lookupOrDefault(srcBlock.getTerminator()->getOperand(0)),
-          concreteOp.inits()[0], accIndices);
-      b.create<scf::YieldOp>(loc);
+    for (auto it : llvm::zip(srcBlock.getArguments(), scanBlkArgs)) {
+      bvm.map(std::get<0>(it), std::get<1>(it));
     }
+    for (auto &blockOp : srcBlock.without_terminator()) {
+      b.clone(blockOp, bvm);
+    }
+    b.create<memref::StoreOp>(
+        loc, bvm.lookupOrDefault(srcBlock.getTerminator()->getOperand(0)),
+        concreteOp.outputs()[0], indices);
+    b.create<memref::StoreOp>(
+        loc, bvm.lookupOrDefault(srcBlock.getTerminator()->getOperand(0)),
+        concreteOp.inits()[0], accIndices);
     return success();
   }
 };
