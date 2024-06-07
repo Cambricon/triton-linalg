@@ -43,6 +43,38 @@ bool mlir::triton::isConsecutive(llvm::ArrayRef<int64_t> array) {
   });
 }
 
+// TODO(hexi): Copy from llvm. Replace this function with
+//             mlir/IR/BuiltinTypes.h:trailingNDimsContiguous,
+//             when llvm update.
+bool mlir::triton::trailingNDimsContiguous(MemRefType type, int64_t n) {
+  if (canonicalizeStridedLayout(type).getLayout().isIdentity())
+    return true;
+
+  auto memrefShape = type.getShape().take_back(n);
+  if (ShapedType::isDynamicShape(memrefShape.drop_front()))
+    return false;
+
+  int64_t offset;
+  SmallVector<int64_t> stridesFull;
+  if (!succeeded(getStridesAndOffset(type, stridesFull, offset)))
+    return false;
+  auto strides = ArrayRef<int64_t>(stridesFull).take_back(n);
+
+  if (strides.empty())
+    return true;
+
+  // Check whether strides match "flattened" dims.
+  SmallVector<int64_t> flattenedDims;
+  auto dimProduct = 1;
+  for (auto dim : llvm::reverse(memrefShape.drop_front(1))) {
+    dimProduct *= dim;
+    flattenedDims.push_back(dimProduct);
+  }
+
+  strides = strides.drop_back(1);
+  return llvm::equal(strides, llvm::reverse(flattenedDims));
+}
+
 /// Returns a memref.subview or a tensor.extract_slice based on the type of the
 /// `source`.
 Value mlir::triton::getSlice(OpBuilder &b, Location loc, Value source,
@@ -223,17 +255,35 @@ Value mlir::triton::appendUnitDim(OpBuilder &b, Location loc, Value value) {
       .Default([](auto) -> Value { llvm_unreachable("unsupport value type"); });
 }
 
+static bool DetermineLastNDContiguous(MemRefType type, int64_t n,
+                                      bool exceptLastDim) {
+  int64_t idx = type.getRank();
+  for (; idx > 0; idx--) {
+    if (mlir::triton::trailingNDimsContiguous(type, idx))
+      break;
+  }
+  return idx >= n + static_cast<int>(exceptLastDim);
+}
+
 Value mlir::triton::collapseLastNDimsToOneDim(OpBuilder &b, Location loc,
-                                              Value value, int64_t n) {
+                                              Value value, int64_t n,
+                                              bool exceptLastDim) {
   if (!value || n == 1)
     return value;
 
+  if (value.getType().isa<MemRefType>()) {
+    assert(DetermineLastNDContiguous(value.getType().cast<MemRefType>(), n,
+                                     exceptLastDim) &&
+           "The dimensions that require collapse need to be continuous.");
+  }
   auto valueTy = value.getType().cast<ShapedType>();
   auto rank = valueTy.getRank();
+  if (exceptLastDim)
+    rank -= 1;
   assert(rank >= n && "Dim number to collapse is larger than rank.");
 
-  // Add a unit dim to the last.
-  if (n == 0)
+  // When exceptLastDim is false and n == 0, add a unit dim to the last.
+  if (n == 0 && !exceptLastDim)
     return appendUnitDim(b, loc, value);
 
   // Collapse the last n(n > 1) dims to one dim.
@@ -241,6 +291,8 @@ Value mlir::triton::collapseLastNDimsToOneDim(OpBuilder &b, Location loc,
   for (int64_t i = 0; i < rank - n; ++i)
     reassociation.push_back({i});
   reassociation.push_back(llvm::to_vector(llvm::seq<int64_t>(rank - n, rank)));
+  if (exceptLastDim)
+    reassociation.push_back({rank});
   return TypeSwitch<ShapedType, Value>(valueTy)
       .Case<RankedTensorType>([&](auto) {
         return b.create<tensor::CollapseShapeOp>(loc, value, reassociation);
