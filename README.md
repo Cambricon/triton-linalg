@@ -22,7 +22,7 @@ To build this repo clone `triton-linalg` to a folder called `triton_linalg` (not
 You need to set the `TRITON_PLUGIN_DIRS` environment variable to the location of your `triton-linalg` directory for `triton` to find it.
 
 ```
-export TRITON_PLUGIN_DIRS=$(pwd)/triton_linalg
+export TRITON_PLUGIN_DIRS=$(pwd)/triton-linalg
 git clone --recurse-submodules https://github.com/Cambricon/triton-linalg.git
 cd triton-linalg/triton
 ```
