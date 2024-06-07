@@ -1454,6 +1454,7 @@ void triton::TritonToLinalgPass::getDependentDialects(::mlir::DialectRegistry &r
   registry.insert<triton::aux::AuxiliaryDialect>();
   registry.insert<bufferization::BufferizationDialect>();
   registry.insert<func::FuncDialect>();
+  registry.insert<math_ext::MathExtDialect>();
 }
 
 void triton::TritonToLinalgPass::runOnOperation() {
