@@ -22,8 +22,7 @@ To build this repo clone `triton-linalg` to a folder called `triton_linalg` (not
 You need to set the `TRITON_PLUGIN_DIRS` environment variable to the location of your `triton-linalg` directory for `triton` to find it.
 
 ```
-export TRITON_PLUGIN_DIRS=$(pwd)/triton_linalg
-
+export TRITON_PLUGIN_DIRS=$(pwd)/triton-linalg
 git clone --recurse-submodules https://github.com/Cambricon/triton-linalg.git
 cd triton-linalg/triton
 ```
@@ -35,7 +34,7 @@ python3 -m pip install --upgrade pip
 python3 -m pip install cmake==3.24 ninja pytest-xdist
 sudo apt-get update -y
 sudo apt-get install -y ccache clang lld
-TRITON_BUILD_WITH_CLANG_LLD=true TRITON_BUILD_WITH_CCACHE=true python3 -m pip install --no-build-isolation -vvv '.[tests]'
+TRITON_BUILD_WITH_CLANG_LLD=true TRITON_BUILD_WITH_CCACHE=true pip3 install -e python --no-build-isolation -vvv
 ```
 
 To build with a virtualenv:
