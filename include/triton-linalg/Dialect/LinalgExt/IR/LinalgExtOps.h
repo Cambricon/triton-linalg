@@ -8,13 +8,13 @@
 #define TRITON_LINALG_DIALECT_LINALGEXT_IR_LINALGEXTOPS_H
 
 // IWYU pragma: begin_keep
-#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtInterface.h"
-#include "triton-linalg/Interfaces/InferResultTypeOpInterface.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Linalg/IR/LinalgInterfaces.h"
-#include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/Dialect/SCF/IR/DeviceMappingInterface.h"
+#include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
+#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtInterface.h"
+#include "triton-linalg/Interfaces/InferResultTypeOpInterface.h"
 // IWYU pragma: end_keep
 //===----------------------------------------------------------------------===//
 // LinalgExt Dialect

@@ -92,7 +92,7 @@ Value triton::castToIndexType(OpBuilder &b, Location loc, OpFoldResult ofr) {
 }
 
 SmallVector<Value> triton::castToIndexType(OpBuilder &b, Location loc,
-                                            ArrayRef<OpFoldResult> ofrs) {
+                                           ArrayRef<OpFoldResult> ofrs) {
   SmallVector<Value> ret;
   for (auto ofr : ofrs) {
     ret.push_back(castToIndexType(b, loc, ofr));
@@ -101,7 +101,7 @@ SmallVector<Value> triton::castToIndexType(OpBuilder &b, Location loc,
 }
 
 OpFoldResult triton::addOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
-                              OpBuilder &builder) {
+                             OpBuilder &builder) {
   auto lhsIntAttr = getConstantIntValue(lhs);
   auto rhsIntAttr = getConstantIntValue(rhs);
 
@@ -122,7 +122,7 @@ OpFoldResult triton::addOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
 }
 
 OpFoldResult triton::subOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
-                              OpBuilder &builder) {
+                             OpBuilder &builder) {
   auto lhsIntAttr = getConstantIntValue(lhs);
   auto rhsIntAttr = getConstantIntValue(rhs);
 
@@ -141,7 +141,7 @@ OpFoldResult triton::subOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
 }
 
 OpFoldResult triton::minOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
-                              OpBuilder &builder) {
+                             OpBuilder &builder) {
   auto lhsIntAttr = getConstantIntValue(lhs);
   auto rhsIntAttr = getConstantIntValue(rhs);
 
@@ -157,7 +157,7 @@ OpFoldResult triton::minOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
 }
 
 OpFoldResult triton::mulOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
-                              OpBuilder &builder) {
+                             OpBuilder &builder) {
   auto lhsIntAttr = getConstantIntValue(lhs);
   auto rhsIntAttr = getConstantIntValue(rhs);
 
@@ -186,7 +186,7 @@ OpFoldResult triton::mulOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
 }
 
 OpFoldResult triton::maxOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
-                              OpBuilder &builder) {
+                             OpBuilder &builder) {
   auto lhsIntAttr = getConstantIntValue(lhs);
   auto rhsIntAttr = getConstantIntValue(rhs);
 

@@ -20,13 +20,13 @@
 #include <utility>
 #include <vector>
 
-#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Complex/IR/Complex.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
+#include "mlir/Dialect/Tensor/IR/Tensor.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/IR/AffineExpr.h"
@@ -37,9 +37,11 @@
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypeInterfaces.h"
+#include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/ImplicitLocOpBuilder.h"
 #include "mlir/IR/Location.h"
+#include "mlir/IR/Matchers.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/OpImplementation.h"
 #include "mlir/IR/Operation.h"
@@ -54,9 +56,7 @@
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
-#include "mlir/Dialect/Tensor/IR/Tensor.h"
-#include "mlir/IR/BuiltinTypes.h"
-#include "mlir/IR/Matchers.h"
+#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/PointerUnion.h"
@@ -620,9 +620,7 @@ void LibdeviceCallOp::build(::mlir::OpBuilder &builder,
         StringAttr::get(builder.getContext(), symbol), attributes);
 }
 
-LogicalResult LibdeviceCallOp::verify() {
-  return success();
-}
+LogicalResult LibdeviceCallOp::verify() { return success(); }
 
 LogicalResult ScalarLibdeviceCallOp::verify() {
   // The inputs of ScalarLibdeviceCallOp should be scalar type.
@@ -1512,8 +1510,7 @@ void GatherOp::getEffects(
 //===----------------------------------------------------------------------===//
 void GatherAtomicRMWOp::build(OpBuilder &builder, OperationState &result,
                               ValueRange inputs, ValueRange inits,
-                              AtomicType atomicType,
-                              MemoryOrder memory_order,
+                              AtomicType atomicType, MemoryOrder memory_order,
                               ArrayRef<NamedAttribute> attributes) {
   build(builder, result, TypeRange{}, inputs, inits, atomicType, memory_order);
   result.addAttributes(attributes);

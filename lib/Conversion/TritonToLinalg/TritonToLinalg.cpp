@@ -14,28 +14,10 @@
 #include <utility>
 #include <vector>
 
-#include "triton-linalg/Utils/Utils.h"
-#include "triton-linalg/Conversion/ArithToLinalg/ArithToLinalg.h"
-#include "triton-linalg/Conversion/MathToLinalg/MathToLinalg.h"
-#include "triton-linalg/Conversion/PassDetail.h"
-#include "triton-linalg/Conversion/TritonToLinalg/AtomicCASConversion.h"
-#include "triton-linalg/Conversion/TritonToLinalg/AtomicRmwConversion.h"
-#include "triton-linalg/Conversion/TritonToLinalg/LoadStoreConversion.h"
-#include "triton-linalg/Conversion/TritonToLinalg/TritonToLinalg.h"
-#include "triton-linalg/Conversion/TritonToLinalg/TypeConverter.h"
-#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
-#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h"
-#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
-#include "triton-linalg/Dialect/LinalgExt/Utils/Utils.h"
-#include "triton-linalg/Analysis/AxisInfoAnalysis.h"
-#include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
-#include "triton-linalg/Dialect/Utils/Conventions.h"
-#include "triton-linalg/Dialect/Utils/ArithUtils.h"
-#include "triton-linalg/Dialect/MathExt/IR/Math.h" // IWYU pragma: keep
-#include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Analysis/DataFlow/ConstantPropagationAnalysis.h"
 #include "mlir/Analysis/DataFlow/DeadCodeAnalysis.h"
 #include "mlir/Analysis/DataFlow/SparseAnalysis.h"
+#include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -72,6 +54,24 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "triton-linalg/Analysis/AxisInfoAnalysis.h"
+#include "triton-linalg/Conversion/ArithToLinalg/ArithToLinalg.h"
+#include "triton-linalg/Conversion/MathToLinalg/MathToLinalg.h"
+#include "triton-linalg/Conversion/PassDetail.h"
+#include "triton-linalg/Conversion/TritonToLinalg/AtomicCASConversion.h"
+#include "triton-linalg/Conversion/TritonToLinalg/AtomicRmwConversion.h"
+#include "triton-linalg/Conversion/TritonToLinalg/LoadStoreConversion.h"
+#include "triton-linalg/Conversion/TritonToLinalg/TritonToLinalg.h"
+#include "triton-linalg/Conversion/TritonToLinalg/TypeConverter.h"
+#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
+#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h"
+#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
+#include "triton-linalg/Dialect/LinalgExt/Utils/Utils.h"
+#include "triton-linalg/Dialect/MathExt/IR/Math.h" // IWYU pragma: keep
+#include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
+#include "triton-linalg/Dialect/Utils/ArithUtils.h"
+#include "triton-linalg/Dialect/Utils/Conventions.h"
+#include "triton-linalg/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 #include "llvm/ADT/ADL.h"
@@ -818,7 +818,8 @@ class PtrSelectOpPattern : public OpConversionPattern<arith::SelectOp> {
   using OpConversionPattern<arith::SelectOp>::OpConversionPattern;
 
 public:
-  PtrSelectOpPattern(triton::TritonLinalgTypeConverter &converter, MLIRContext *context)
+  PtrSelectOpPattern(triton::TritonLinalgTypeConverter &converter,
+                     MLIRContext *context)
       : OpConversionPattern<arith::SelectOp>(converter, context) {}
 
   LogicalResult
@@ -1261,7 +1262,6 @@ struct TritonScanReturnPattern
   }
 };
 
-
 /// Convert an `tt.join` operation to `tensor.insert_slice`
 /// operation.
 ///
@@ -1425,12 +1425,14 @@ struct TritonMulhiuiPattern : public OpConversionPattern<triton::MulhiUIOp> {
 ///
 /// Compute a histogram based on the input tensor with num_bins bins.
 /// The process consists of the following steps:
-/// 1. Set the minimum value (min_val) to 0 and the maximum value (max_val) to num_bins - 1.
+/// 1. Set the minimum value (min_val) to 0 and the maximum value (max_val) to
+/// num_bins - 1.
 /// 2. Create a zero tensor of length num_bins to store the count for each bin.
 /// 3. Compute the histogram:
 ///    1) Iterate through each value in the input tensor.
 ///    2) If the value is between min_val and max_val (inclusive),
-///       calculate its corresponding bin index and increment the count for that bin.
+///       calculate its corresponding bin index and increment the count for that
+///       bin.
 ///
 /// ```mlir
 ///   %1 = tt.histogram %0 : tensor<8xi32> -> tensor<2xi32>
@@ -1493,8 +1495,8 @@ struct TritonHistogramPattern
         loc, rewriter.getZeroAttr(inputEleTy));
 
     // Compute the maximum value (numBins - 1).
-    Value one = rewriter.create<arith::ConstantOp>(loc,
-        rewriter.getIntegerAttr(inputEleTy, 1));
+    Value one = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getIntegerAttr(inputEleTy, 1));
     Value numBinsConstant = rewriter.create<arith::ConstantOp>(
         loc, rewriter.getIntegerAttr(inputEleTy, numBins));
     Value maxVal = rewriter.create<arith::SubIOp>(loc, numBinsConstant, one);
@@ -1582,18 +1584,17 @@ static void
 populateTritonToLinalgPatterns(RewritePatternSet &patterns,
                                triton::TritonLinalgTypeConverter &converter) {
   MLIRContext *context = patterns.getContext();
-  patterns
-      .add<TritonBroadcastPattern, TritonSplatPattern, TritonExpandDimPattern,
-           TritonAddPtrPattern, TritonMakeRangePattern, TritonDotPattern,
-           TritonBitcastPattern, TritonReducePattern, TritonReduceReturnPattern,
-           TritonPureExternElementwisePattern, TritonPtrToIntPattern,
-           TritonIntToPtrPattern, TritonTransPattern, TritonReturnOpConversion,
-           TritonCallOpPattern, TritonFuncOpPattern, TritonViewPattern,
-           TritonPrintPattern, TritonAssertOpPattern, TritonScanPattern,
-           TritonScanReturnPattern, TritonJoinPattern, TritonMulhiuiPattern,
-           TritonSplitPattern, TritonClampFOpPattern,
-           TritonPreciseSqrtOpPattern, TritonPreciseDivFOpPattern,
-           TritonHistogramPattern>(converter, context);
+  patterns.add<
+      TritonBroadcastPattern, TritonSplatPattern, TritonExpandDimPattern,
+      TritonAddPtrPattern, TritonMakeRangePattern, TritonDotPattern,
+      TritonBitcastPattern, TritonReducePattern, TritonReduceReturnPattern,
+      TritonPureExternElementwisePattern, TritonPtrToIntPattern,
+      TritonIntToPtrPattern, TritonTransPattern, TritonReturnOpConversion,
+      TritonCallOpPattern, TritonFuncOpPattern, TritonViewPattern,
+      TritonPrintPattern, TritonAssertOpPattern, TritonScanPattern,
+      TritonScanReturnPattern, TritonJoinPattern, TritonMulhiuiPattern,
+      TritonSplitPattern, TritonClampFOpPattern, TritonPreciseSqrtOpPattern,
+      TritonPreciseDivFOpPattern, TritonHistogramPattern>(converter, context);
 }
 
 static void populateArithConversionPatterns(RewritePatternSet &patterns) {
@@ -1601,7 +1602,8 @@ static void populateArithConversionPatterns(RewritePatternSet &patterns) {
   patterns.add<ArithCmpIToFillPattern, ArithSelectConversionPattern>(context);
 }
 
-void triton::TritonToLinalgPass::getDependentDialects(::mlir::DialectRegistry &registry) const {
+void triton::TritonToLinalgPass::getDependentDialects(
+    ::mlir::DialectRegistry &registry) const {
   registry.insert<triton::TritonDialect>();
   registry.insert<linalg::LinalgDialect>();
   registry.insert<linalg_ext::LinalgExtDialect>();
@@ -1633,7 +1635,7 @@ void triton::TritonToLinalgPass::runOnOperation() {
       triton::linalg_ext::LinalgExtDialect, scf::SCFDialect>(
       [&](Operation *op) { return converter.isLegal(op); });
   target.addDynamicallyLegalDialect<arith::ArithDialect, math::MathDialect,
-      math_ext::MathExtDialect>(
+                                    math_ext::MathExtDialect>(
       [&](Operation *op) {
         return !op->getResultTypes().front().isa<ShapedType>();
       });
@@ -1660,10 +1662,9 @@ void triton::TritonToLinalgPass::runOnOperation() {
     return signalPassFailure();
 }
 
-void triton::TritonToLinalgPass::populatePatterns(RewritePatternSet &patterns,
-                                                  triton::TritonLinalgTypeConverter &converter,
-                                                  ConversionTarget &target,
-                                                  mlir::DataFlowSolver &solver) {
+void triton::TritonToLinalgPass::populatePatterns(
+    RewritePatternSet &patterns, triton::TritonLinalgTypeConverter &converter,
+    ConversionTarget &target, mlir::DataFlowSolver &solver) {
   auto *context = patterns.getContext();
   scf::populateSCFStructuralTypeConversionsAndLegality(converter, patterns,
                                                        target);

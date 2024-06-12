@@ -7,7 +7,6 @@
 #include <iterator>
 #include <optional>
 
-#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -25,6 +24,7 @@
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
@@ -46,9 +46,9 @@ bool mlir::triton::isConsecutive(llvm::ArrayRef<int64_t> array) {
 /// Returns a memref.subview or a tensor.extract_slice based on the type of the
 /// `source`.
 Value mlir::triton::getSlice(OpBuilder &b, Location loc, Value source,
-                              ArrayRef<OpFoldResult> offsets,
-                              ArrayRef<OpFoldResult> sizes,
-                              ArrayRef<OpFoldResult> strides) {
+                             ArrayRef<OpFoldResult> offsets,
+                             ArrayRef<OpFoldResult> sizes,
+                             ArrayRef<OpFoldResult> strides) {
   return TypeSwitch<Type, Value>(source.getType())
       .Case<RankedTensorType>([&](RankedTensorType t) -> Value {
         return b.create<tensor::ExtractSliceOp>(loc, source, offsets, sizes,
@@ -62,7 +62,7 @@ Value mlir::triton::getSlice(OpBuilder &b, Location loc, Value source,
 }
 
 bool mlir::triton::isNoTile(OpFoldResult tileSize, OpFoldResult offset,
-                             ArrayRef<int64_t> shape, int64_t dim) {
+                            ArrayRef<int64_t> shape, int64_t dim) {
   auto maybeIntTileSize = getConstantIntValue(tileSize);
   if (maybeIntTileSize.has_value()) {
     return maybeIntTileSize.value() == 0 ||
@@ -71,8 +71,6 @@ bool mlir::triton::isNoTile(OpFoldResult tileSize, OpFoldResult offset,
   auto maybeIntOffset = getConstantIntValue(offset);
   return maybeIntOffset.has_value();
 }
-
-
 
 OpFoldResult mlir::triton::canonicalizeOpFoldResult(OpFoldResult in) {
   if (in.is<Attribute>())
@@ -88,7 +86,7 @@ mlir::triton::canonicalizeOpFoldResult(ArrayRef<OpFoldResult> in) {
 }
 
 Value mlir::triton::getDimValue(OpBuilder &builder, Location loc, Value v,
-                                 int64_t dim) {
+                                int64_t dim) {
   ShapedType type = v.getType().cast<ShapedType>();
   if (!type.isDynamicDim(dim)) {
     return builder.create<arith::ConstantIndexOp>(loc, type.getDimSize(dim));
@@ -103,7 +101,7 @@ Value mlir::triton::getDimValue(OpBuilder &builder, Location loc, Value v,
 }
 
 OpFoldResult mlir::triton::getDim(OpBuilder &builder, Location loc, Value v,
-                                   int64_t dim) {
+                                  int64_t dim) {
   auto t = v.getType().cast<ShapedType>();
   if (t.isDynamicDim(dim)) {
     return getDimValue(builder, loc, v, dim);
@@ -111,9 +109,8 @@ OpFoldResult mlir::triton::getDim(OpBuilder &builder, Location loc, Value v,
   return builder.getI64IntegerAttr(t.getDimSize(dim));
 }
 
-SmallVector<OpFoldResult> mlir::triton::getDims(OpBuilder &builder,
-                                                 Location loc,
-                                                 Value shapedTypeValue) {
+SmallVector<OpFoldResult>
+mlir::triton::getDims(OpBuilder &builder, Location loc, Value shapedTypeValue) {
   SmallVector<OpFoldResult> ret;
   for (auto i : llvm::seq<int64_t>(
            0, shapedTypeValue.getType().cast<ShapedType>().getRank())) {
@@ -123,7 +120,7 @@ SmallVector<OpFoldResult> mlir::triton::getDims(OpBuilder &builder,
 }
 
 SmallVector<Value> mlir::triton::getDimsValue(OpBuilder &builder, Location loc,
-                                               Value shapedTypeValue) {
+                                              Value shapedTypeValue) {
   SmallVector<Value> ret;
   for (auto i : llvm::seq<int64_t>(
            0, shapedTypeValue.getType().cast<ShapedType>().getRank())) {
@@ -133,7 +130,7 @@ SmallVector<Value> mlir::triton::getDimsValue(OpBuilder &builder, Location loc,
 }
 
 SmallVector<Value> mlir::triton::getDynamicDimsValue(OpBuilder &builder,
-                                                      Location loc, Value val) {
+                                                     Location loc, Value val) {
   SmallVector<Value> dynamicDims;
   auto type = val.getType().cast<ShapedType>();
   for (auto dimIdx : llvm::seq<int64_t>(0, type.getRank())) {
@@ -145,7 +142,7 @@ SmallVector<Value> mlir::triton::getDynamicDimsValue(OpBuilder &builder,
 }
 
 Value mlir::triton::materializeOpFoldResult(OpBuilder &builder, Location loc,
-                                             OpFoldResult opFoldResult) {
+                                            OpFoldResult opFoldResult) {
   if (auto value = opFoldResult.dyn_cast<Value>())
     return value;
   auto attr = opFoldResult.get<Attribute>().cast<IntegerAttr>();
@@ -227,7 +224,7 @@ Value mlir::triton::appendUnitDim(OpBuilder &b, Location loc, Value value) {
 }
 
 Value mlir::triton::collapseLastNDimsToOneDim(OpBuilder &b, Location loc,
-                                               Value value, int64_t n) {
+                                              Value value, int64_t n) {
   if (!value || n == 1)
     return value;
 

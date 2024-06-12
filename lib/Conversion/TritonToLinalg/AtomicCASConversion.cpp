@@ -6,13 +6,6 @@
 #include <algorithm>
 #include <optional>
 
-#include "triton-linalg/Conversion/TritonToLinalg/AtomicCASConversion.h"
-#include "triton-linalg/Conversion/TritonToLinalg/TritonPointerConversion.h"
-#include "triton-linalg/Conversion/TritonToLinalg/TypeConverter.h"
-#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
-#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
-#include "triton-linalg/Dialect/Triton/Utils/PointerMetaInfoTracker.h"
-#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -23,6 +16,13 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "triton-linalg/Conversion/TritonToLinalg/AtomicCASConversion.h"
+#include "triton-linalg/Conversion/TritonToLinalg/TritonPointerConversion.h"
+#include "triton-linalg/Conversion/TritonToLinalg/TypeConverter.h"
+#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
+#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
+#include "triton-linalg/Dialect/Triton/Utils/PointerMetaInfoTracker.h"
+#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -143,13 +143,12 @@ public:
     if (failed(maybeMemoryOrder))
       return failure();
 
-    Value ret =
-        rewriter
-            .create<triton::linalg_ext::AtomicCASOp>(
-                loc, op.getResult().getType(),
-                ValueRange({originTensor, op.getCmp(), op.getVal()}), init,
-                *maybeMemoryOrder)
-            .getResults()[0];
+    Value ret = rewriter
+                    .create<triton::linalg_ext::AtomicCASOp>(
+                        loc, op.getResult().getType(),
+                        ValueRange({originTensor, op.getCmp(), op.getVal()}),
+                        init, *maybeMemoryOrder)
+                    .getResults()[0];
     rewriter.replaceOp(op, ret);
     return success();
   }

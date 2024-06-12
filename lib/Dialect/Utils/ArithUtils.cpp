@@ -11,8 +11,8 @@
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
-#include "mlir/IR/Types.h"
 #include "mlir/IR/TypeUtilities.h"
+#include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
 #include "llvm/ADT/APFloat.h"
@@ -28,8 +28,8 @@ using namespace mlir;
 // BEGIN copied from mlir/lib/Dialect/Arith/Transforms/EmulateWideInt.cpp
 //===----------------------------------------------------------------------===//
 Value mlir::triton::createScalarOrSplatConstant(OpBuilder &builder,
-                                                 Location loc, Type type,
-                                                 const APInt &value) {
+                                                Location loc, Type type,
+                                                const APInt &value) {
   TypedAttr attr;
   if (isa<IntegerType>(type)) {
     attr = builder.getIntegerAttr(type, value);
@@ -42,8 +42,8 @@ Value mlir::triton::createScalarOrSplatConstant(OpBuilder &builder,
 }
 
 Value mlir::triton::createScalarOrSplatConstant(OpBuilder &builder,
-                                                 Location loc, Type type,
-                                                 int64_t value) {
+                                                Location loc, Type type,
+                                                int64_t value) {
   unsigned elementBitWidth = 0;
   if (auto intTy = dyn_cast<IntegerType>(type))
     elementBitWidth = intTy.getWidth();
@@ -55,8 +55,8 @@ Value mlir::triton::createScalarOrSplatConstant(OpBuilder &builder,
 }
 
 Value mlir::triton::createScalarOrSplatConstant(OpBuilder &builder,
-                                                 Location loc, Type type,
-                                                 const APFloat &value) {
+                                                Location loc, Type type,
+                                                const APFloat &value) {
   if (isa<FloatType>(type))
     return builder.createOrFold<arith::ConstantOp>(
         loc, type, builder.getFloatAttr(type, value));
@@ -67,7 +67,7 @@ Value mlir::triton::createScalarOrSplatConstant(OpBuilder &builder,
 // END copied from mlir/lib/Dialect/Arith/Transforms/EmulateWideInt.cpp
 //===----------------------------------------------------------------------===//
 FailureOr<Value> mlir::triton::getSplatValue(OpBuilder &builder,
-                                              arith::ConstantOp op) {
+                                             arith::ConstantOp op) {
   auto loc = op.getLoc();
   // If arith.const store a scalar type, return itself.
   if (op.getValue().getType().isIntOrFloat()) {
@@ -104,10 +104,9 @@ FailureOr<Value> mlir::triton::getSplatValue(OpBuilder &builder,
   return fillVal;
 }
 
-std::optional<Operation *> mlir::triton::getCmpSelectResult(OpBuilder &builder,
-                                                     Location loc,
-                                                     arith::CmpFOp op,
-                                                     bool operandsSwapped) {
+std::optional<Operation *>
+mlir::triton::getCmpSelectResult(OpBuilder &builder, Location loc,
+                                 arith::CmpFOp op, bool operandsSwapped) {
   auto predicate = op.getPredicate();
   auto lhs = op.getLhs();
   auto rhs = op.getRhs();
@@ -129,10 +128,9 @@ std::optional<Operation *> mlir::triton::getCmpSelectResult(OpBuilder &builder,
   }
 }
 
-std::optional<Operation *> mlir::triton::getCmpSelectResult(OpBuilder &builder,
-                                                     Location loc,
-                                                     arith::CmpIOp op,
-                                                     bool operandsSwapped) {
+std::optional<Operation *>
+mlir::triton::getCmpSelectResult(OpBuilder &builder, Location loc,
+                                 arith::CmpIOp op, bool operandsSwapped) {
   auto predicate = op.getPredicate();
   auto lhs = op.getLhs();
   auto rhs = op.getRhs();
@@ -158,7 +156,9 @@ std::optional<Operation *> mlir::triton::getCmpSelectResult(OpBuilder &builder,
   }
 }
 
-std::optional<Operation *> mlir::triton::getCmpSelectResult(OpBuilder &builder, Operation *cmpOp, arith::SelectOp op) {
+std::optional<Operation *>
+mlir::triton::getCmpSelectResult(OpBuilder &builder, Operation *cmpOp,
+                                 arith::SelectOp op) {
   // Get cmp op mode.
   std::optional<arith::CmpFOp> cmpFOp;
   std::optional<arith::CmpIOp> cmpIOp;

@@ -237,8 +237,6 @@ static SmallVector<T> removeBroadcastDimByDimInfo(ArrayRef<T> values,
   return ret;
 }
 
-
-
 /// Based on the permutations and dimInfos information, obtain the shape
 /// corresponding to the earlier getMemRef function, noting that the shape
 /// referred to here is the padded static shape.
@@ -250,8 +248,6 @@ SmallVector<T> permutateAndRemoveBroadcastDims(ArrayRef<T> values,
       getValuesByPerms<T>(values, permutations),
       getValuesByPerms<DimInfo>(dimInfos, permutations));
 }
-
-
 
 class TritonPtrLoadStoreOpConversionBase : public TritonPtrConversionBase {
 public:

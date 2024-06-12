@@ -10,16 +10,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "triton-linalg/Analysis/AxisInfoAnalysis.h"
-#include "triton-linalg/Conversion/TritonToLinalg/TritonPointerConversion.h"
-#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
-#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h"
-#include "triton-linalg/Dialect/Triton/Interfaces/InferAxisInfoInterface.h"
-#include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
-#include "triton-linalg/Utils/Utils.h"
-#include "triton-linalg/Dialect/Triton/Utils/PointerMetaInfoTracker.h"
-#include "triton-linalg/Dialect/Utils/Conventions.h"
-#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "mlir/Analysis/DataFlowFramework.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -44,6 +34,16 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "triton-linalg/Analysis/AxisInfoAnalysis.h"
+#include "triton-linalg/Conversion/TritonToLinalg/TritonPointerConversion.h"
+#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
+#include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h"
+#include "triton-linalg/Dialect/Triton/Interfaces/InferAxisInfoInterface.h"
+#include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
+#include "triton-linalg/Dialect/Triton/Utils/PointerMetaInfoTracker.h"
+#include "triton-linalg/Dialect/Utils/Conventions.h"
+#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
+#include "triton-linalg/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
@@ -60,8 +60,8 @@ using namespace mlir;
 using namespace mlir::triton;
 
 Value triton::selectByMask(Location loc, Value mask, Value trueVal,
-                            Value falseVal,
-                            ConversionPatternRewriter &rewriter) {
+                           Value falseVal,
+                           ConversionPatternRewriter &rewriter) {
   assert(trueVal && "Get true value failed.");
   auto trueType = trueVal.getType().dyn_cast<ShapedType>();
   if (!mask || !falseVal || !trueType)
@@ -128,9 +128,9 @@ Value triton::flattenValueToMatchGatherScatter(
       value, expandReassociation);
 }
 
-Value triton::reshapeGatherScatterValueTo(
-    Value value, RankedTensorType resultTy,
-    ConversionPatternRewriter &rewriter) {
+Value triton::reshapeGatherScatterValueTo(Value value,
+                                          RankedTensorType resultTy,
+                                          ConversionPatternRewriter &rewriter) {
   assert(value);
   auto valueTy = value.getType().cast<RankedTensorType>();
   auto loc = value.getLoc();
@@ -195,8 +195,8 @@ Value TritonPtrConversionBase::getMemRef(
   if (!offset)
     offset = rewriter.getIndexAttr(0);
 
-  return rewriter.create<triton::aux::ViewOp>(
-      loc, elementType, llvmPtr, offset, newSizes, newStrides, cacheMode);
+  return rewriter.create<triton::aux::ViewOp>(loc, elementType, llvmPtr, offset,
+                                              newSizes, newStrides, cacheMode);
 }
 
 Value TritonPtrConversionBase::getMemRef(

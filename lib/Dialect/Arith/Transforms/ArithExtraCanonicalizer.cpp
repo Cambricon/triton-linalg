@@ -13,8 +13,6 @@
 #include <optional>
 #include <utility>
 
-#include "triton-linalg/Dialect/Arith/Transforms/Passes.h"
-#include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
@@ -32,6 +30,8 @@
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "triton-linalg/Dialect/Arith/Transforms/Passes.h"
+#include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
@@ -125,7 +125,7 @@ struct CanonicalizeCmpSelectToMinMax final
     if (!cmpOp || !isa<arith::CmpFOp, arith::CmpIOp>(cmpOp)) {
       return failure();
     }
-    auto maxMinOp = getCmpSelectResult(rewriter, cmpOp, op); 
+    auto maxMinOp = getCmpSelectResult(rewriter, cmpOp, op);
     if (!maxMinOp) {
       return mlir::failure();
     }
@@ -185,8 +185,8 @@ public:
     auto falseVal = selectOp.getFalseValue();
     // Collect block arg cmp users.
     llvm::SmallSetVector<Operation *, 2> cmpOps;
-    for (auto user = trueVal.getUsers().begin(); user != trueVal.getUsers().end();
-         user++) {
+    for (auto user = trueVal.getUsers().begin();
+         user != trueVal.getUsers().end(); user++) {
       if (isa<arith::CmpFOp>(*user)) {
         cmpOps.insert(*user);
       }
@@ -236,8 +236,8 @@ struct ArithCanonicalizerPass
     patterns.add<ScalarDivToMul, CanonicalizeCmpSelectToMinMax,
                  CanonicalizeArithI1Pattern<arith::MulIOp, arith::AndIOp>,
                  CanonicalizeArithI1Pattern<arith::AddIOp, arith::XOrIOp>,
-		 CanonicalizeNanStatement<arith::MaximumFOp>,
-		 CanonicalizeNanStatement<arith::MinimumFOp>>(
+                 CanonicalizeNanStatement<arith::MaximumFOp>,
+                 CanonicalizeNanStatement<arith::MinimumFOp>>(
         patterns.getContext());
     if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
       return signalPassFailure();

@@ -4,9 +4,9 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "include/triton-linalg/Dialect/MathExt/IR/Math.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/CommonFolders.h"
-#include "include/triton-linalg/Dialect/MathExt/IR/Math.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Builders.h"
 #include <optional>
@@ -27,8 +27,9 @@ using namespace mlir::math_ext;
 
 /// Materialize an integer or floating point constant.
 Operation *math_ext::MathExtDialect::materializeConstant(OpBuilder &builder,
-                                                  Attribute value, Type type,
-                                                  Location loc) {
+                                                         Attribute value,
+                                                         Type type,
+                                                         Location loc) {
   if (auto poison = dyn_cast<ub::PoisonAttr>(value))
     return builder.create<ub::PoisonOp>(loc, type, poison);
 

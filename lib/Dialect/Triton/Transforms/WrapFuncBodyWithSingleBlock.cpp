@@ -7,8 +7,6 @@
 #include <iterator>
 #include <memory>
 
-#include "triton-linalg/Dialect/Triton/Transforms/PassDetail.h" // IWYU pragma: keep
-#include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Block.h"
@@ -26,6 +24,8 @@
 #include "mlir/Interfaces/ControlFlowInterfaces.h"
 #include "mlir/Interfaces/FunctionInterfaces.h" // IWYU pragma: keep
 #include "mlir/Pass/Pass.h"
+#include "triton-linalg/Dialect/Triton/Transforms/PassDetail.h" // IWYU pragma: keep
+#include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
 #include "triton/Dialect/Triton/IR/Dialect.h" // IWYU pragma: keep
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"

@@ -12,9 +12,6 @@
 #include <stdint.h>
 #include <type_traits>
 
-#include "triton-linalg/Dialect/Triton/Interfaces/InferAxisInfoInterface.h"
-#include "triton-linalg/Dialect/Triton/Transforms/InferAxisInfoInterfaceImpl.h"
-#include "triton-linalg/Dialect/Utils/RegistryUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -26,6 +23,9 @@
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
+#include "triton-linalg/Dialect/Triton/Interfaces/InferAxisInfoInterface.h"
+#include "triton-linalg/Dialect/Triton/Transforms/InferAxisInfoInterfaceImpl.h"
+#include "triton-linalg/Dialect/Utils/RegistryUtils.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"

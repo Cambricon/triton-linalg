@@ -7,9 +7,9 @@
 #ifndef TRITON_LINALG_DIALECT_TRITON_TRANSFORMS_PASSDETAIL_H
 #define TRITON_LINALG_DIALECT_TRITON_TRANSFORMS_PASSDETAIL_H
 // For .inc.files.
-#include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
+#include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
 
 namespace mlir {
 class DialectRegistry;

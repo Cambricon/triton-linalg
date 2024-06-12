@@ -7,12 +7,6 @@
 #include <optional>
 #include <stdint.h>
 
-#include "triton-linalg/Conversion/TritonToLinalg/AtomicRmwConversion.h"
-#include "triton-linalg/Conversion/TritonToLinalg/TritonPointerConversion.h"
-#include "triton-linalg/Conversion/TritonToLinalg/TypeConverter.h"
-#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
-#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
-#include "triton-linalg/Dialect/Triton/Utils/PointerMetaInfoTracker.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Bufferization/IR/Bufferization.h"
 #include "mlir/Dialect/Linalg/IR/Linalg.h"
@@ -31,6 +25,12 @@
 #include "mlir/IR/ValueRange.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
+#include "triton-linalg/Conversion/TritonToLinalg/AtomicRmwConversion.h"
+#include "triton-linalg/Conversion/TritonToLinalg/TritonPointerConversion.h"
+#include "triton-linalg/Conversion/TritonToLinalg/TypeConverter.h"
+#include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
+#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
+#include "triton-linalg/Dialect/Triton/Utils/PointerMetaInfoTracker.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -146,10 +146,11 @@ public:
       return failure();
 
     SmallVector<Value> atomicInits{originTensor, atomicResultInit};
-    Value atomicResult = rewriter
-                             .create<linalg_ext::GatherAtomicRMWOp>(
-                                 loc, atomicInputs, atomicInits, *maybeKind, *maybeMemoryOrder)
-                             .getResult()[1];
+    Value atomicResult =
+        rewriter
+            .create<linalg_ext::GatherAtomicRMWOp>(
+                loc, atomicInputs, atomicInits, *maybeKind, *maybeMemoryOrder)
+            .getResult()[1];
     Value scalarRet =
         rewriter
             .create<tensor::ExtractOp>(loc, op.getResult().getType(),
@@ -238,10 +239,11 @@ public:
       return failure();
 
     SmallVector<Value> atomicInits{originTensor, atomicResultInit};
-    Value out = rewriter
-                    .create<linalg_ext::GatherAtomicRMWOp>(
-                        loc, atomicInputs, atomicInits, *maybeKind, *maybeMemoryOrder)
-                    ->getResult(1);
+    Value out =
+        rewriter
+            .create<linalg_ext::GatherAtomicRMWOp>(
+                loc, atomicInputs, atomicInits, *maybeKind, *maybeMemoryOrder)
+            ->getResult(1);
 
     // Reshape output to origin shape.
     out = reshapeGatherScatterValueTo(out, resultTy, rewriter);

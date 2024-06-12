@@ -11,10 +11,6 @@
 #include <stdint.h>
 #include <utility>
 
-#include "triton-linalg/Dialect/Triton/Transforms/PassDetail.h" // IWYU pragma: keep
-#include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
-#include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
-#include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Tensor/IR/Tensor.h"
@@ -36,6 +32,10 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "triton-linalg/Dialect/Triton/Transforms/PassDetail.h" // IWYU pragma: keep
+#include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
+#include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
+#include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 #include "llvm/ADT/APFloat.h"

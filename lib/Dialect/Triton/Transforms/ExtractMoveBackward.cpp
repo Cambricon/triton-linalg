@@ -13,9 +13,6 @@
 #include <stdint.h>
 #include <utility>
 
-#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
-#include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
-#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "mlir/Analysis/SliceAnalysis.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Arith/Utils/Utils.h"
@@ -52,6 +49,9 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "mlir/Transforms/LoopInvariantCodeMotionUtils.h"
+#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
+#include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
+#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/MapVector.h"
@@ -67,10 +67,10 @@
 #include "llvm/Support/Casting.h"
 
 // IWYU pragma: begin_keep
-#include "triton-linalg/Dialect/Triton/Transforms/PassDetail.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Math/IR/Math.h"
 #include "mlir/IR/BuiltinAttributeInterfaces.h"
+#include "triton-linalg/Dialect/Triton/Transforms/PassDetail.h"
 // IWYU pragma: end_keep
 
 using namespace mlir;
@@ -1007,7 +1007,6 @@ static LogicalResult extractIterArgPrecondition(scf::ForOp forOp,
   // Move loop invariant code ahead.
   auto loopLikeOpInterface = cast<LoopLikeOpInterface>(forOp.getOperation());
   moveLoopInvariantCode(loopLikeOpInterface);
-
 
   Block *loopBody = &forOp.getRegion().front();
   auto arg = loopBody->getArgument(forOp.getNumInductionVars() + iterIndex);
