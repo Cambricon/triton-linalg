@@ -253,6 +253,73 @@ def GatherOp : LinalgExtBase_Op<"gather", []> {
 }
 
 //===----------------------------------------------------------------------===//
+// Op definition for contiguous AtomicRMWOp
+//===----------------------------------------------------------------------===//
+def AtomicRMWOp : LinalgExtBase_Op<"atomic_rmw", [AttrSizedOperandSegments, SameOperandsElementType, SameOperandsShape]> {
+  let summary = [{ AtomicRMW computation operation. }];
+  let description = [{
+    AtomicRMW has one input, which is the rhs to perform the modification.
+    Input has shape [i0, i1, ..., in-1].
+    It has two inits: src is the tensor to be rmw with the same shape as input,
+                      dst is the returned original input with the same shape as input.
+    The atomic_type indicates the specific atomic computation to be executed.
+
+    The whole AtomicRMW computation is:
+    ```
+    // Read from src, add input to src, and
+    // store original value of src to dst.
+    // linalg_ext.atomic_rmw addf ins(%alloc_5 : memref<4x1xf32, 101>) outs(%view_memref, %alloc_4 : memref<4xf32, 1>, memref<4x1xf32, 101>) -> memref<4xf32, 1>, memref<4x1xf32, 101>
+
+    ```
+  }];
+
+    let arguments = (ins
+      Variadic<TensorOrMemref>:$inputs,
+      Variadic<TensorOrMemref>:$inits,
+      LinalgExt_AtomicTypeAttr:$atomic_type,
+      LinalgExt_MemoryOrder:$memory_order
+    );
+    let results = (outs Variadic<TensorOrMemref>:$result);
+
+    let assemblyFormat = [{
+      $atomic_type $memory_order attr-dict
+      (`ins` `(` $inputs^ `:` type($inputs) `)`)?
+      `outs` `(` $inits `:` type($inits) `)`
+       (`->` type($result)^)?
+    }];
+    let hasFolder = 1;
+    let builders = [
+      OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$inits,
+        "AtomicType": $atomic_type, "MemoryOrder": $memory_order,
+        CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
+    ];
+    let extraClassDeclaration =
+      extraLinalgExtOpClassDeclaration # [{
+      // Base helper function.
+      Value input() {
+        return getDpsInputOperand(0)->get();
+      }
+      Value src() {
+        return getDpsInitOperand(0)->get();
+      }
+      Value dst() {
+        return getDpsInitOperand(1)->get();
+      }
+      ShapedType getInputType() {
+        return input().getType().cast<ShapedType>();
+      }
+      ShapedType getSrcType() {
+        return src().getType().cast<ShapedType>();
+      }
+      LogicalResult reifyResultShapes(OpBuilder &b,
+                                      ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
+        return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+      }
+      MutableOperandRange getDpsInitsMutable() { return getInitsMutable(); }
+    }];
+}
+
+//===----------------------------------------------------------------------===//
 // Op definition for GatherAtomicRMWOp
 //===----------------------------------------------------------------------===//
 def GatherAtomicRMWOp : LinalgExtBase_Op<"gather_atomic_rmw", [AttrSizedOperandSegments]> {

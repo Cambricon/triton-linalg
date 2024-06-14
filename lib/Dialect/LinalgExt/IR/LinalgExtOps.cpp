@@ -1507,6 +1507,53 @@ void GatherOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
+// Implementation of contiguous AtomicRMWOp
+//===----------------------------------------------------------------------===//
+void AtomicRMWOp::build(OpBuilder &builder, OperationState &result,
+                        ValueRange inputs, ValueRange inits,
+                        AtomicType atomicType, MemoryOrder memory_order,
+                        ArrayRef<NamedAttribute> attributes) {
+  build(builder, result, TypeRange{}, inputs, inits, atomicType, memory_order);
+  result.addAttributes(attributes);
+
+  // Add output types for output arguments.
+  for (auto i : inits) {
+    result.addTypes(i.getType());
+  }
+}
+
+LogicalResult AtomicRMWOp::verify() {
+  Operation *op = getOperation();
+  if (getNumDpsInputs() != 1) {
+    return op->emitOpError("expected one input operand");
+  }
+  return success();
+}
+
+LogicalResult AtomicRMWOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
+  return memref::foldMemRefCast(*this);
+}
+
+void AtomicRMWOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  for (auto *operand : getDpsInputOperands()) {
+    if (!operand->get().getType().isa<MemRefType>())
+      continue;
+    effects.emplace_back(MemoryEffects::Read::get(), operand->get(),
+                         SideEffects::DefaultResource::get());
+  }
+  effects.emplace_back(MemoryEffects::Read::get(), src(),
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), src(),
+                       SideEffects::DefaultResource::get());
+  if (dst().getType().isa<MemRefType>()) {
+    effects.emplace_back(MemoryEffects::Write::get(), dst(),
+                         SideEffects::DefaultResource::get());
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // Implementation of GatherAtomicRMWOp
 //===----------------------------------------------------------------------===//
 void GatherAtomicRMWOp::build(OpBuilder &builder, OperationState &result,
@@ -1535,6 +1582,30 @@ LogicalResult GatherAtomicRMWOp::verify() {
     return op->emitOpError("indice dim 1 size should be equal to src rank");
   }
   return success();
+}
+
+LogicalResult GatherAtomicRMWOp::fold(FoldAdaptor,
+                                      SmallVectorImpl<OpFoldResult> &) {
+  return memref::foldMemRefCast(*this);
+}
+
+void GatherAtomicRMWOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  for (auto *operand : getDpsInputOperands()) {
+    if (!operand->get().getType().isa<MemRefType>())
+      continue;
+    effects.emplace_back(MemoryEffects::Read::get(), operand->get(),
+                         SideEffects::DefaultResource::get());
+  }
+  effects.emplace_back(MemoryEffects::Read::get(), src(),
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), src(),
+                       SideEffects::DefaultResource::get());
+  if (window().getType().isa<MemRefType>()) {
+    effects.emplace_back(MemoryEffects::Write::get(), window(),
+                         SideEffects::DefaultResource::get());
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -1578,29 +1649,6 @@ void GatherAtomicCASOp::getEffects(
                         getDpsInits());
 }
 
-LogicalResult GatherAtomicRMWOp::fold(FoldAdaptor,
-                                      SmallVectorImpl<OpFoldResult> &) {
-  return memref::foldMemRefCast(*this);
-}
-
-void GatherAtomicRMWOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-        &effects) {
-  for (auto *operand : getDpsInputOperands()) {
-    if (!operand->get().getType().isa<MemRefType>())
-      continue;
-    effects.emplace_back(MemoryEffects::Read::get(), operand->get(),
-                         SideEffects::DefaultResource::get());
-  }
-  effects.emplace_back(MemoryEffects::Read::get(), src(),
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), src(),
-                       SideEffects::DefaultResource::get());
-  if (window().getType().isa<MemRefType>()) {
-    effects.emplace_back(MemoryEffects::Write::get(), window(),
-                         SideEffects::DefaultResource::get());
-  }
-}
 //===----------------------------------------------------------------------===//
 // Implementation of PadOp
 //===----------------------------------------------------------------------===//

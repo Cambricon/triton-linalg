@@ -31,6 +31,8 @@
 #include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
 #include "triton-linalg/Dialect/Triton/Utils/PointerMetaInfoTracker.h"
+#include "triton-linalg/Dialect/Utils/Conventions.h"
+#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -45,42 +47,43 @@ class DataFlowSolver;
 
 using namespace mlir;
 using namespace mlir::triton;
-/// Try to convert triton::RMWOp to linalg_ext::AtomicType.
-static std::optional<linalg_ext::AtomicType>
+/// Try to convert triton::RMWOp to triton::linalg_ext::AtomicType.
+static std::optional<triton::linalg_ext::AtomicType>
 getAtomicRMWType(triton::RMWOp rmwOp, Type eltTy) {
   switch (rmwOp) {
   case triton::RMWOp::AND:
-    return linalg_ext::AtomicType::andi;
+    return triton::linalg_ext::AtomicType::andi;
   case triton::RMWOp::OR:
-    return linalg_ext::AtomicType::ori;
+    return triton::linalg_ext::AtomicType::ori;
   case triton::RMWOp::XOR:
-    return linalg_ext::AtomicType::xori;
+    return triton::linalg_ext::AtomicType::xori;
   case triton::RMWOp::ADD:
-    return linalg_ext::AtomicType::addi;
+    return triton::linalg_ext::AtomicType::addi;
   case triton::RMWOp::FADD:
-    return linalg_ext::AtomicType::addf;
+    return triton::linalg_ext::AtomicType::addf;
   case triton::RMWOp::MAX:
     if (eltTy.isIntOrIndex())
-      return linalg_ext::AtomicType::maxs;
-    return linalg_ext::AtomicType::maximumf;
+      return triton::linalg_ext::AtomicType::maxs;
+    return triton::linalg_ext::AtomicType::maximumf;
   case triton::RMWOp::MIN:
     if (eltTy.isIntOrIndex())
-      return linalg_ext::AtomicType::mins;
-    return linalg_ext::AtomicType::minimumf;
+      return triton::linalg_ext::AtomicType::mins;
+    return triton::linalg_ext::AtomicType::minimumf;
   case triton::RMWOp::UMAX:
-    return linalg_ext::AtomicType::maxu;
+    return triton::linalg_ext::AtomicType::maxu;
   case triton::RMWOp::UMIN:
-    return linalg_ext::AtomicType::minu;
+    return triton::linalg_ext::AtomicType::minu;
   case triton::RMWOp::XCHG:
-    return linalg_ext::AtomicType::xchg;
+    return triton::linalg_ext::AtomicType::xchg;
   default:
     llvm_unreachable("Invalid AtomicRMWKind");
   }
 }
 
+/// Scalar atomic.
 class TritonScalarAtomicRMWOpConversion
     : public OpConversionPattern<triton::AtomicRMWOp>,
-      public TritonPtrScalarConversionBase {
+      public triton::TritonPtrScalarConversionBase {
   using OpConversionPattern<triton::AtomicRMWOp>::OpConversionPattern;
 
 public:
@@ -88,9 +91,8 @@ public:
       mlir::triton::TritonLinalgTypeConverter &converter,
       mlir::MLIRContext *context, mlir::DataFlowSolver &solver,
       mlir::PatternBenefit benefit)
-      : OpConversionPattern<mlir::triton::AtomicRMWOp>(converter, context,
-                                                       benefit),
-        TritonPtrScalarConversionBase(solver) {}
+      : OpConversionPattern<triton::AtomicRMWOp>(converter, context, benefit),
+        triton::TritonPtrScalarConversionBase(solver) {}
 
   LogicalResult
   matchAndRewrite(triton::AtomicRMWOp op, OpAdaptor adaptor,
@@ -141,7 +143,7 @@ public:
     if (!maybeKind)
       return failure();
 
-    auto maybeMemoryOrder = triton::getLinalgExtAtomicMemoryOrder(op.getSem());
+    auto maybeMemoryOrder = getLinalgExtAtomicMemoryOrder(op.getSem());
     if (failed(maybeMemoryOrder))
       return failure();
 
@@ -166,30 +168,100 @@ public:
     return success();
   }
 };
+
+/// Contiguous atomic.
+class TritonContiguousAtomicRmwOpConversion
+    : public OpConversionPattern<triton::AtomicRMWOp>,
+      public TritonPtrContiguousConversionBase {
+  using OpConversionPattern<triton::AtomicRMWOp>::OpConversionPattern;
+
+public:
+  TritonContiguousAtomicRmwOpConversion(TritonLinalgTypeConverter &converter,
+                                        MLIRContext *context,
+                                        DataFlowSolver &solver,
+                                        PatternBenefit benefit)
+      : OpConversionPattern<triton::AtomicRMWOp>(converter, context, benefit),
+        TritonPtrContiguousConversionBase(solver) {}
+
+  LogicalResult
+  matchAndRewrite(triton::AtomicRMWOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    RankedTensorType resultTy =
+        op.getResult().getType().dyn_cast<RankedTensorType>();
+    if (!resultTy)
+      return failure();
+
+    auto loc = op.getLoc();
+    auto ptrInfo = getPtrInfo(loc, op.getPtr(), op.getMask(), resultTy,
+                              rewriter, nullptr, false);
+    if (failed(ptrInfo)) {
+      return failure();
+    }
+
+    if (!isConsecutive(ptrInfo->permutations)) {
+      return failure();
+    }
+    for (const auto &dimInfo : llvm::enumerate(ptrInfo->dimInfos)) {
+      if (dimInfo.value().isBroadcastDim()) {
+        return failure();
+      }
+    }
+
+    Value originalTensor = rewriter.create<bufferization::ToTensorOp>(
+        loc, ptrInfo->memref, true, true);
+
+    // Create atomic_rmw here.
+    // Get linalg_ext.atomic_rmw input operands.
+    SmallVector<Value> atomicInputs{op.getVal()};
+    // Init atomic output.
+    Type resultEltType = resultTy.getElementType();
+    Value atomicResultInit = rewriter.create<tensor::EmptyOp>(
+        op.getLoc(), resultTy.getShape(), resultEltType);
+    auto maybeKind = getAtomicRMWType(op.getAtomicRmwOp(), resultEltType);
+    if (!maybeKind)
+      return failure();
+
+    SmallVector<Value> atomicInits{originalTensor, atomicResultInit};
+
+    auto maybeMemoryOrder = getLinalgExtAtomicMemoryOrder(op.getSem());
+    if (failed(maybeMemoryOrder))
+      return failure();
+
+    Value sliceTensor =
+        rewriter
+            .create<triton::linalg_ext::AtomicRMWOp>(
+                loc, atomicInputs, atomicInits, *maybeKind, *maybeMemoryOrder)
+            ->getResult(1);
+
+    rewriter.replaceOp(op, sliceTensor);
+    return success();
+  }
+};
+
+/// Discrete atomic.
 class TritonScatteredAtomicRMWOpConversion
-    : public mlir::OpConversionPattern<mlir::triton::AtomicRMWOp>,
+    : public mlir::OpConversionPattern<triton::AtomicRMWOp>,
       public TritonPtrScatterConversionBase {
-  using OpConversionPattern<mlir::triton::AtomicRMWOp>::OpConversionPattern;
+  using OpConversionPattern<triton::AtomicRMWOp>::OpConversionPattern;
 
 public:
   TritonScatteredAtomicRMWOpConversion(
       mlir::triton::TritonLinalgTypeConverter &converter,
       mlir::MLIRContext *context, mlir::DataFlowSolver &solver,
       mlir::PatternBenefit benefit)
-      : OpConversionPattern<mlir::triton::AtomicRMWOp>(converter, context,
-                                                       benefit),
+      : OpConversionPattern<triton::AtomicRMWOp>(converter, context, benefit),
         TritonPtrScatterConversionBase(solver) {}
 
   mlir::LogicalResult
-  matchAndRewrite(mlir::triton::AtomicRMWOp op, OpAdaptor adaptor,
-                  mlir::ConversionPatternRewriter &rewriter) const override {
+  matchAndRewrite(triton::AtomicRMWOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
     auto resultTy = op.getResult().getType().dyn_cast<RankedTensorType>();
     if (!resultTy)
       return failure();
 
     auto loc = op.getLoc();
 
-    PointerMetaInfoTracker tracker;
+    triton::PointerMetaInfoTracker tracker;
     if (failed(tracker.parse(op.getPtr(), loc, rewriter)))
       return failure();
     Value memref = getDynamicMemRef(loc, tracker.getBase(), resultTy, rewriter);
@@ -197,17 +269,17 @@ public:
         rewriter.create<bufferization::ToTensorOp>(loc, memref, true, true);
     // Get value.
     Value valueTensor =
-        flattenValueToMatchGatherScatter(rewriter, op.getVal(), true);
+        triton::flattenValueToMatchGatherScatter(rewriter, op.getVal(), true);
     Value indices =
-        flattenValueToMatchGatherScatter(rewriter, tracker.getOffset());
+        triton::flattenValueToMatchGatherScatter(rewriter, tracker.getOffset());
 
     // Get linalg_ext.gather_atomic_rmw input operands.
     SmallVector<Value> atomicInputs{valueTensor, indices};
 
     // Get mask.
     if (op.getMask()) {
-      auto atomicMask =
-          flattenValueToMatchGatherScatter(rewriter, op.getMask(), false);
+      auto atomicMask = triton::flattenValueToMatchGatherScatter(
+          rewriter, op.getMask(), false);
       Value maskInit = rewriter.create<tensor::EmptyOp>(
           loc, atomicMask.getType().cast<RankedTensorType>().getShape(),
           rewriter.getI8Type());
@@ -228,7 +300,7 @@ public:
     Value atomicResultInit = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), resultTy.getShape(), resultEltType);
     atomicResultInit =
-        flattenValueToMatchGatherScatter(rewriter, atomicResultInit);
+        triton::flattenValueToMatchGatherScatter(rewriter, atomicResultInit);
 
     auto maybeKind = getAtomicRMWType(op.getAtomicRmwOp(), resultEltType);
     if (!maybeKind)
@@ -246,7 +318,7 @@ public:
             ->getResult(1);
 
     // Reshape output to origin shape.
-    out = reshapeGatherScatterValueTo(out, resultTy, rewriter);
+    out = triton::reshapeGatherScatterValueTo(out, resultTy, rewriter);
     rewriter.replaceOp(op, out);
 
     return success();
@@ -254,9 +326,11 @@ public:
 };
 
 void triton::populateTritonAtomicRmwToLinalgPatterns(
-    RewritePatternSet &patterns, TritonLinalgTypeConverter &converter,
+    RewritePatternSet &patterns, triton::TritonLinalgTypeConverter &converter,
     mlir::DataFlowSolver &solver) {
   MLIRContext *context = patterns.getContext();
+  patterns.add<TritonContiguousAtomicRmwOpConversion>(converter, context,
+                                                      solver, 1);
   patterns.add<TritonScalarAtomicRMWOpConversion,
                TritonScatteredAtomicRMWOpConversion>(converter, context, solver,
                                                      0);

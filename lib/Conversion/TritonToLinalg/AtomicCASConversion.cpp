@@ -41,16 +41,15 @@ namespace {
 
 class TritonScalarAtomicCASOpConversion
     : public OpConversionPattern<triton::AtomicCASOp>,
-      public TritonPtrScalarConversionBase {
+      public triton::TritonPtrScalarConversionBase {
   using OpConversionPattern<triton::AtomicCASOp>::OpConversionPattern;
 
 public:
-  TritonScalarAtomicCASOpConversion(TritonLinalgTypeConverter &converter,
-                                    MLIRContext *context,
-                                    DataFlowSolver &solver,
-                                    PatternBenefit benefit)
+  TritonScalarAtomicCASOpConversion(
+      triton::TritonLinalgTypeConverter &converter, MLIRContext *context,
+      DataFlowSolver &solver, PatternBenefit benefit)
       : OpConversionPattern<triton::AtomicCASOp>(converter, context, benefit),
-        TritonPtrScalarConversionBase(solver) {}
+        triton::TritonPtrScalarConversionBase(solver) {}
 
   LogicalResult
   matchAndRewrite(triton::AtomicCASOp op, OpAdaptor adaptor,
@@ -83,18 +82,18 @@ public:
     auto init = rewriter.create<tensor::EmptyOp>(
         loc, originTensorTy.getShape(), originTensorTy.getElementType());
 
-    auto maybeMemoryOrder = triton::getLinalgExtAtomicMemoryOrder(op.getSem());
+    auto maybeMemoryOrder = getLinalgExtAtomicMemoryOrder(op.getSem());
     if (failed(maybeMemoryOrder))
       return failure();
 
-    rewriter.create<triton::linalg_ext::AtomicCASOp>(
+    auto casOp = rewriter.create<triton::linalg_ext::AtomicCASOp>(
         loc, originTensor.getType(),
         ValueRange({originTensor, cmpValue, valValue}), init,
         *maybeMemoryOrder);
     Value scalarRet =
         rewriter
-            .create<tensor::ExtractOp>(loc, op.getResult().getType(), init,
-                                       ValueRange({zero}))
+            .create<tensor::ExtractOp>(loc, op.getResult().getType(),
+                                       casOp->getResult(0), ValueRange({zero}))
             .getResult();
     op.replaceAllUsesWith(scalarRet);
     rewriter.eraseOp(op);
@@ -102,14 +101,15 @@ public:
   }
 };
 
-class TritonAtomicCASPattern : public OpConversionPattern<triton::AtomicCASOp>,
-                               public TritonPtrContiguousConversionBase {
+class TritonAtomicCASPattern
+    : public OpConversionPattern<triton::AtomicCASOp>,
+      public triton::TritonPtrContiguousConversionBase {
 public:
-  TritonAtomicCASPattern(TritonLinalgTypeConverter &converter,
+  TritonAtomicCASPattern(triton::TritonLinalgTypeConverter &converter,
                          MLIRContext *context, DataFlowSolver &solver,
                          PatternBenefit benefit = 1)
       : OpConversionPattern<triton::AtomicCASOp>(converter, context, benefit),
-        TritonPtrContiguousConversionBase(solver) {}
+        triton::TritonPtrContiguousConversionBase(solver) {}
 
   LogicalResult
   matchAndRewrite(triton::AtomicCASOp op, OpAdaptor adaptor,
@@ -129,7 +129,7 @@ public:
       if (dimInfo.getContigSize() != dimInfo.getDimSize())
         return failure();
     }
-    if (!isConsecutive(ptrInfo->permutations)) {
+    if (!triton::isConsecutive(ptrInfo->permutations)) {
       return failure();
     }
 
@@ -139,7 +139,7 @@ public:
     auto init = rewriter.create<tensor::EmptyOp>(loc, resultTy.getShape(),
                                                  resultTy.getElementType());
 
-    auto maybeMemoryOrder = triton::getLinalgExtAtomicMemoryOrder(op.getSem());
+    auto maybeMemoryOrder = getLinalgExtAtomicMemoryOrder(op.getSem());
     if (failed(maybeMemoryOrder))
       return failure();
 
@@ -158,7 +158,7 @@ class TritonGatherAtomicCASPattern
     : public OpConversionPattern<triton::AtomicCASOp>,
       TritonPtrScatterConversionBase {
 public:
-  TritonGatherAtomicCASPattern(TritonLinalgTypeConverter &converter,
+  TritonGatherAtomicCASPattern(triton::TritonLinalgTypeConverter &converter,
                                MLIRContext *context, DataFlowSolver &solver,
                                PatternBenefit benefit = 1)
       : OpConversionPattern<triton::AtomicCASOp>(converter, context, benefit),
@@ -176,7 +176,7 @@ public:
 
     auto loc = op.getLoc();
     // When encounter discrete input.
-    PointerMetaInfoTracker tracker;
+    triton::PointerMetaInfoTracker tracker;
     if (failed(tracker.parse(op.getPtr(), loc, rewriter)))
       return failure();
     Value memref = getDynamicMemRef(loc, tracker.getBase(), resultTy, rewriter);
@@ -184,9 +184,11 @@ public:
         rewriter.create<bufferization::ToTensorOp>(loc, memref, true, true);
     auto init = rewriter.create<tensor::EmptyOp>(loc, resultTy.getShape(),
                                                  resultTy.getElementType());
-    auto maybeMemoryOrder = triton::getLinalgExtAtomicMemoryOrder(op.getSem());
+
+    auto maybeMemoryOrder = getLinalgExtAtomicMemoryOrder(op.getSem());
     if (failed(maybeMemoryOrder))
       return failure();
+
     rewriter.replaceOpWithNewOp<triton::linalg_ext::GatherAtomicCASOp>(
         op, op.getResult().getType(),
         ValueRange(
@@ -199,7 +201,7 @@ public:
 } // namespace
 
 void triton::populateTritonAtomicCASToLinalgPatterns(
-    RewritePatternSet &patterns, TritonLinalgTypeConverter &converter,
+    RewritePatternSet &patterns, triton::TritonLinalgTypeConverter &converter,
     DataFlowSolver &solver) {
   MLIRContext *context = patterns.getContext();
   patterns.add<TritonScalarAtomicCASOpConversion, TritonAtomicCASPattern>(
