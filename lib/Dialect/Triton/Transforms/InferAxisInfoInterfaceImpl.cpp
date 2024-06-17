@@ -322,8 +322,9 @@ struct DivOpInferAxisInfoOpInterface
         constantValue = {lhs.getConstantValue().value() /
                          rhs.getConstantValue().value()};
         divisibility.push_back(highestPowOf2Divisor(constantValue.value()));
-      } else if (!lhs.isConstantDim(shape, d) && lhs.isStrideDim(shape, d) &&
-                 rhs.isConstantDim(shape, d) &&
+      } else if (!lhs.isFullConstantDim(shape, d) &&
+                 lhs.isFullStrideDim(shape, d) &&
+                 rhs.isFullConstantDim(shape, d) &&
                  rhs.getConstantValue().has_value() &&
                  llvm::isPowerOf2_64(lhs.getStrideValue(d))) {
         // Case 3: lhs stride(stride_val is power of 2), rhs constant.
@@ -336,21 +337,23 @@ struct DivOpInferAxisInfoOpInterface
         // minStride = max(gcd(d_lhs, d_rhs) / strideVal, 1).
         // Since minStride maybe > len(lhs),
         // we need to use another gcd to get the actual constancy.
-        assert(lhs.getStrideValue(d) != 0 && "Stride value should not be zero");
-        stride.push_back(
-            std::gcd(lhs.getStride(d),
-                     std::max<int64_t>(std::gcd(lhs.getDivisibility(d),
-                                                rhs.getDivisibility(d)) /
-                                           lhs.getStrideValue(d),
-                                       1)));
+        int64_t divisibilityGCD =
+            std::gcd(lhs.getDivisibility(d), rhs.getDivisibility(d));
+        bool isFullStrided =
+            lhs.getStrideValue(d) % rhs.getConstantValue().value() == 0;
+        int64_t newStride =
+            isFullStrided
+                ? lhs.getStride(d)
+                : std::max<int64_t>(divisibilityGCD / lhs.getStrideValue(d), 1);
+        stride.push_back(std::gcd(lhs.getStride(d), newStride));
         strideValue.push_back(lhs.getStrideValue(d) /
                               rhs.getConstantValue().value());
         divisibility.push_back(std::max<int64_t>(
             lhs.getDivisibility(d) / rhs.getConstantValue().value(), 1));
-      } else if (lhs.isConstantStrideDim(shape, d) &&
-                 rhs.isConstantStrideDim(shape, d)) {
-        divisibility.push_back(
-            std::gcd(lhs.getDivisibility(d), rhs.getDivisibility(d)));
+      } else if (lhs.isStridedConstantDim(shape, d) &&
+                 rhs.getConstantValue().has_value()) {
+        divisibility.push_back(std::max<int64_t>(
+            lhs.getDivisibility(d) / rhs.getConstantValue().value(), 1));
         stride.push_back(std::gcd(lhs.getStride(d), rhs.getStride(d)));
         strideValue.push_back(0);
       } else {
@@ -402,7 +405,8 @@ struct RemOpInferAxisInfoOpInterface
         constantValue = {lhs.getConstantValue().value() %
                          rhs.getConstantValue().value()};
         divisibility.push_back(highestPowOf2Divisor(constantValue.value()));
-      } else if (lhs.isContiguousDim(shape, d) && rhs.isConstantDim(shape, d)) {
+      } else if (lhs.isFullContiguousDim(shape, d) &&
+                 rhs.isFullConstantDim(shape, d)) {
         // Case3: lhs contiguous, rhs constant.
         // lhs: d_lhs * k = gcd(d_lhs, d_rhs) * k' * k = gcd(d_lhs, d_rhs) * k''
         // rhs: d_rhs * p = gcd(d_lhs, d_rhs) * p' * p = gcd(d_lhs, d_rhs) * p''
@@ -423,6 +427,23 @@ struct RemOpInferAxisInfoOpInterface
             std::gcd(lhs.getContiguity(d),
                      std::gcd(lhs.getDivisibility(d), rhs.getDivisibility(d))));
         strideValue.push_back(1);
+      } else if (lhs.isStridedContiguousDim(shape, d) &&
+                 rhs.getConstantValue().has_value()) {
+        // Case4: lhs strided contiguous, rhs constant value.
+        divisibility.push_back(
+            std::gcd(lhs.getDivisibility(d), rhs.getDivisibility(d)));
+        stride.push_back(
+            std::gcd(lhs.getContiguity(d),
+                     std::gcd(lhs.getDivisibility(d), rhs.getDivisibility(d))));
+        strideValue.push_back(lhs.getStrideValue(d) %
+                              rhs.getConstantValue().value());
+      } else if (lhs.isStridedConstantDim(shape, d) &&
+                 rhs.getConstantValue().has_value()) {
+        // Case5: lhs strided constant, rhs constant value.
+        divisibility.push_back(
+            std::gcd(lhs.getDivisibility(d), rhs.getDivisibility(d)));
+        stride.push_back(lhs.getConstancy(d));
+        strideValue.push_back(0);
       } else {
         divisibility.push_back(AxisInfoExt::kInitValue);
         stride.push_back(AxisInfoExt::kInitValue);
@@ -474,8 +495,8 @@ struct CmpOpInferAxisInfoOpInterface
 
         auto commonDivisor =
             std::gcd(lhsInfo.getDivisibility(d), rhsInfo.getDivisibility(d));
-        if (lhsInfo.isConstantDim(shape, d) &&
-            rhsInfo.isContiguousDim(shape, d)) {
+        if (lhsInfo.isFullConstantDim(shape, d) &&
+            rhsInfo.isFullContiguousDim(shape, d)) {
           // Case 2: lhs all constant, rhs all contiguous
           // NOTE:
           // lhs: k0 * d, k0 * d, ...
@@ -486,9 +507,8 @@ struct CmpOpInferAxisInfoOpInterface
           // lhs gt rhs: 1, 1, 1, 1 (minimal len: d if k0 > k1)
           constancyHint = std::max(
               constancyHint, std::gcd(rhsInfo.getContiguity(d), commonDivisor));
-        } else if (lhsInfo.isContiguousDim(shape, d) &&
-                   rhsInfo.isConstantDim(shape, d)) {
-
+        } else if (lhsInfo.isFullContiguousDim(shape, d) &&
+                   rhsInfo.isFullConstantDim(shape, d)) {
           // Case 3: lhs all contiguous, rhs all constant
           // NOTE
           // lhs: k0 * d, k0 * d + 1, ...
@@ -499,6 +519,10 @@ struct CmpOpInferAxisInfoOpInterface
           // lhs lt rhs: 1, 1, 1, 1 (minimal len: d if k0 < k1)
           constancyHint = std::max(
               constancyHint, std::gcd(lhsInfo.getContiguity(d), commonDivisor));
+        } else if (lhsInfo.isFullConstantDim(shape, d) &&
+                   rhsInfo.isFullConstantDim(shape, d)) {
+          // Case 4: lhs all constant, rhs all constant
+          strideValueHint = 0;
         }
       }
 
@@ -837,12 +861,234 @@ struct ExpandDimsOpInferAxisInfoOpInterface
     AxisInfoExt::DimVectorT divisibility = opInfo.getDivisibility();
     AxisInfoExt::DimVectorT stride = opInfo.getStride();
     AxisInfoExt::DimVectorT strideValue = opInfo.getStrideValue();
+    ArrayRef<int64_t> srcShape = expandDimsOp.getSrc().getType().getShape();
+    int64_t expandedDim =
+        std::max(static_cast<int32_t>(expandDimsOp.getAxis()) - 1, 0);
+    int64_t expandedDivisibility =
+        opInfo.isFullConstantDim(srcShape, expandedDim)
+            ? divisibility[expandedDim]
+            : AxisInfoExt::kInitValue;
     divisibility.insert(divisibility.begin() + expandDimsOp.getAxis(),
-                        AxisInfoExt::kInitValue);
+                        expandedDivisibility);
     stride.insert(stride.begin() + expandDimsOp.getAxis(),
                   AxisInfoExt::kInitValue);
-    strideValue.insert(strideValue.begin() + expandDimsOp.getAxis(), 0);
+    strideValue.insert(strideValue.begin() + expandDimsOp.getAxis(),
+                       AxisInfoExt::kStrideValueInitValue);
     return setResultAxisInfo(expandDimsOp->getResult(0),
+                             AxisInfoExt(divisibility, stride, strideValue,
+                                         opInfo.getConstantValue()));
+  }
+};
+
+struct ExpandShapeOpInferAxisInfoOpInterface
+    : public InferAxisInfoInterface::ExternalModel<
+          ExpandShapeOpInferAxisInfoOpInterface, tensor::ExpandShapeOp> {
+
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
+                      SetAxisInfoFn setResultAxisInfo) const {
+    tensor::ExpandShapeOp expandShapeOp = cast<tensor::ExpandShapeOp>(op);
+    assert(argInfos.size() == 1 && "Expected one operand");
+
+    AxisInfoExt opInfo = argInfos[0];
+    ArrayRef<int64_t> srcShape = expandShapeOp.getSrcType().getShape();
+    ArrayRef<int64_t> resShape = expandShapeOp.getResultType().getShape();
+    AxisInfoExt::DimVectorT divisibility, stride, strideValue;
+    for (const auto &indices :
+         llvm::enumerate(expandShapeOp.getReassociationIndices())) {
+      // Init expanded axisinfo by source axisinfo.
+      int64_t srcDim = indices.index();
+      int64_t srcDivisibility = opInfo.getDivisibility()[srcDim];
+      int64_t srcStride = opInfo.getStride()[srcDim];
+      int64_t srcStrideValue = opInfo.getStrideValue()[srcDim];
+      for (auto indice : indices.value()) {
+        stride.push_back(srcStride);
+        strideValue.push_back(srcStrideValue);
+        divisibility.push_back(srcDivisibility);
+      }
+      if (indices.value().size() == 1)
+        continue;
+
+      // Calculate axisinfo of expanded dimension.
+      int64_t nextStride = srcStride;
+      int64_t nextStrideValue = srcStrideValue;
+      int64_t nextDivisibility = srcDivisibility;
+      for (auto resDim : llvm::reverse(indices.value())) {
+        if (nextStride >= resShape[resDim] &&
+            nextStride % resShape[resDim] == 0) {
+          strideValue[resDim] = nextStrideValue;
+          nextStrideValue = nextStride == resShape[resDim]
+                                ? AxisInfoExt::kStrideValueInitValue
+                                : nextStrideValue * resShape[resDim];
+          stride[resDim] = resShape[resDim];
+          nextStride /= resShape[resDim];
+          if (opInfo.isFullConstantDim(srcShape, srcDim)) {
+            divisibility[resDim] = nextDivisibility;
+          } else if (opInfo.isNonConstantFullStrideDim(srcShape, srcDim)) {
+            divisibility[resDim] = std::gcd(
+                nextDivisibility, resShape[resDim] * strideValue[resDim]);
+            nextDivisibility = srcStrideValue == 1
+                                   ? AxisInfoExt::kInitValue
+                                   : highestPowOf2Divisor(strideValue[resDim]);
+          } else {
+            divisibility[resDim] = AxisInfoExt::kInitValue;
+            nextDivisibility = AxisInfoExt::kInitValue;
+          }
+        } else if (resShape[resDim] > nextStride &&
+                   resShape[resDim] % nextStride == 0) {
+          strideValue[resDim] = nextStrideValue;
+          nextStrideValue = AxisInfoExt::kStrideValueInitValue;
+          stride[resDim] = nextStride;
+          nextStride = AxisInfoExt::kInitValue;
+          divisibility[resDim] = AxisInfoExt::kInitValue;
+          nextDivisibility = AxisInfoExt::kInitValue;
+        } else {
+          strideValue[resDim] = AxisInfoExt::kStrideValueInitValue;
+          nextStrideValue = AxisInfoExt::kStrideValueInitValue;
+          stride[resDim] = AxisInfoExt::kInitValue;
+          nextStride = AxisInfoExt::kInitValue;
+          divisibility[resDim] = AxisInfoExt::kInitValue;
+          nextDivisibility = AxisInfoExt::kInitValue;
+        }
+      }
+    }
+
+    return setResultAxisInfo(expandShapeOp->getResult(0),
+                             AxisInfoExt(divisibility, stride, strideValue,
+                                         opInfo.getConstantValue()));
+  }
+};
+
+struct CollapseShapeOpInferAxisInfoOpInterface
+    : public InferAxisInfoInterface::ExternalModel<
+          CollapseShapeOpInferAxisInfoOpInterface, tensor::CollapseShapeOp> {
+
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
+                      SetAxisInfoFn setResultAxisInfo) const {
+    tensor::CollapseShapeOp collapseShapeOp = cast<tensor::CollapseShapeOp>(op);
+    assert(argInfos.size() == 1 && "Expected one operand");
+
+    AxisInfoExt opInfo = argInfos[0];
+    ArrayRef<int64_t> srcShape = collapseShapeOp.getSrcType().getShape();
+    AxisInfoExt::DimVectorT divisibility, stride, strideValue;
+    for (const auto &indices :
+         llvm::enumerate(collapseShapeOp.getReassociationIndices())) {
+      int64_t resDim = indices.value().back();
+      int64_t resDivisibility = opInfo.getDivisibility()[resDim];
+      int64_t resStride = opInfo.getStride()[resDim];
+      int64_t resStrideValue = opInfo.getStrideValue()[resDim];
+      for (const auto &indice :
+           llvm::enumerate(llvm::reverse(indices.value()))) {
+        if (indices.value().size() == 1 || indice.index() == 0)
+          continue;
+        int64_t srcDim = indice.value();
+        int64_t srcStride = opInfo.getStride()[srcDim];
+        int64_t srcStrideValue = opInfo.getStrideValue()[srcDim];
+        int64_t srcDivisibility = opInfo.getDivisibility()[srcDim];
+        bool isLastDimFullStrided =
+            opInfo.getStride()[srcDim + 1] == srcShape[srcDim + 1];
+        if (srcStrideValue == resStride * resStrideValue &&
+            isLastDimFullStrided) {
+          resStride *= srcStride;
+        }
+        resDivisibility = std::max(resDivisibility, srcDivisibility);
+      }
+      divisibility.push_back(resDivisibility);
+      stride.push_back(resStride);
+      strideValue.push_back(resStrideValue);
+    }
+
+    return setResultAxisInfo(collapseShapeOp->getResult(0),
+                             AxisInfoExt(divisibility, stride, strideValue,
+                                         opInfo.getConstantValue()));
+  }
+};
+
+struct ExtractSliceOpInferAxisInfoOpInterface
+    : public InferAxisInfoInterface::ExternalModel<
+          ExtractSliceOpInferAxisInfoOpInterface, tensor::ExtractSliceOp> {
+
+  void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
+                      SetAxisInfoFn setResultAxisInfo) const {
+    tensor::ExtractSliceOp extractSliceOp = cast<tensor::ExtractSliceOp>(op);
+    assert(argInfos.size() == 1 && "Expected one operand");
+
+    AxisInfoExt opInfo = argInfos[0];
+    ArrayRef<int64_t> extractSliceOffsets = extractSliceOp.getStaticOffsets();
+    ArrayRef<int64_t> extractSliceSizes = extractSliceOp.getStaticSizes();
+    ArrayRef<int64_t> extractSliceStrides = extractSliceOp.getStaticStrides();
+    ArrayRef<int64_t> srcShape = extractSliceOp.getSourceType().getShape();
+    AxisInfoExt::DimVectorT divisibility, stride, strideValue;
+    int64_t extractSliceRank = extractSliceOp.getResultType().getRank();
+    for (int64_t d = 0; d < extractSliceRank; ++d) {
+      bool isSliceInsideFirstStride =
+          (extractSliceOffsets[d] * extractSliceStrides[d] +
+           (extractSliceSizes[d] - 1) * extractSliceStrides[d]) <=
+          opInfo.getStride()[d];
+      bool isSliceInsideOtherStride =
+          extractSliceOffsets[d] * extractSliceStrides[d] >=
+              opInfo.getStride()[d] &&
+          (extractSliceOffsets[d] * extractSliceStrides[d] %
+               opInfo.getStride()[d] +
+           (extractSliceSizes[d] - 1) * extractSliceStrides[d]) <=
+              opInfo.getStride()[d];
+      bool isSliceMultipleStride =
+          extractSliceStrides[d] == 1 &&
+          extractSliceOffsets[d] % opInfo.getStride()[d] == 0 &&
+          extractSliceSizes[d] % opInfo.getStride()[d] == 0 &&
+          extractSliceSizes[d] / opInfo.getStride()[d] >= 1;
+      if (opInfo.isStridedConstantDim(srcShape, d)) {
+        if (opInfo.isFullStrideDim(srcShape, d) || isSliceInsideFirstStride) {
+          stride.push_back(extractSliceSizes[d]);
+          strideValue.push_back(opInfo.getStrideValue()[d]);
+          divisibility.push_back(opInfo.getDivisibility()[d]);
+        } else if (isSliceInsideOtherStride) {
+          stride.push_back(extractSliceSizes[d]);
+          strideValue.push_back(opInfo.getStrideValue()[d]);
+          divisibility.push_back(AxisInfoExt::kInitValue);
+        } else if (isSliceMultipleStride) {
+          stride.push_back(opInfo.getStride()[d]);
+          strideValue.push_back(opInfo.getStrideValue()[d]);
+          divisibility.push_back(extractSliceOffsets[d] == 0
+                                     ? opInfo.getDivisibility()[d]
+                                     : AxisInfoExt::kInitValue);
+        } else {
+          stride.push_back(AxisInfoExt::kInitValue);
+          strideValue.push_back(AxisInfoExt::kStrideValueInitValue);
+          divisibility.push_back(extractSliceOffsets[d] == 0
+                                     ? opInfo.getDivisibility()[d]
+                                     : AxisInfoExt::kInitValue);
+        }
+      } else if (opInfo.isNonStridedConstantStrideDim(srcShape, d)) {
+        if (opInfo.isFullStrideDim(srcShape, d) || isSliceInsideFirstStride) {
+          stride.push_back(extractSliceSizes[d]);
+          strideValue.push_back(opInfo.getStrideValue()[d] *
+                                extractSliceStrides[d]);
+          divisibility.push_back(extractSliceOffsets[d] == 0
+                                     ? opInfo.getDivisibility()[d]
+                                     : AxisInfoExt::kInitValue);
+        } else if (isSliceInsideOtherStride) {
+          stride.push_back(extractSliceSizes[d]);
+          strideValue.push_back(opInfo.getStrideValue()[d] *
+                                extractSliceStrides[d]);
+          divisibility.push_back(AxisInfoExt::kInitValue);
+        } else if (isSliceMultipleStride) {
+          stride.push_back(opInfo.getStride()[d]);
+          strideValue.push_back(opInfo.getStrideValue()[d]);
+          divisibility.push_back(extractSliceOffsets[d] == 0
+                                     ? opInfo.getDivisibility()[d]
+                                     : AxisInfoExt::kInitValue);
+        } else {
+          stride.push_back(AxisInfoExt::kInitValue);
+          strideValue.push_back(AxisInfoExt::kStrideValueInitValue);
+          divisibility.push_back(AxisInfoExt::kInitValue);
+        }
+      } else {
+        stride.push_back(AxisInfoExt::kInitValue);
+        strideValue.push_back(AxisInfoExt::kStrideValueInitValue);
+        divisibility.push_back(AxisInfoExt::kInitValue);
+      }
+    }
+    return setResultAxisInfo(extractSliceOp.getResult(),
                              AxisInfoExt(divisibility, stride, strideValue,
                                          opInfo.getConstantValue()));
   }
@@ -853,7 +1099,8 @@ struct ExpandDimsOpInferAxisInfoOpInterface
 void mlir::triton::registerInferAxisInfoInterfaceExternalModels(
     DialectRegistry &registry) {
   // Must ensure that any dependent dialects are registered.
-  registry.insert<triton::TritonDialect, arith::ArithDialect>();
+  registry.insert<triton::TritonDialect, arith::ArithDialect,
+                  tensor::TensorDialect>();
 
   registry.addExtension(+[](MLIRContext *ctx, arith::ArithDialect *dialect) {
     arith::ConstantOp::attachInterface<ConstantOpInferAxisInfoOpInterface>(
@@ -898,5 +1145,14 @@ void mlir::triton::registerInferAxisInfoInterfaceExternalModels(
     triton::SplatOp::attachInterface<SplatOpInferAxisInfoOpInterface>(*ctx);
     triton::ExpandDimsOp::attachInterface<ExpandDimsOpInferAxisInfoOpInterface>(
         *ctx);
+  });
+
+  registry.addExtension(+[](MLIRContext *ctx, tensor::TensorDialect *dialect) {
+    tensor::ExtractSliceOp::attachInterface<
+        ExtractSliceOpInferAxisInfoOpInterface>(*ctx);
+    tensor::ExpandShapeOp::attachInterface<
+        ExpandShapeOpInferAxisInfoOpInterface>(*ctx);
+    tensor::CollapseShapeOp::attachInterface<
+        CollapseShapeOpInferAxisInfoOpInterface>(*ctx);
   });
 }

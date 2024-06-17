@@ -381,9 +381,9 @@ SmallVector<DimInfo> TritonPtrLoadStoreOpConversionBase::getDimInfos(
   SmallVector<DimInfo> dimInfos;
   dimInfos.reserve(tensorShape.size());
   for (const auto &dim : llvm::enumerate(tensorShape)) {
-    if (axisInfo->isConstantDim(tensorShape, dim.index())) {
+    if (axisInfo->isFullConstantDim(tensorShape, dim.index())) {
       dimInfos.push_back({1, dim.value(), DimInfo::Kind::BROADCAST});
-    } else if (axisInfo->isStrideDim(tensorShape, dim.index())) {
+    } else if (axisInfo->isFullStrideDim(tensorShape, dim.index())) {
       dimInfos.push_back({dim.value(), 1, DimInfo::Kind::CONTIG});
     } else {
       dimInfos.push_back({dim.value()});
@@ -401,8 +401,8 @@ SmallVector<int64_t> TritonPtrLoadStoreOpConversionBase::getPermutations(
       llvm::to_vector<2>(llvm::seq<int64_t>(0, rank));
 
   for (int64_t i = rank - 2; i >= 0; i--) {
-    if (!axisInfo->isContiguousDim(tensorShape, rank - 1) &&
-        axisInfo->isContiguousDim(tensorShape, i) && tensorShape[i] != 1) {
+    if (!axisInfo->isFullContiguousDim(tensorShape, rank - 1) &&
+        axisInfo->isFullContiguousDim(tensorShape, i) && tensorShape[i] != 1) {
       std::swap(permutations[i], permutations[rank - 1]);
       break;
     }

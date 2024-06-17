@@ -35,6 +35,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "triton-linalg/Dialect/Triton/Transforms/PassDetail.h" // IWYU pragma: keep
 #include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
+#include "triton-linalg/Dialect/Triton/Utils/PointerInfo.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -60,51 +61,6 @@ class MLIRContext;
 } // namespace mlir
 
 namespace {
-
-/// Structure info representation for pointer in triton.
-class PtrInfo {
-public:
-  PtrInfo() = delete;
-  PtrInfo(Value ptr, ArrayRef<Value> offsets)
-      : pointer(ptr), tensorPtrOffsets(offsets) {}
-
-  PtrInfo(Value ptr, ArrayRef<Value> sizes, ArrayRef<Value> strides,
-          ArrayRef<Value> offsets, ArrayRef<int32_t> order)
-      : pointer(ptr), tensorPtrSizes(sizes), tensorPtrStrides(strides),
-        tensorPtrOffsets(offsets), tensorPtrOrder(order) {}
-
-  PtrInfo(Value ptr, Value offset) : pointer(ptr) {
-    tensorPtrOffsets.push_back(offset);
-    isRawPtrInfo = true;
-  }
-
-  Value ptr() const { return pointer; }
-
-  ArrayRef<Value> offsets() const { return tensorPtrOffsets; }
-  Value offset(unsigned idx) const { return tensorPtrOffsets[idx]; }
-  Value offset() const { return tensorPtrOffsets[0]; }
-  void setOffsets(ValueRange vals) {
-    for (unsigned i = 0; i < vals.size(); i++) {
-      tensorPtrOffsets[i] = vals[i];
-    }
-  }
-  unsigned offsetSize() { return tensorPtrOffsets.size(); }
-
-  bool isBlockPtr() const { return !isRawPtrInfo; }
-
-  ArrayRef<Value> sizes() const { return tensorPtrSizes; }
-  ArrayRef<Value> strides() const { return tensorPtrStrides; }
-  ArrayRef<int32_t> order() const { return tensorPtrOrder; }
-
-private:
-  bool isRawPtrInfo{false};
-  Value pointer;
-  // Basic info for reconstruction of MakeTensorPtrOp.
-  SmallVector<Value> tensorPtrSizes;
-  SmallVector<Value> tensorPtrStrides;
-  SmallVector<Value> tensorPtrOffsets;
-  SmallVector<int32_t> tensorPtrOrder;
-};
 
 /// Check if there are repeat arguments in block inputs and terminatorOp.
 static bool verifyArgsMatchTerminatorInputsInBlock(Block *block,

@@ -835,6 +835,25 @@ public:
   }
 };
 
+class PtrExtractSliceOpPattern
+    : public OpConversionPattern<tensor::ExtractSliceOp> {
+  using OpConversionPattern<tensor::ExtractSliceOp>::OpConversionPattern;
+
+public:
+  PtrExtractSliceOpPattern(triton::TritonLinalgTypeConverter &converter,
+                           MLIRContext *context)
+      : OpConversionPattern<tensor::ExtractSliceOp>(converter, context) {}
+
+  LogicalResult
+  matchAndRewrite(tensor::ExtractSliceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
+        op, adaptor.getSource(), op.getMixedOffsets(), op.getMixedSizes(),
+        op.getMixedStrides());
+    return success();
+  }
+};
+
 struct GPUBarrierOpPattern : public OpConversionPattern<gpu::BarrierOp> {
   using OpConversionPattern<gpu::BarrierOp>::OpConversionPattern;
 
@@ -1612,6 +1631,7 @@ void triton::TritonToLinalgPass::populatePatterns(
   patterns.add<OptimizationBarrierOpPattern, GPUBarrierOpPattern>(converter,
                                                                   context);
   patterns.add<PtrSelectOpPattern>(converter, context, 0);
+  patterns.add<PtrExtractSliceOpPattern>(converter, context, 0);
   populateTritonToLinalgPatterns(patterns, converter);
   populateArithToLinalgPatterns(patterns);
   populateArithConversionPatterns(patterns);

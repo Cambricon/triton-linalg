@@ -177,6 +177,50 @@ LogicalResult PointerMetaInfoTracker::parseOp<triton::BroadcastOp>(
   return success();
 }
 
+template <>
+LogicalResult PointerMetaInfoTracker::parseOp<tensor::ExtractSliceOp>(
+    tensor::ExtractSliceOp op, Location loc,
+    ConversionPatternRewriter &rewriter) {
+  if (failed(parse(op.getSource(), loc, rewriter)))
+    return failure();
+  SmallVector<OpFoldResult> offsets = op.getMixedOffsets();
+  SmallVector<OpFoldResult> sizes = op.getMixedSizes();
+  SmallVector<OpFoldResult> strides = op.getMixedStrides();
+  this->offset = rewriter.create<tensor::ExtractSliceOp>(
+      loc, this->offset, offsets, sizes, strides);
+  return success();
+}
+
+template <>
+LogicalResult PointerMetaInfoTracker::parseOp<tensor::ExpandShapeOp>(
+    tensor::ExpandShapeOp op, Location loc,
+    ConversionPatternRewriter &rewriter) {
+  if (failed(parse(op.getOperand(), loc, rewriter)))
+    return failure();
+  this->offset = rewriter.create<tensor::ExpandShapeOp>(
+      loc,
+      RankedTensorType::get(
+          op.getResult().getType().cast<ShapedType>().getShape(),
+          getElementTypeOrSelf(this->offset.getType())),
+      this->offset, op.getReassociation());
+  return success();
+}
+
+template <>
+LogicalResult PointerMetaInfoTracker::parseOp<tensor::CollapseShapeOp>(
+    tensor::CollapseShapeOp op, Location loc,
+    ConversionPatternRewriter &rewriter) {
+  if (failed(parse(op.getOperand(), loc, rewriter)))
+    return failure();
+  this->offset = rewriter.create<tensor::CollapseShapeOp>(
+      loc,
+      RankedTensorType::get(
+          op.getResult().getType().cast<ShapedType>().getShape(),
+          getElementTypeOrSelf(this->offset.getType())),
+      this->offset, op.getReassociation());
+  return success();
+}
+
 FailureOr<bool>
 PointerMetaInfoTracker::parse(Value operand, Location loc,
                               ConversionPatternRewriter &rewriter) {
@@ -200,15 +244,16 @@ PointerMetaInfoTracker::parse(Value operand, Location loc,
     // mark it as a failure. For example, tt.bitwise for cases with unequal bit
     // width, so here we use isProcessedSuccessfully to store its state.
     bool isProcessedSuccessfully = true;
-    auto res =
-        llvm::TypeSwitch<Operation *, LogicalResult>(defOp)
-            .Case<triton::AddPtrOp, triton::BitcastOp, triton::SplatOp,
-                  triton::BroadcastOp, triton::ExpandDimsOp>([&](auto op) {
-              auto ret = parseOp(op, loc, rewriter);
-              isProcessedSuccessfully = ret.succeeded();
-              return ret;
-            })
-            .Default([](Operation *) { return failure(); });
+    auto res = llvm::TypeSwitch<Operation *, LogicalResult>(defOp)
+                   .Case<triton::AddPtrOp, triton::BitcastOp, triton::SplatOp,
+                         triton::BroadcastOp, triton::ExpandDimsOp,
+                         tensor::ExpandShapeOp, tensor::CollapseShapeOp,
+                         tensor::ExtractSliceOp>([&](auto op) {
+                     auto ret = parseOp(op, loc, rewriter);
+                     isProcessedSuccessfully = ret.succeeded();
+                     return ret;
+                   })
+                   .Default([](Operation *) { return failure(); });
     if (res.succeeded())
       return isProcessedSuccessfully;
     if (res.failed() && !isProcessedSuccessfully)
