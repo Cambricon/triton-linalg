@@ -211,8 +211,6 @@ public:
         loc, ptrInfo->memref, true, true);
 
     // Create atomic_rmw here.
-    // Get linalg_ext.atomic_rmw input operands.
-    SmallVector<Value> atomicInputs{op.getVal()};
     // Init atomic output.
     Type resultEltType = resultTy.getElementType();
     Value atomicResultInit = rewriter.create<tensor::EmptyOp>(
@@ -221,7 +219,19 @@ public:
     if (!maybeKind)
       return failure();
 
+    Value input = op.getVal();
+    auto rank = atomicResultInit.getType().cast<ShapedType>().getRank();
+    atomicResultInit = rewriter.create<tensor::ExtractSliceOp>(
+        loc, atomicResultInit, ptrInfo->offsets, ptrInfo->sizes,
+        SmallVector<OpFoldResult>(rank, rewriter.getIndexAttr(1)));
+
+    input = rewriter.create<tensor::ExtractSliceOp>(
+        loc, input, ptrInfo->offsets, ptrInfo->sizes,
+        SmallVector<OpFoldResult>(rank, rewriter.getIndexAttr(1)));
+
     SmallVector<Value> atomicInits{originalTensor, atomicResultInit};
+    // Get linalg_ext.atomic_rmw input operands.
+    SmallVector<Value> atomicInputs{input};
 
     auto maybeMemoryOrder = getLinalgExtAtomicMemoryOrder(op.getSem());
     if (failed(maybeMemoryOrder))
@@ -232,6 +242,13 @@ public:
             .create<triton::linalg_ext::AtomicRMWOp>(
                 loc, atomicInputs, atomicInits, *maybeKind, *maybeMemoryOrder)
             ->getResult(1);
+    // Pad value is set to 0 to align with GPU.
+    Value c0 = rewriter.create<arith::ConstantOp>(
+        loc, resultEltType, rewriter.getZeroAttr(resultEltType));
+    sliceTensor = getPadOrInsertOpWithOther(
+        loc, c0,
+        RankedTensorType::get(resultTy.getShape(), resultTy.getElementType()),
+        sliceTensor, ptrInfo->offsets, ptrInfo->sizes, rewriter);
 
     rewriter.replaceOp(op, sliceTensor);
     return success();

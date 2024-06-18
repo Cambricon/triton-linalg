@@ -957,8 +957,21 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::AtomicRMWOp>
     triton::linalg_ext::AtomicRMWOp atomicRMWOp =
         cast<triton::linalg_ext::AtomicRMWOp>(op);
     // Result 0 is src, we keep it unchanged.
+
     if (resultNumber == 0) {
-      return failure();
+      auto zeroAttr = b.getI64IntegerAttr(0);
+      auto initRank = atomicRMWOp.getSrcType().getRank();
+      auto initShape = atomicRMWOp.getSrcType().getShape();
+      for (unsigned r = 0; r < initRank; ++r) {
+        if (!isNoTile(sizes[r], offsets[r], initShape, r)) {
+          return failure();
+        }
+      }
+      resultOffsets.clear();
+      resultOffsets.append(offsets.begin(), offsets.end());
+      resultSizes.clear();
+      resultSizes.append(sizes.begin(), sizes.end());
+      return success();
     }
     resultOffsets.assign(offsets.begin(), offsets.end());
     resultSizes.assign(sizes.begin(), sizes.end());
