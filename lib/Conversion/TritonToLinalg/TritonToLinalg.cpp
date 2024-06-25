@@ -1256,6 +1256,7 @@ void TritonToLinalgPass::runOnOperation() {
       [](Operation *op) { return !op->getUsers().empty(); });
   target
       .addLegalOp<LLVM::IntToPtrOp, triton::aux::StoreResourceOp, aux::ViewOp,
+                  memref::LoadOp, memref::StoreOp,
                   bufferization::ToTensorOp, bufferization::ToMemrefOp,
                   bufferization::MaterializeInDestinationOp, aux::PrintOp,
                   aux::ScalarPrintOp>();
@@ -1274,7 +1275,8 @@ void TritonToLinalgPass::runOnOperation() {
     return !resType.isa<ShapedType>() && converter.isLegal(op);
     ;
   });
-  target.addLegalOp<triton::GetProgramIdOp, triton::GetNumProgramsOp>();
+  target.addLegalOp<triton::GetProgramIdOp, triton::GetNumProgramsOp,
+                    triton::ExternElementwiseOp>();
 
   auto solver = std::make_unique<mlir::DataFlowSolver>();
   solver->load<mlir::dataflow::DeadCodeAnalysis>();
