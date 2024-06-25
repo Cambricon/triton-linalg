@@ -353,7 +353,7 @@ public:
 
     Value memref = getDynamicMemRef(loc, tracker.getBase(), valueTy, rewriter);
     Value originTensor =
-        rewriter.create<bufferization::ToTensorOp>(loc, memref);
+        rewriter.create<bufferization::ToTensorOp>(loc, memref, true, true);
     // Get scatter init.
     Value scatterInit = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), getDim(rewriter, loc, originTensor, 0),
