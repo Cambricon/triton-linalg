@@ -1411,6 +1411,19 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::PadOp>
         highs.push_back(getAsOpFoldResult(originHighIndex));
         continue;
       }
+
+      // If the tiled dimension has no pad, the 'low' and 'high' should be
+      // constant zero, the 'offset' and the 'size' of src should be the same
+      // with the dst.
+      if (matchPattern(originLowIndex, m_Zero()) &&
+          matchPattern(originHighIndex, m_Zero())) {
+        inputOffsets.push_back(initOffsets[r]);
+        inputSizes.push_back(initSizes[r]);
+        lows.push_back(b.getIndexAttr(0));
+        highs.push_back(b.getIndexAttr(0));
+        continue;
+      }
+
       Value inputDimSize = getDimValue(b, loc, input, r);
       Value srcStart = originLowIndex;
       Value srcEnd = b.create<arith::AddIOp>(loc, srcStart, inputDimSize);
@@ -1492,27 +1505,42 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::PadOp>
       curSrcSize = b.create<arith::MinSIOp>(loc, curSrcSize, tileSize);
       inputSizes.push_back(getAsOpFoldResult(curSrcSize));
 
-      Value low1 = b.create<arith::SubIOp>(loc, srcStart, curDstStart);
-      // This is case 2, 3: (curDstStart < srcStart) && (curDstEnd >= srcStart).
-      Value cond = b.create<arith::AndIOp>(loc, curDstStartBeforeSrc,
-                                           curDstEndGESrcStart);
-      // curLow = case2-3? srcStart - curDstStart : 0.
-      curLow = b.create<arith::SelectOp>(loc, cond, low1, zeroIndex);
-      lows.push_back(getAsOpFoldResult(curLow));
+      if (matchPattern(originLowIndex, m_Zero())) {
+        lows.push_back(b.getIndexAttr(0));
+      } else {
+        Value low1 = b.create<arith::SubIOp>(loc, srcStart, curDstStart);
+        // This is case 2, 3: (curDstStart < srcStart) && (curDstEnd >=
+        // srcStart).
+        Value cond = b.create<arith::AndIOp>(loc, curDstStartBeforeSrc,
+                                             curDstEndGESrcStart);
+        // curLow = case2-3? srcStart - curDstStart : 0.
+        curLow = b.create<arith::SelectOp>(loc, cond, low1, zeroIndex);
+        // curLow = min (curLow, originLowIndex).
+        curLow = b.create<arith::MinSIOp>(loc, curLow, originLowIndex);
+        lows.push_back(getAsOpFoldResult(curLow));
+      }
 
-      Value high1 = b.create<arith::SubIOp>(loc, curDstEnd, srcEnd);
-      // curHigh = case1 ? size : 0.
-      curHigh =
-          b.create<arith::SelectOp>(loc, curDstBeforeSrc, tileSize, zeroIndex);
-      // curHigh = case2 ? curDstEnd - srcEnd : curHigh.
-      curHigh = b.create<arith::SelectOp>(loc, srcInCurDst, high1, curHigh);
-      // curHigh = case4 ? size : curHigh.
-      curHigh = b.create<arith::SelectOp>(loc, curDstStartAfterSrc, tileSize,
-                                          curHigh);
-      // curHigh = case6 ? curDstEnd - srcEnd : curHigh.
-      curHigh = b.create<arith::SelectOp>(
-          loc, curDstStartInSrcAndcurDstEndAfterSrc, high1, curHigh);
-      highs.push_back(getAsOpFoldResult(curHigh));
+      if (matchPattern(originHighIndex, m_Zero())) {
+        highs.push_back(b.getIndexAttr(0));
+      } else {
+        Value high1 = b.create<arith::SubIOp>(loc, curDstEnd, srcEnd);
+        // curHigh = case1 ? size : 0.
+        curHigh = b.create<arith::SelectOp>(loc, curDstBeforeSrc, tileSize,
+                                            zeroIndex);
+        // curHigh = case2 ? curDstEnd - srcEnd : curHigh.
+        curHigh = b.create<arith::SelectOp>(loc, srcInCurDst, high1, curHigh);
+        // curHigh = case4 ? size : curHigh.
+        curHigh = b.create<arith::SelectOp>(loc, curDstStartAfterSrc, tileSize,
+                                            curHigh);
+        // curHigh = case6 ? curDstEnd - srcEnd : curHigh.
+        curHigh = b.create<arith::SelectOp>(
+            loc, curDstStartInSrcAndcurDstEndAfterSrc, high1, curHigh);
+        Value maxPad =
+            b.create<arith::MaxSIOp>(loc, originHighIndex, originLowIndex);
+        // curHigh = min (curHigh, maxPad).
+        curHigh = b.create<arith::MinSIOp>(loc, curHigh, maxPad);
+        highs.push_back(getAsOpFoldResult(curHigh));
+      }
     }
     Value tiledInput =
         getSlice(b, loc, input, inputOffsets, inputSizes, inputStrides);
