@@ -45,6 +45,7 @@ void mlir::triton::populateMathToLinalgPatterns(RewritePatternSet &patterns) {
                GenericOpPattern<math::FmaOp>, GenericOpPattern<math::CeilOp>,
                GenericOpPattern<math::Log2Op>, GenericOpPattern<math::Exp2Op>,
                GenericOpPattern<math::RsqrtOp>, GenericOpPattern<math::ErfOp>,
+               GenericOpPattern<math::TanhOp>,
                GenericOpPattern<math_ext::MulhiUIOp>>(context);
 }
 

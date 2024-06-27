@@ -322,3 +322,28 @@ func.func @math_fma_tensor_staic(%arg0: tensor<100x10xf32>, %arg1: tensor<100x10
   return %0 : tensor<100x10xf32>
 }
 
+// -----
+func.func @math_tanh_scalar(%arg0: f32) {
+  // CHECK: math.tanh %arg0 : f32
+  // CHECK-NOT: linalg.map
+  %0 = math.tanh %arg0 : f32
+  return
+}
+
+// -----
+func.func @math_tanh_tensor_staic(%arg0: tensor<128xf32>) {
+  // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<128xf32>
+  // CHECK: %[[MAPPED:.*]] = linalg.map { math.tanh } ins(%arg0 : tensor<128xf32>) outs(%[[INIT]] : tensor<128xf32>)
+  %0 = math.tanh %arg0 : tensor<128xf32>
+  return
+}
+
+// -----
+func.func @math_tanh_tensor_partial_static(%arg0: tensor<128x?xf32>) {
+  // CHECK: %[[CST:.*]] = arith.constant 1 : index
+  // CHECK: %[[DYNAMIC_DIM:.*]] = tensor.dim %arg0, %[[CST]] : tensor<128x?xf32>
+  // CHECK: %[[INIT:.*]] = tensor.empty(%[[DYNAMIC_DIM]]) : tensor<128x?xf32>
+  // CHECK: %[[MAPPED:.*]] = linalg.map { math.tanh } ins(%arg0 : tensor<128x?xf32>) outs(%[[INIT]] : tensor<128x?xf32>)
+  %0 = math.tanh %arg0 : tensor<128x?xf32>
+  return
+}
