@@ -1,4 +1,4 @@
-//===- MathDialect.cpp - MLIR dialect for Math implementation -------------===//
+//===- MathDialect.cpp - MLIR dialect for Math implementation ---*- C++ -*-===//
 //
 // Copyright (C) [2022-2025] by Cambricon.
 //

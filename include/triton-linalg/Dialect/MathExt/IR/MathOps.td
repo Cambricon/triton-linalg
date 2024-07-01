@@ -4,8 +4,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MATH_OPS
-#define MATH_OPS
+#ifndef TRITON_LINALG_DIALECT_MATHEXT_IR_MATHOPS_TD
+#define TRITON_LINALG_DIALECT_MATHEXT_IR_MATHOPS_TD
 
 include "mlir/Dialect/Arith/IR/ArithBase.td"
 include "mlir/Dialect/Arith/IR/ArithOpsInterfaces.td"
@@ -42,4 +42,4 @@ def MathExt_MulhiUIOp : MathExt_IntegerBinaryOp<"mulhiui"> {
   }];
 }
 
-#endif // MATH_OPS
+#endif // TRITON_LINALG_DIALECT_MATHEXT_IR_MATHOPS_TD
