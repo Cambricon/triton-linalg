@@ -1,4 +1,4 @@
-//===- AxisInfoAnalysisExt.cpp - Axis info Analysis -------------*- C++ -*-===//
+//===- AxisInfoAnalysis.cpp - Axis info Analysis ----------------*- C++ -*-===//
 //
 // Copyright (C) [2022-2025] by Cambricon.
 //

@@ -4,8 +4,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TRITON_LINALG_DIALECT_ARITH_PASSES_H
-#define TRITON_LINALG_DIALECT_ARITH_PASSES_H
+#ifndef TRITON_LINALG_DIALECT_ARITH_TRANSFORMS_PASSES_H
+#define TRITON_LINALG_DIALECT_ARITH_TRANSFORMS_PASSES_H
 
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassRegistry.h"
@@ -24,4 +24,4 @@ std::unique_ptr<Pass> createArithCanonicalizerPass();
 } // namespace triton
 } // namespace mlir
 
-#endif // TRITON_LINALG_DIALECT_ARITH_PASSES_H
+#endif // TRITON_LINALG_DIALECT_ARITH_TRANSFORMS_PASSES_H

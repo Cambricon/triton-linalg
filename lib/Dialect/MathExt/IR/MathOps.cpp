@@ -1,4 +1,4 @@
-//===- MathOps.cpp - MLIR operations for math implementation --------------===//
+//===- MathOps.cpp - MLIR operations for math implementation ----*- C++ -*-===//
 //
 // Copyright (C) [2022-2025] by Cambricon.
 //

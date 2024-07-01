@@ -3,8 +3,8 @@
 // Copyright (C) [2022-2025] by Cambricon.
 //
 //===----------------------------------------------------------------------===//
-#ifndef TRITON_LINALG_PIPELINE_PIPELINES_H
-#define TRITON_LINALG_PIPELINE_PIPELINES_H
+#ifndef TRITON_LINALG_PIPELINES_PIPELINES_H
+#define TRITON_LINALG_PIPELINES_PIPELINES_H
 
 namespace mlir {
 namespace triton {
@@ -14,4 +14,4 @@ void registerTritonLinalgPipelines();
 } // namespace triton
 } // namespace mlir
 
-#endif // TRITON_LINALG_PIPELINE_PIPELINES_H
+#endif // TRITON_LINALG_PIPELINES_PIPELINES_H

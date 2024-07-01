@@ -1,3 +1,9 @@
+//===- Utils.h --------------------------------------------------*- C++ -*-===//
+//
+// Copyright (C) [2022-2025] by Cambricon.
+//
+//===----------------------------------------------------------------------===//
+
 #ifndef TRITON_LINALG_DIALECT_LINALGEXT_UTILS_UTILS_H
 #define TRITON_LINALG_DIALECT_LINALGEXT_UTILS_UTILS_H
 

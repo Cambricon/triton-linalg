@@ -8,8 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TRITON_DIALECT_AUXILIARY_IR_AUXILIARYOPS_TD
-#define TRITON_DIALECT_AUXILIARY_IR_AUXILIARYOPS_TD
+#ifndef TRITON_LINALG_DIALECT_AUXILIARY_IR_AUXILIARYOPS_TD
+#define TRITON_LINALG_DIALECT_AUXILIARY_IR_AUXILIARYOPS_TD
 
 include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.td"
 include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryTypes.td"
@@ -307,4 +307,4 @@ def ScalarPrintOp : Aux_Op<"scalar.print", [DeclareOpInterfaceMethods<MemoryEffe
   }];
   let hasVerifier = 1;
 }
-#endif // TRITON_DIALECT_AUXILIARY_IR_AUXILIARYOPS_TD
+#endif // TRITON_LINALG_DIALECT_AUXILIARY_IR_AUXILIARYOPS_TD

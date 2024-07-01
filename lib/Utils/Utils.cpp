@@ -1,4 +1,4 @@
-//===- OpFoldResultUtils.cpp - Some utilities for OpFoldResult --*- C++ -*-===//
+//===- Utils.cpp - Dialect utils --------------------------------*- C++ -*-===//
 //
 // Copyright (C) [2022-2025] by Cambricon.
 //

@@ -4,8 +4,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TRITON_LINALG_DIALECT_ARITH_PASSES_TD
-#define TRITON_LINALG_DIALECT_ARITH_PASSES_TD
+#ifndef TRITON_LINALG_DIALECT_ARITH_TRANSFORMS_PASSES_TD
+#define TRITON_LINALG_DIALECT_ARITH_TRANSFORMS_PASSES_TD
 
 include "mlir/Pass/PassBase.td"
 
@@ -15,4 +15,4 @@ def ArithCanonicalizer: Pass<"arith-canonicalize"> {
   let dependentDialects = ["arith::ArithDialect"];
 }
 
-#endif // TRITON_LINALG_DIALECT_ARITH_PASSES_TD
+#endif // TRITON_LINALG_DIALECT_ARITH_TRANSFORMS_PASSES_TD
