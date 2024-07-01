@@ -4,8 +4,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef MLIR_DIALECT_MATH_EXT_IR_MATH_H_
-#define MLIR_DIALECT_MATH_EXT_IR_MATH_H_
+#ifndef TRITON_LINALG_DIALECT_MATHEXT_IR_MATH_H
+#define TRITON_LINALG_DIALECT_MATHEXT_IR_MATH_H
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -30,4 +30,4 @@
 #define GET_OP_CLASSES
 #include "triton-linalg/Dialect/MathExt/IR/MathExtOps.h.inc"
 
-#endif // MLIR_DIALECT_MATH_EXT_IR_MATH_H_
+#endif // TRITON_LINALG_DIALECT_MATHEXT_IR_MATH_H

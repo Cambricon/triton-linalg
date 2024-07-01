@@ -6,8 +6,8 @@
 // This file defines the auxiliary operations.
 //===----------------------------------------------------------------------===//
 
-#ifndef TRITON_DIALECT_AUXILIARY_IR_AUXILIARYDIALECT_H
-#define TRITON_DIALECT_AUXILIARY_IR_AUXILIARYDIALECT_H
+#ifndef TRITON_LINALG_DIALECT_AUXILIARY_IR_AUXILIARYDIALECT_H
+#define TRITON_LINALG_DIALECT_AUXILIARY_IR_AUXILIARYDIALECT_H
 // IWYU pragma: begin_keep
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
@@ -46,4 +46,4 @@
 #define GET_OP_CLASSES
 #include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryOps.h.inc"
 
-#endif // TRITON_DIALECT_AUXILIARY_IR_AUXILIARYDIALECT_H
+#endif // TRITON_LINALG_DIALECT_AUXILIARY_IR_AUXILIARYDIALECT_H

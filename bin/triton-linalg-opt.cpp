@@ -1,3 +1,8 @@
+//===- triton-linalg-opt.cpp - triton-linalg-opt ----------------*- C++ -*-===//
+//
+// Copyright (C) [2022-2025] by Cambricon.
+//
+//===----------------------------------------------------------------------===//
 #include "./RegisterTritonLinalgDialects.h"
 #include "triton-linalg/Pipelines/Pipelines.h"
 

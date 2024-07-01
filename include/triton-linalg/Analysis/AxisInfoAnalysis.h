@@ -8,8 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TRITON_LINALG_DIALECT_TRITON_ANALYSIS_AXISINFOANALYSIS_H
-#define TRITON_LINALG_DIALECT_TRITON_ANALYSIS_AXISINFOANALYSIS_H
+#ifndef TRITON_LINALG_ANALYSIS_AXISINFOANALYSIS_H
+#define TRITON_LINALG_ANALYSIS_AXISINFOANALYSIS_H
 
 #include "triton-linalg/Dialect/Triton/Interfaces/InferAxisInfoInterface.h"
 
@@ -61,4 +61,4 @@ public:
 } // namespace triton
 } // namespace mlir
 
-#endif // TRITON_LINALG_DIALECT_TRITON_ANALYSIS_AXISINFOANALYSIS_H
+#endif // TRITON_LINALG_ANALYSIS_AXISINFOANALYSIS_H
