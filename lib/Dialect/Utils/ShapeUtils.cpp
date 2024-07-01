@@ -43,9 +43,6 @@ bool mlir::triton::isConsecutive(llvm::ArrayRef<int64_t> array) {
   });
 }
 
-// TODO(hexi): Copy from llvm. Replace this function with
-//             mlir/IR/BuiltinTypes.h:trailingNDimsContiguous,
-//             when llvm update.
 bool mlir::triton::trailingNDimsContiguous(MemRefType type, int64_t n) {
   if (canonicalizeStridedLayout(type).getLayout().isIdentity())
     return true;

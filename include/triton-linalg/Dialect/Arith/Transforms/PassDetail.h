@@ -4,8 +4,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TRITON_LINALG_DIALECT_ARITH_PASSDETAIL_H
-#define TRITON_LINALG_DIALECT_ARITH_PASSDETAIL_H
+#ifndef TRITON_LINALG_DIALECT_ARITH_TRANSFORMS_PASSDETAIL_H
+#define TRITON_LINALG_DIALECT_ARITH_TRANSFORMS_PASSDETAIL_H
 // IWYU pragma: begin_keep
 #include "mlir/IR/DialectRegistry.h"
 #include "mlir/Pass/Pass.h"
@@ -30,4 +30,4 @@ namespace arith_ext {
 } // namespace triton
 } // namespace mlir
 
-#endif // TRITON_LINALG_DIALECT_ARITH_PASSDETAIL_H
+#endif // TRITON_LINALG_DIALECT_ARITH_TRANSFORMS_PASSDETAIL_H

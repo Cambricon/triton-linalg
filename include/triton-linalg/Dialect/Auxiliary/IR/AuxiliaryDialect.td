@@ -8,8 +8,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TRITON_DIALECT_AUXILIARY_IR_AUXILIARYDIALECT_TD
-#define TRITON_DIALECT_AUXILIARY_IR_AUXILIARYDIALECT_TD
+#ifndef TRITON_LINALG_DIALECT_AUXILIARY_IR_AUXILIARYDIALECT_TD
+#define TRITON_LINALG_DIALECT_AUXILIARY_IR_AUXILIARYDIALECT_TD
 include "mlir/IR/OpBase.td"
 include "mlir/Dialect/LLVMIR/LLVMOpBase.td"
 
@@ -25,4 +25,4 @@ def Auxiliary_Dialect : Dialect {
   }];
 }
 
-#endif // TRITON_DIALECT_AUXILIARY_IR_AUXILIARYDIALECT_TD
+#endif // TRITON_LINALG_DIALECT_AUXILIARY_IR_AUXILIARYDIALECT_TD

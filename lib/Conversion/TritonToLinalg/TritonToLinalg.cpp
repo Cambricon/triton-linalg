@@ -1128,8 +1128,6 @@ public:
     auto resultTy = valType.cast<RankedTensorType>();
 
     // Only supports int type.
-    // follow:
-    // http://gitlab.software.cambricon.com/neuware/triton/-/blob/main-llvm-17/lib/Conversion/TritonGPUToLLVM/TritonGPUToLLVM.cpp#L268
     assert(resultTy.getElementType().isa<mlir::IntegerType>() &&
            "Only support int tensor for assert");
 

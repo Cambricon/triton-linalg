@@ -7,8 +7,8 @@
 // Defines triton auxiliary dialect type.
 //
 //===----------------------------------------------------------------------===//
-#ifndef TRITON_DIALECT_AUXILIARY_IR_AUXILIARYTYPES_TD
-#define TRITON_DIALECT_AUXILIARY_IR_AUXILIARYTYPES_TD
+#ifndef TRITON_LINALG_DIALECT_AUXILIARY_IR_AUXILIARYTYPES_TD
+#define TRITON_LINALG_DIALECT_AUXILIARY_IR_AUXILIARYTYPES_TD
 include "mlir/IR/EnumAttr.td"
 
 def ResourceUsageAttr : I64EnumAttr<
@@ -21,4 +21,4 @@ def ResourceUsageAttr : I64EnumAttr<
   let cppNamespace = "::mlir::triton::aux";
 }
 
-#endif // TRITON_DIALECT_AUXILIARY_IR_AUXILIARYTYPES_TD
+#endif // TRITON_LINALG_DIALECT_AUXILIARY_IR_AUXILIARYTYPES_TD

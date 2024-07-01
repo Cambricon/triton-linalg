@@ -4,8 +4,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TRITON_LINALG_TRANSFORMS_UTILS_UTILS_H
-#define TRITON_LINALG_TRANSFORMS_UTILS_UTILS_H
+#ifndef TRITON_LINALG_UTILS_UTILS_H
+#define TRITON_LINALG_UTILS_UTILS_H
 
 #include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/IR/OpDefinition.h"
@@ -65,4 +65,4 @@ OpFoldResult maxOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
 } // namespace triton
 } // namespace mlir
 
-#endif // TRITON_LINALG_TRANSFORMS_UTILS_UTILS_H
+#endif // TRITON_LINALG_UTILS_UTILS_H
