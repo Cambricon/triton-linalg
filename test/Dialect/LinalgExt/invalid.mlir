@@ -137,7 +137,6 @@ func.func @batch_conv_2d_nhwc_fhwc_invalid_dtype_in_strides(%input: tensor<?x?x?
 }
 
 // -----
-// CHECK: linalg_ext.make_range
 func.func @make_range_output_rank_invalid(%arg0: tensor<2x64xi32>) -> tensor<2x64xi32> {
   %c0 = arith.constant 0 : i32
   %c128 = arith.constant 128 : i32
@@ -147,7 +146,6 @@ func.func @make_range_output_rank_invalid(%arg0: tensor<2x64xi32>) -> tensor<2x6
 }
 
 // -----
-// CHECK: linalg_ext.make_range
 func.func @make_range_start_end_invalid(%arg0: tensor<128xi32>) -> tensor<128xi32> {
   %c0 = arith.constant 0 : i32
   %c128 = arith.constant 128 : i32
@@ -157,7 +155,6 @@ func.func @make_range_start_end_invalid(%arg0: tensor<128xi32>) -> tensor<128xi3
 }
 
 // -----
-// CHECK: linalg_ext.make_range
 func.func @make_range_output_shape_mismatch(%arg0: tensor<129xi32>) -> tensor<129xi32> {
   %c0 = arith.constant 0 : i32
   %c128 = arith.constant 128 : i32
@@ -167,7 +164,6 @@ func.func @make_range_output_shape_mismatch(%arg0: tensor<129xi32>) -> tensor<12
 }
 
 // -----
-// CHECK: linalg_ext.make_range
 func.func @make_range_result_type_invalid(%arg0: tensor<128xf32>) -> tensor<128xf32> {
   %c2 = arith.constant 2 : i32
   %c130 = arith.constant 130 : i32
@@ -200,8 +196,7 @@ func.func @scatter_extra_outputs(
     %init : tensor<?x?xf32>) -> (tensor<?x?xf32>, tensor<?x?xf32>) {
   // expected-error @+1 {{expected the number of tensor results (2) to be equal to the number of output tensors (1)}}
   %0, %1 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
       ins(%update, %indices : tensor<?x?x1xf32>, tensor<?x1xi32>)
       outs(%init : tensor<?x?xf32>) {
       ^bb0(%arg1: f32, %arg2: f32):
@@ -217,8 +212,7 @@ func.func @scatter_mistmatch_dim_map_entries(
     %init : tensor<?x?xf32>) -> tensor<?x?xf32> {
   // expected-error @+1 {{invalid number of dimension map entries}}
   %0 = linalg_ext.scatter dimension_map = [0, 1]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
       ins(%update, %indices : tensor<?x?x1xf32>, tensor<?x1xi32>)
       outs(%init : tensor<?x?xf32>) {
       ^bb0(%arg1: f32, %arg2: f32):
@@ -234,8 +228,7 @@ func.func @scatter_nd_batch_exceed_dim(
     %init : tensor<4x4xf32>) -> tensor<4x4xf32> {
   // expected-error @+1 {{indexed shape of update value dim#2 exceeds init value at dim#0 8 .vs. 4}}
   %0 = linalg_ext.scatter dimension_map = [0, 1]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
       ins(%update, %indices : tensor<1x1x8x8xf32>, tensor<1x1x2xi32>)
       outs(%init : tensor<4x4xf32>) {
       ^bb0(%arg1: f32, %arg2: f32):
@@ -251,8 +244,7 @@ func.func @scatter_duplicate_dim_map_entries(
     %init : tensor<?x?xf32>) -> tensor<?x?xf32> {
   // expected-error @+1 {{dimension map is invalid}}
   %0 = linalg_ext.scatter dimension_map = [1, 1]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
       ins(%update, %indices : tensor<?x?x1xf32>, tensor<?x2xi32>)
       outs(%init : tensor<?x?xf32>) {
       ^bb0(%arg1: f32, %arg2: f32):
@@ -268,8 +260,7 @@ func.func @scatter_invalid_dim_map_entries(
     %init : tensor<?x?xf32>) -> tensor<?x?xf32> {
   // expected-error @+1 {{dimension map is invalid}}
   %0 = linalg_ext.scatter dimension_map = [2]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
       ins(%update, %indices : tensor<?x?x1xf32>, tensor<?x1xi32>)
       outs(%init : tensor<?x?xf32>) {
       ^bb0(%arg1: f32, %arg2: f32):
@@ -285,8 +276,7 @@ func.func @scatter_output_type_mismatch(
     %init : tensor<?x?xf32>) -> tensor<4x?xf32> {
   // expected-error @+1 {{expected type of operand #2 ('tensor<?x?xf32>') to match type of corresponding result ('tensor<4x?xf32>')}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
       ins(%update, %indices : tensor<?x?x1xf32>, tensor<?x1xi32>)
       outs(%init : tensor<?x?xf32>) {
       ^bb0(%arg1: f32, %arg2: f32):
@@ -302,8 +292,7 @@ func.func @scatter_dim_mismatch(
     %init : tensor<?x?xf32>) -> tensor<?x?xf32> {
   // expected-error @+1 {{mismatch in shape of indices and update value at batch dim}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices : tensor<?x?x1xf32>, tensor<48x1xi32>)
     outs(%init : tensor<?x?xf32>) {
     ^bb0(%arg1: f32, %arg2: f32):
@@ -319,8 +308,7 @@ func.func @scatter_dim_mismatch(
     %init : tensor<?x?xf32>) -> tensor<?x?xf32> {
   // expected-error @+1 {{mismatch in shape of indices and update value at batch dim}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices : tensor<64x?x1xf32>, tensor<48x1xi32>)
     outs(%init : tensor<?x?xf32>) {
     ^bb0(%arg1: f32, %arg2: f32):
@@ -336,8 +324,7 @@ func.func @scatter_dim_mismatch(
     %init : tensor<?x?xf32>) -> tensor<?x?xf32> {
   // expected-error @+1 {{op update value rank mismatch the rank of the init value}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices : tensor<?x?x?x?xf32>, tensor<?x1xi32>)
     outs(%init : tensor<?x?xf32>) {
     ^bb0(%arg1: f32, %arg2: f32):
@@ -353,8 +340,7 @@ func.func @scatter_dim_mismatch(
     %init : tensor<?x3xf32>) -> tensor<?x3xf32> {
   // expected-error @+1 {{op indexed shape of update value dim#2 exceeds init value at dim#1}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices : tensor<?x1x4xf32>, tensor<?x1xi32>)
     outs(%init : tensor<?x3xf32>) {
     ^bb0(%arg1: f32, %arg2: f32):
@@ -370,8 +356,7 @@ func.func @scatter_region_type_mismatch(
     %init : tensor<?x?xi32>) -> tensor<?x?xi32> {
   // expected-error @+1 {{expected region to have scalar argument of integer or float types}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices : tensor<?x?x1xi32>, tensor<?x1xi32>)
     outs(%init : tensor<?x?xi32>) {
     ^bb0(%arg1: index, %arg2: index):
@@ -388,8 +373,7 @@ func.func @scatter_region_type_mismatch(
     %init : tensor<?x?xi32>) -> tensor<?x?xi32> {
   // expected-error @+1 {{mismatch in argument 0 of region 'i64' and element type of update value 'i32'}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices : tensor<?x?x1xi32>, tensor<?x1xi32>)
     outs(%init : tensor<?x?xi32>) {
     ^bb0(%arg1: i64, %arg2: i32):
@@ -406,8 +390,7 @@ func.func @scatter_region_type_mismatch(
     %init : tensor<?x?xi32>) -> tensor<?x?xi32> {
   // expected-error @+1 {{mismatch in argument 1 of region 'i64' and element type of init value 'i32'}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices : tensor<?x?x1xi32>, tensor<?x1xi32>)
     outs(%init : tensor<?x?xi32>) {
     ^bb0(%arg1: i32, %arg2: i64):
@@ -425,8 +408,7 @@ func.func @scatter_region_type_mismatch(
     %init : tensor<?x?xi64>) -> tensor<?x?xi64> {
   // expected-error @+1 {{mismatch in region argument types 'i32' and 'i64'}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices : tensor<?x?x1xi32>, tensor<?x1xi32>)
     outs(%init : tensor<?x?xi64>) {
     ^bb0(%arg1: i32, %arg2: i64):
@@ -443,8 +425,7 @@ func.func @scatter_region_type_mismatch(
     %init : tensor<?x?xi64>) -> tensor<?x?xi64> {
   // expected-error @+1 {{expected region to have two arguments}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices : tensor<?x?x1xi64>, tensor<?x1xi32>)
     outs(%init : tensor<?x?xi64>) {
     ^bb0(%arg1: i64, %arg2: i64, %arg3 : i64):
@@ -460,8 +441,7 @@ func.func @scatter_yield_mismatch(
     %update : tensor<?x?x1xi64>, %indices : tensor<?x1xi32>,
     %init : tensor<?x?xi64>) -> tensor<?x?xi64> {
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices : tensor<?x?x1xi64>, tensor<?x1xi32>)
     outs(%init : tensor<?x?xi64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -478,8 +458,7 @@ func.func @scatter_yield_mismatch(
     %update : tensor<?x?x1xi64>, %indices : tensor<?x1xi32>,
     %init : tensor<?x?xi64>) -> tensor<?x?xi64> {
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices : tensor<?x?x1xi64>, tensor<?x1xi32>)
     outs(%init : tensor<?x?xi64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -497,8 +476,7 @@ func.func @scatter_index_depth_dynamic(
     %init : tensor<?x?xi64>) -> tensor<?x?xi64> {
   // expected-error @+1 {{expected index depth is static}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices : tensor<?x?x1xi64>, tensor<?x?xi32>)
     outs(%init : tensor<?x?xi64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -515,8 +493,7 @@ func.func @scatter_init_rank_mismatch(
     %init : tensor<i64>) -> tensor<i64> {
   // expected-error @+1 {{expected init value to be at least rank 1}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices : tensor<i64>, tensor<?x1xi32>)
     outs(%init : tensor<i64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -533,8 +510,7 @@ func.func @scatter_init_rank_mismatch(
     %init : tensor<?x?xi64>) -> tensor<?x?xi64> {
   // expected-error @+1 {{expected update value to be at least rank 2}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices : tensor<i64>, tensor<?x1xi32>)
     outs(%init : tensor<?x?xi64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -551,8 +527,7 @@ func.func @scatter_mask_shape_mismatch(
     %init : tensor<?x?xi64>) -> tensor<?x?xi64> {
   // expected-error @+1 {{mismatch in shape of mask and update value at batch dim}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices, %mask : tensor<?x1x1xi64>, tensor<?x1xi32>, tensor<8xi1>)
     outs(%init : tensor<?x?xi64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -569,8 +544,7 @@ func.func @scatter_mask_type_mismatch(
     %init : tensor<?x?xi64>) -> tensor<?x?xi64> {
   // expected-error @+1 {{expected mask to be of i1 element type and batch matched init}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices, %mask : tensor<?x1x1xi64>, tensor<?x1xi32>, tensor<i16>)
     outs(%init : tensor<?x?xi64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -587,8 +561,7 @@ func.func @scatter_indice_type_mismatch(
     %init : tensor<?x?xi64>) -> tensor<?x?xi64> {
   // expected-error @+1 {{expected indices to be of rank 2 of i8/i16/i32/i64 element type}}
   %0 = linalg_ext.scatter dimension_map = [0]
-    ranged_data(false)
-    overlap_window(false)
+    ranged_data(false) overlap_window(false) signed_indice(false)
     ins(%update, %indices, %mask : tensor<?x1x1xi64>, tensor<?x1xi1>, tensor<i16>)
     outs(%init : tensor<?x?xi64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -605,7 +578,7 @@ func.func @gather_extra_outputs(
     %input : tensor<?x?xf32>) -> (tensor<?x?xf32>, tensor<?x?xf32>) {
   // expected-error @+1 {{expected the number of tensor results (2) to be equal to the number of output tensors (1)}}
   %0, %1 = linalg_ext.gather dimension_map = [0]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
       ins(%input, %indices : tensor<?x?xf32>, tensor<?x1xi32>)
       outs(%init : tensor<?x?x1xf32>) {
       ^bb0(%arg1: f32, %arg2: f32):
@@ -621,7 +594,7 @@ func.func @gather_nd_batch_exceed_dim(
     %input : tensor<4x4xf32>) -> tensor<1x1x8x8xf32> {
   // expected-error @+1 {{indexed shape of init value dim#2 exceeds input value at dim#0 8 .vs. 4}}
   %0 = linalg_ext.gather dimension_map = [0, 1]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
       ins(%input, %indices : tensor<4x4xf32>, tensor<1x1x2xi32>)
       outs(%init : tensor<1x1x8x8xf32>) {
       ^bb0(%arg1: f32, %arg2: f32):
@@ -637,7 +610,7 @@ func.func @gather_mistmatch_dim_map_entries(
     %input : tensor<?x?xf32>) -> tensor<?x?x1xf32> {
   // expected-error @+1 {{invalid number of dimension map entries}}
   %0 = linalg_ext.gather dimension_map = [0, 1]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
       ins(%input, %indices : tensor<?x?xf32>, tensor<?x1xi32>)
       outs(%init : tensor<?x?x1xf32>) {
       ^bb0(%arg1: f32, %arg2: f32):
@@ -653,7 +626,7 @@ func.func @gather_duplicate_dim_map_entries(
     %input : tensor<?x?xf32>) -> tensor<?x?x1xf32> {
   // expected-error @+1 {{dimension map is invalid}}
   %0 = linalg_ext.gather dimension_map = [1, 1]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
       ins(%input, %indices : tensor<?x?xf32>, tensor<?x2xi32>)
       outs(%init : tensor<?x?x1xf32>) {
       ^bb0(%arg1: f32, %arg2: f32):
@@ -669,7 +642,7 @@ func.func @gather_invalid_dim_map_entries(
     %input : tensor<?x?xf32>) -> tensor<?x?x1xf32> {
   // expected-error @+1 {{dimension map is invalid}}
   %0 = linalg_ext.gather dimension_map = [2]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
       ins(%input, %indices : tensor<?x?xf32>, tensor<?x1xi32>)
       outs(%init : tensor<?x?x1xf32>) {
       ^bb0(%arg1: f32, %arg2: f32):
@@ -685,7 +658,7 @@ func.func @gather_dim_mismatch(
     %input : tensor<?x?xf32>) -> tensor<?x?x1xf32> {
   // expected-error @+1 {{mismatch in shape of indices and init value at batch dim}}
   %0 = linalg_ext.gather dimension_map = [0]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
     ins(%input, %indices : tensor<?x?xf32>, tensor<48x1xi32>)
     outs(%init : tensor<?x?x1xf32>) {
     ^bb0(%arg1: f32, %arg2: f32):
@@ -701,7 +674,7 @@ func.func @gather_dim_mismatch(
     %input : tensor<?x?xf32>) -> tensor<?x?x?x?xf32> {
   // expected-error @+1 {{op init value rank exceeds the rank of the input value}}
   %0 = linalg_ext.gather dimension_map = [0]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
     ins(%input, %indices : tensor<?x?xf32>, tensor<?x1xi32>)
     outs(%init : tensor<?x?x?x?xf32>) {
     ^bb0(%arg1: f32, %arg2: f32):
@@ -717,7 +690,7 @@ func.func @gather_dim_mismatch(
     %input : tensor<?x3xf32>) -> tensor<?x1x4xf32> {
   // expected-error @+1 {{op indexed shape of init value dim#2 exceeds input value at dim#1}}
   %0 = linalg_ext.gather dimension_map = [0]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
     ins(%input, %indices : tensor<?x3xf32>, tensor<?x1xi32>)
     outs(%init : tensor<?x1x4xf32>) {
     ^bb0(%arg1: f32, %arg2: f32):
@@ -733,7 +706,7 @@ func.func @gather_region_type_mismatch(
     %input : tensor<?x?xi32>) -> tensor<?x?x1xi32> {
   // expected-error @+1 {{expected region to have scalar argument of integer or float types}}
   %0 = linalg_ext.gather dimension_map = [0]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
     ins(%input, %indices : tensor<?x?xi32>, tensor<?x1xi32>)
     outs(%init : tensor<?x?x1xi32>) {
     ^bb0(%arg1: index, %arg2: index):
@@ -750,7 +723,7 @@ func.func @gather_region_type_mismatch(
     %input : tensor<?x?xi32>) -> tensor<?x?x1xi32> {
   // expected-error @+1 {{mismatch in argument 0 of region 'i64' and element type of init value 'i32'}}
   %0 = linalg_ext.gather dimension_map = [0]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
     ins(%input, %indices : tensor<?x?xi32>, tensor<?x1xi32>)
     outs(%init : tensor<?x?x1xi32>) {
     ^bb0(%arg1: i64, %arg2: i32):
@@ -767,7 +740,7 @@ func.func @gather_region_type_mismatch(
     %input : tensor<?x?xi32>) -> tensor<?x?x1xi32> {
   // expected-error @+1 {{mismatch in argument 1 of region 'i64' and element type of input value 'i32'}}
   %0 = linalg_ext.gather dimension_map = [0]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
     ins(%input, %indices : tensor<?x?xi32>, tensor<?x1xi32>)
     outs(%init : tensor<?x?x1xi32>) {
     ^bb0(%arg1: i32, %arg2: i64):
@@ -783,7 +756,7 @@ func.func @gather_yield_mismatch(
     %init : tensor<?x?x1xi64>, %indices : tensor<?x1xi32>,
     %input : tensor<?x?xi64>) -> tensor<?x?x1xi64> {
   %0 = linalg_ext.gather dimension_map = [0]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
     ins(%input, %indices : tensor<?x?xi64>, tensor<?x1xi32>)
     outs(%init : tensor<?x?x1xi64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -801,7 +774,7 @@ func.func @gather_index_depth_dynamic(
     %input : tensor<?x?xi64>) -> tensor<?x?x1xi64> {
   // expected-error @+1 {{expected index depth is static}}
   %0 = linalg_ext.gather dimension_map = [0]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
     ins(%input, %indices : tensor<?x?xi64>, tensor<?x?xi32>)
     outs(%init : tensor<?x?x1xi64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -818,7 +791,7 @@ func.func @gather_input_rank_mismatch(
     %input : tensor<i64>) -> tensor<i64> {
   // expected-error @+1 {{expected input value to be at least rank 1}}
   %0 = linalg_ext.gather dimension_map = [0]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
     ins(%input, %indices : tensor<i64>, tensor<?x1xi32>)
     outs(%init : tensor<i64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -835,7 +808,7 @@ func.func @gather_input_rank_mismatch(
     %input : tensor<?x?xi64>) -> tensor<i64> {
   // expected-error @+1 {{expected init value to be at least rank 2}}
   %0 = linalg_ext.gather dimension_map = [0]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
     ins(%input, %indices : tensor<?x?xi64>, tensor<?x1xi32>)
     outs(%init : tensor<i64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -852,7 +825,7 @@ func.func @gather_mask_shape_mismatch(
     %input : tensor<?x?xi64>) -> tensor<?x1x1xi64> {
   // expected-error @+1 {{mismatch in shape of mask and init value at batch dim}}
   %0 = linalg_ext.gather dimension_map = [0]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
     ins(%input, %indices, %mask : tensor<?x?xi64>, tensor<?x1xi32>, tensor<8xi1>)
     outs(%init : tensor<?x1x1xi64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -869,7 +842,7 @@ func.func @gather_mask_type_mismatch(
     %input : tensor<?x?xi64>) -> tensor<?x1x1xi64> {
   // expected-error @+1 {{expected mask to be of i1 element type and batch matched init}}
   %0 = linalg_ext.gather dimension_map = [0]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
     ins(%input, %indices, %mask : tensor<?x?xi64>, tensor<?x1xi32>, tensor<i16>)
     outs(%init : tensor<?x1x1xi64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -886,7 +859,7 @@ func.func @gather_indice_type_mismatch(
     %input : tensor<?x?xi64>) -> tensor<?x1x1xi64> {
   // expected-error @+1 {{expected indices to be of rank 2 of i8/i16/i32/i64 element type}}
   %0 = linalg_ext.gather dimension_map = [0]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
     ins(%input, %indices, %mask : tensor<?x?xi64>, tensor<?x1xi1>, tensor<i16>)
     outs(%init : tensor<?x1x1xi64>) {
     ^bb0(%arg1: i64, %arg2: i64):
@@ -988,7 +961,6 @@ func.func @pad_pvalue_type_mismatch(%input : tensor<4x4xf32>, %init : tensor<6x8
 }
 
 // -----
-
 func.func @scan_unmatched_output_and_init_num(%input: tensor<16x32x64xf32>,
                                               %output0: tensor<16x32x64xf32>,
                                               %output1: tensor<16x32x64xf32>,
@@ -998,6 +970,7 @@ func.func @scan_unmatched_output_and_init_num(%input: tensor<16x32x64xf32>,
       ins(%input: tensor<16x32x64xf32>)
       outs(%output0, %output1, %init: tensor<16x32x64xf32>, tensor<16x32x64xf32>, tensor<16x64xf32>)
       dimensions = [1]
+      reverse = false
       {
       ^bb0(%in: f32, %out0: f32, %out1: f32, %ini: f32):
         %0 = arith.addf %ini, %in: f32
@@ -1007,7 +980,6 @@ func.func @scan_unmatched_output_and_init_num(%input: tensor<16x32x64xf32>,
 }
 
 // -----
-
 func.func @scan_unmatched_dim(%input: tensor<16x32x64xf32>,
                               %output: tensor<16x64xf32>,
                               %init: tensor<16xf32>) {
@@ -1016,6 +988,7 @@ func.func @scan_unmatched_dim(%input: tensor<16x32x64xf32>,
       ins(%input: tensor<16x32x64xf32>)
       outs(%output, %init: tensor<16x64xf32>, tensor<16xf32>)
       dimensions = [1]
+      reverse = false
       {
       ^bb0(%in: f32, %out: f32, %ini: f32):
         %0 = arith.addf %ini, %in: f32
@@ -1025,7 +998,6 @@ func.func @scan_unmatched_dim(%input: tensor<16x32x64xf32>,
 }
 
 // -----
-
 func.func @scan_out_of_range(%input: tensor<16x32x64xf32>,
                              %output: tensor<16x32x64xf32>,
                              %init: tensor<32x64xf32>) {
@@ -1034,6 +1006,7 @@ func.func @scan_out_of_range(%input: tensor<16x32x64xf32>,
       ins(%input: tensor<16x32x64xf32>)
       outs(%output, %init: tensor<16x32x64xf32>, tensor<32x64xf32>)
       dimensions = [4]
+      reverse = false
       {
       ^bb0(%in: f32, %out: f32, %ini: f32):
         %0 = arith.addf %ini, %in: f32
@@ -1043,7 +1016,6 @@ func.func @scan_out_of_range(%input: tensor<16x32x64xf32>,
 }
 
 // -----
-
 func.func @scan_unmatched_input_and_output_shape(%input0: tensor<16x32x64xf32>,
                                                  %input1: tensor<16x32x64xf32>,
                                                  %output0: tensor<32x64xf32>,
@@ -1055,6 +1027,7 @@ func.func @scan_unmatched_input_and_output_shape(%input0: tensor<16x32x64xf32>,
       ins(%input0, %input1: tensor<16x32x64xf32>, tensor<16x32x64xf32>)
       outs(%output0, %output1, %init0, %init1: tensor<32x64xf32>, tensor<32x64xf32>, tensor<32x64xf32>, tensor<32x64xf32>)
       dimensions = [0]
+      reverse = false
       {
       ^bb0(%in0: f32, %in1: f32, %out0: f32, %out1: f32, %ini0: f32, %ini1: f32):
         %0 = arith.addf %ini0, %in0: f32
@@ -1065,7 +1038,6 @@ func.func @scan_unmatched_input_and_output_shape(%input0: tensor<16x32x64xf32>,
 }
 
 // -----
-
 func.func @scan_unmatched_inputs_shape(%input0: tensor<16x32x64xf32>,
                                        %input1: tensor<32x64xf32>,
                                        %output0: tensor<16x32x64xf32>,
@@ -1077,6 +1049,7 @@ func.func @scan_unmatched_inputs_shape(%input0: tensor<16x32x64xf32>,
       ins(%input0, %input1: tensor<16x32x64xf32>, tensor<32x64xf32>)
       outs(%output0, %output1, %init0, %init1: tensor<16x32x64xf32>, tensor<16x32x64xf32>, tensor<32x64xf32>, tensor<32x64xf32>)
       dimensions = [0]
+      reverse = false
       {
       ^bb0(%in0: f32, %in1: f32, %out0: f32, %out1: f32, %ini0: f32, %ini1: f32):
         %0 = arith.addf %ini0, %in0: f32
@@ -1087,7 +1060,6 @@ func.func @scan_unmatched_inputs_shape(%input0: tensor<16x32x64xf32>,
 }
 
 // -----
-
 func.func @scan_unmatched_outputs_shape(%input0: tensor<16x32x64xf32>,
                                         %input1: tensor<16x32x64xf32>,
                                         %output0: tensor<16x32x64xf32>,
@@ -1099,6 +1071,7 @@ func.func @scan_unmatched_outputs_shape(%input0: tensor<16x32x64xf32>,
       ins(%input0, %input1: tensor<16x32x64xf32>, tensor<16x32x64xf32>)
       outs(%output0, %output1, %init0, %init1: tensor<16x32x64xf32>, tensor<32x64xf32>, tensor<32x64xf32>, tensor<32x64xf32>)
       dimensions = [0]
+      reverse = false
       {
       ^bb0(%in0: f32, %in1: f32, %out0: f32, %out1: f32, %ini0: f32, %ini1: f32):
         %0 = arith.addf %ini0, %in0: f32
@@ -1109,7 +1082,6 @@ func.func @scan_unmatched_outputs_shape(%input0: tensor<16x32x64xf32>,
 }
 
 // -----
-
 func.func @scan_unmatched_inits_shape(%input0: tensor<16x32x64xf32>,
                                       %input1: tensor<16x32x64xf32>,
                                       %output0: tensor<16x32x64xf32>,
@@ -1121,6 +1093,7 @@ func.func @scan_unmatched_inits_shape(%input0: tensor<16x32x64xf32>,
       ins(%input0, %input1: tensor<16x32x64xf32>, tensor<16x32x64xf32>)
       outs(%output0, %output1, %init0, %init1: tensor<16x32x64xf32>, tensor<16x32x64xf32>, tensor<32x64xf32>, tensor<16x64xf32>)
       dimensions = [0]
+      reverse = false
       {
       ^bb0(%in0: f32, %in1: f32, %out0: f32, %out1: f32, %ini0: f32, %ini1: f32):
         %0 = arith.addf %ini0, %in0: f32
@@ -1131,7 +1104,6 @@ func.func @scan_unmatched_inits_shape(%input0: tensor<16x32x64xf32>,
 }
 
 // -----
-
 func.func @scan_unexpected_inits_shape(%input0: tensor<16x32x64xf32>,
                                        %input1: tensor<16x32x64xf32>,
                                        %output0: tensor<16x32x64xf32>,
@@ -1143,6 +1115,7 @@ func.func @scan_unexpected_inits_shape(%input0: tensor<16x32x64xf32>,
       ins(%input0, %input1: tensor<16x32x64xf32>, tensor<16x32x64xf32>)
       outs(%output0, %output1, %init0, %init1: tensor<16x32x64xf32>, tensor<16x32x64xf32>, tensor<16x64xf32>, tensor<16x64xf32>)
       dimensions = [0]
+      reverse = false
       {
       ^bb0(%in0: f32, %in1: f32, %out0: f32, %out1: f32, %ini0: f32, %ini1: f32):
         %0 = arith.addf %ini0, %in0: f32
@@ -1153,7 +1126,6 @@ func.func @scan_unexpected_inits_shape(%input0: tensor<16x32x64xf32>,
 }
 
 // -----
-
 func.func @scan_unmatched_block_args_num(%input: tensor<16xf32>,
                                          %output: tensor<16xf32>,
                                          %init: tensor<f32>) {
@@ -1162,6 +1134,7 @@ func.func @scan_unmatched_block_args_num(%input: tensor<16xf32>,
       ins(%input: tensor<16xf32>)
       outs(%output, %init: tensor<16xf32>, tensor<f32>)
       dimensions = [0]
+      reverse = false
       {
       ^bb0(%in: f32, %out0: f32,  %out1: f32, %ini: f32):
         %0 = arith.addf %ini, %in: f32
@@ -1171,7 +1144,6 @@ func.func @scan_unmatched_block_args_num(%input: tensor<16xf32>,
 }
 
 // -----
-
 func.func @scan_unmatched_element_type(%input: tensor<16xf32>,
                                        %output: tensor<16xf32>,
                                        %init: tensor<f32>) {
@@ -1180,6 +1152,7 @@ func.func @scan_unmatched_element_type(%input: tensor<16xf32>,
       ins(%input: tensor<16xf32>)
       outs(%output, %init: tensor<16xf32>, tensor<f32>)
       dimensions = [0]
+      reverse = false
       {
       ^bb0(%in: i32, %out: i32, %ini: i32):
         %0 = arith.addi %ini, %in: i32
@@ -1189,7 +1162,6 @@ func.func @scan_unmatched_element_type(%input: tensor<16xf32>,
 }
 
 // -----
-
 func.func @scan_multi_operands(%input0: tensor<16x32x64xf32>,
                                %input1: tensor<16x32x64xf32>,
                                %output0: tensor<16x32x64xf32>,
@@ -1201,6 +1173,7 @@ func.func @scan_multi_operands(%input0: tensor<16x32x64xf32>,
       ins(%input0, %input1: tensor<16x32x64xf32>, tensor<16x32x64xf32>)
       outs(%output0, %output1, %init0, %init1: tensor<16x32x64xf32>, tensor<16x32x64xf32>, tensor<32x64xf32>, tensor<32x64xf32>)
       dimensions = [0, 1]
+      reverse = false
       {
       ^bb0(%in0: f32, %in1: f32, %out0: f32, %out1: f32, %ini0: f32, %ini1: f32):
         %0 = arith.addf %ini0, %in0: f32
@@ -1208,4 +1181,22 @@ func.func @scan_multi_operands(%input0: tensor<16x32x64xf32>,
         linalg_ext.yield %0, %1, %0, %1: f32, f32, f32, f32
       }
   func.return
+}
+
+// -----
+func.func @scalar_libdevice_call_input_invalid(%arg0: tensor<f32>) -> f32 {
+  // expected-error @+1 {{'linalg_ext.scalar_libdevice_call' op expects all input types are scalar type.}}
+  %libdevicecall = linalg_ext.scalar_libdevice_call
+      ins(%arg0 : tensor<f32>)
+      symbol = "__cn_scalar_abs_f32" -> f32
+  return %libdevicecall : f32
+}
+
+// -----
+func.func @scalar_libdevice_call_result_invalid(%arg0: f32) -> tensor<f32> {
+  // expected-error @+1 {{'linalg_ext.scalar_libdevice_call' op expects the result type is scalar type.}}
+  %libdevicecall = linalg_ext.scalar_libdevice_call
+      ins(%arg0, %arg0 : f32, f32)
+      symbol = "__cn_scalar_add_f32" -> tensor<f32>
+  return %libdevicecall : tensor<f32>
 }
