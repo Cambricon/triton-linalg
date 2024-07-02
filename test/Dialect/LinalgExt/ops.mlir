@@ -24,18 +24,6 @@ func.func @transpose_memref(%input: memref<16x32x64xf32>,
 
 // -----
 
-func.func @transpose_memref(%input: memref<16x32x64xf32>,
-                            %init: memref<16x32x64xf32>) {
-  linalg.transpose
-      ins(%input:memref<16x32x64xf32>)
-      outs(%init:memref<16x32x64xf32>)
-      permutation = [0, 1, 2]
-  func.return
-}
-// CHECK-LABEL: func @transpose_memref
-
-// -----
-
 func.func @map(%lhs: tensor<16x32x64xf32>, %rhs: tensor<16x32x64xf32>,
                %init: tensor<16x32x64xf32>) {
   linalg.map
@@ -189,26 +177,11 @@ func.func @im2col_memref(%input: memref<32x16x16x256xf32, 101>, %init: memref<32
 
 // -----
 // CHECK: linalg_ext.scatter
-func.func @scatter_tensor(%A : tensor<4x1xi32>, %B: tensor<4x2x4xf32>, %C: tensor<16x8xf32>) -> tensor<16x8xf32> {
-  %scatter = linalg_ext.scatter
-              dimension_map = [1]
-              ranged_data(true)
-              overlap_window(false)
-              ins(%B, %A: tensor<4x2x4xf32>, tensor<4x1xi32>)
-              outs(%C: tensor<16x8xf32>) {
-                ^bb0(%arg0 :f32, %arg1: f32):
-                  linalg_ext.yield %arg0 : f32
-              } -> tensor<16x8xf32>
-  return %scatter : tensor<16x8xf32>
-}
-
-// -----
-// CHECK: linalg_ext.scatter
 func.func @scatter_tensor(%A : tensor<4x1xi32>, %B: tensor<4x2x4xf32>, %C: tensor<16x8xf32>, %D: tensor<4xi1>) -> tensor<16x8xf32> {
   %scatter = linalg_ext.scatter
               dimension_map = [1]
               ranged_data(true)
-              overlap_window(false)
+              overlap_window(false) signed_indice(true)
               ins(%B, %A, %D: tensor<4x2x4xf32>, tensor<4x1xi32>, tensor<4xi1>)
               outs(%C: tensor<16x8xf32>) {
                 ^bb0(%arg0 :f32, %arg1: f32):
@@ -223,7 +196,7 @@ func.func @scatter_tensor_i64_indice(%indices : tensor<4x1xi64>, %window: tensor
   %scatter = linalg_ext.scatter
               dimension_map = [1]
               ranged_data(true)
-              overlap_window(false)
+              overlap_window(false) signed_indice(true)
               ins(%window, %indices, %mask: tensor<4x2x4xf32>, tensor<4x1xi64>, tensor<4xi1>)
               outs(%data: tensor<16x8xf32>) {
                 ^bb0(%arg0 :f32, %arg1: f32):
@@ -238,7 +211,7 @@ func.func @scatter_tensor_i16_indice(%indices : tensor<4x1xi16>, %window: tensor
   %scatter = linalg_ext.scatter
               dimension_map = [1]
               ranged_data(true)
-              overlap_window(false)
+              overlap_window(false) signed_indice(true)
               ins(%window, %indices, %mask: tensor<4x2x4xf32>, tensor<4x1xi16>, tensor<4xi1>)
               outs(%data: tensor<16x8xf32>) {
                 ^bb0(%arg0 :f32, %arg1: f32):
@@ -254,7 +227,7 @@ func.func @scatter_nd_batch(
     %init : tensor<4x4xf32>) -> tensor<4x4xf32> {
   %0 = linalg_ext.scatter dimension_map = [0, 1]
     ranged_data(false)
-    overlap_window(false)
+    overlap_window(false) signed_indice(true)
       ins(%update, %indices : tensor<1x1x2x2xf32>, tensor<1x1x2xi32>)
       outs(%init : tensor<4x4xf32>) {
       ^bb0(%arg1: f32, %arg2: f32):
@@ -264,42 +237,15 @@ func.func @scatter_nd_batch(
   return %0 : tensor<4x4xf32>
 }
 
-// -----
-// CHECK: linalg_ext.gather
-func.func @gather_tensor(%A : tensor<4x1xi32>, %B: tensor<4x2x4xf32>, %C: tensor<16x8xf32>) -> tensor<4x2x4xf32> {
-  %gather = linalg_ext.gather
-              dimension_map = [1]
-              ranged_data(true)
-              ins(%C, %A: tensor<16x8xf32>, tensor<4x1xi32>)
-              outs(%B: tensor<4x2x4xf32>) {
-                ^bb0(%arg0 :f32, %arg1: f32):
-                  linalg_ext.yield %arg0 : f32
-              } -> tensor<4x2x4xf32>
-  return %gather : tensor<4x2x4xf32>
-}
 
 // -----
 // CHECK: linalg_ext.gather
 func.func @gather_tensor(%A : tensor<4x1xi32>, %B: tensor<4x2x4xf32>, %C: tensor<16x8xf32>, %D: tensor<4xi1>) -> tensor<4x2x4xf32> {
   %gather = linalg_ext.gather
               dimension_map = [1]
-              ranged_data(true)
+              ranged_data(true) signed_indice(false)
               ins(%C, %A, %D: tensor<16x8xf32>, tensor<4x1xi32>, tensor<4xi1>)
               outs(%B: tensor<4x2x4xf32>) {
-                ^bb0(%arg0 :f32, %arg1: f32):
-                  linalg_ext.yield %arg0 : f32
-              } -> tensor<4x2x4xf32>
-  return %gather : tensor<4x2x4xf32>
-}
-
-// -----
-// CHECK: linalg_ext.gather
-func.func @gather_tensor(%indices : tensor<4x1xi64>, %window: tensor<4x2x4xf32>, %data: tensor<16x8xf32>, %mask: tensor<4xi1>) -> tensor<4x2x4xf32> {
-  %gather = linalg_ext.gather
-              dimension_map = [1]
-              ranged_data(true)
-              ins(%data, %indices, %mask: tensor<16x8xf32>, tensor<4x1xi64>, tensor<4xi1>)
-              outs(%window: tensor<4x2x4xf32>) {
                 ^bb0(%arg0 :f32, %arg1: f32):
                   linalg_ext.yield %arg0 : f32
               } -> tensor<4x2x4xf32>
@@ -311,7 +257,7 @@ func.func @gather_tensor(%indices : tensor<4x1xi64>, %window: tensor<4x2x4xf32>,
 func.func @gather_tensor_i8_indice(%indices : tensor<4x1xi8>, %window: tensor<4x2x4xf32>, %data: tensor<16x8xf32>, %mask: tensor<4xi1>) -> tensor<4x2x4xf32> {
   %gather = linalg_ext.gather
               dimension_map = [1]
-              ranged_data(true)
+              ranged_data(true) signed_indice(false)
               ins(%data, %indices, %mask: tensor<16x8xf32>, tensor<4x1xi8>, tensor<4xi1>)
               outs(%window: tensor<4x2x4xf32>) {
                 ^bb0(%arg0 :f32, %arg1: f32):
@@ -326,7 +272,7 @@ func.func @gather_nd_batch(
     %input : tensor<4x4xf32>) -> tensor<1x1x2x2xf32> {
   // expected-error @+1 {{indexed shape of init value dim#2 exceeds input value at dim#0 1 .vs. 4}}
   %0 = linalg_ext.gather dimension_map = [0, 1]
-    ranged_data(false)
+    ranged_data(false) signed_indice(false)
       ins(%input, %indices : tensor<4x4xf32>, tensor<1x1x2xi32>)
       outs(%init : tensor<1x1x2x2xf32>) {
       ^bb0(%arg1: f32, %arg2: f32):
@@ -337,16 +283,30 @@ func.func @gather_nd_batch(
 }
 
 // -----
+// CHECK: linalg_ext.gather_atomic_rmw
+func.func @discrete_atomic_addf_with_mask(%arg0: memref<4x1xf32, 101>, %arg1: memref<4x1xi32, 101>, %arg2: memref<4xi8, 101>, %arg3: memref<?xf32, 1>, %arg4: memref<4x1xf32, 101>) {
+  linalg_ext.gather_atomic_rmw addf relaxed ins(%arg0, %arg1, %arg2 : memref<4x1xf32, 101>, memref<4x1xi32, 101>, memref<4xi8, 101>) outs(%arg3, %arg4 : memref<?xf32, 1>, memref<4x1xf32, 101>)
+  return
+}
+
+// -----
+// CHECK: linalg_ext.atomic_rmw
+func.func @atomic_contiguous(%alloc_5: memref<4xf32, 101>, %view_memref: memref<4xf32, 1>, %alloc_4: memref<4xf32, 101>) {
+  linalg_ext.atomic_rmw addf release ins(%alloc_5 : memref<4xf32, 101>) outs(%view_memref, %alloc_4 : memref<4xf32, 1>, memref<4xf32, 101>) -> memref<4xf32, 1>, memref<4xf32, 101>
+  return
+}
+
+// -----
 // CHECK: linalg_ext.atomic_cas
 func.func @atomic_cas(%arg0: tensor<128xi32>, %cmp: tensor<128xi32>, %val: tensor<128xi32>, %init: tensor<128xi32>) -> tensor<128xi32> {
-  %0 = linalg_ext.atomic_cas ins(%arg0, %cmp, %val : tensor<128xi32>, tensor<128xi32>, tensor<128xi32>) outs(%init : tensor<128xi32>) -> tensor<128xi32>
+  %0 = linalg_ext.atomic_cas relaxed ins(%arg0, %cmp, %val : tensor<128xi32>, tensor<128xi32>, tensor<128xi32>) outs(%init : tensor<128xi32>) -> tensor<128xi32>
   return %0: tensor<128xi32>
 }
 
 // -----
 // CHECK: linalg_ext.gather_atomic_cas
 func.func @gather_atomic_cas(%in: tensor<?xi32>, %cmp: tensor<128xi32>, %val: tensor<128xi32>, %indice: tensor<128xi64>, %init: tensor<128xi32>) -> tensor<128xi32> {
-  %4 = linalg_ext.gather_atomic_cas ins(%in, %cmp, %val, %indice: tensor<?xi32>, tensor<128xi32>, tensor<128xi32>, tensor<128xi64>) outs(%init : tensor<128xi32>) -> tensor<128xi32>
+  %4 = linalg_ext.gather_atomic_cas release ins(%in, %cmp, %val, %indice: tensor<?xi32>, tensor<128xi32>, tensor<128xi32>, tensor<128xi64>) outs(%init : tensor<128xi32>) -> tensor<128xi32>
   return %4: tensor<128xi32>
 }
 
@@ -456,6 +416,24 @@ func.func @libdevice_call_total_dynamic(%lhs: memref<?x?x?xi32, 101>, %rhs: memr
       outs(%init: memref<?x?x?xi32, 101>)
       symbol = "__cn_vector_add_s32"
   func.return
+}
+
+// -----
+func.func @scalar_libdevice_call_one_input(%arg0: f32) -> f32 {
+  // CHECK: linalg_ext.scalar_libdevice_call
+  %libdevicecall = linalg_ext.scalar_libdevice_call
+      ins(%arg0 : f32)
+      symbol = "__cn_scalar_abs_f32" -> f32
+  return %libdevicecall : f32
+}
+
+// -----
+func.func @scalar_libdevice_call_two_input(%arg0: f32) -> f32 {
+  // CHECK: linalg_ext.scalar_libdevice_call
+  %libdevicecall = linalg_ext.scalar_libdevice_call
+      ins(%arg0, %arg0 : f32, f32)
+      symbol = "__cn_scalar_add_f32" -> f32
+  return %libdevicecall : f32
 }
 
 // -----
@@ -573,6 +551,7 @@ func.func @scan_tensor(%input: tensor<16x32x64xf32>,
       ins(%input: tensor<16x32x64xf32>)
       outs(%output, %init: tensor<16x32x64xf32>, tensor<16x64xf32>)
       dimensions = [1]
+      reverse = false
       {
       ^bb0(%in: f32, %out: f32, %ini: f32):
         %0 = arith.addf %ini, %in: f32
@@ -590,6 +569,7 @@ func.func @scan_memref(%input: memref<16x32x64xf32>,
       ins(%input: memref<16x32x64xf32>)
       outs(%output, %init: memref<16x32x64xf32>, memref<16x64xf32>)
       dimensions = [1]
+      reverse = false
       {
       ^bb0(%in: f32, %out: f32, %ini: f32):
         %0 = arith.addf %ini, %in: f32
