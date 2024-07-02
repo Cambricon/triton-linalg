@@ -182,9 +182,9 @@ func.func @extract_element_from_map_arith_add_with_two_indices(
 // -----
 // CHECK-LABEL: @extract_element_from_map_with_two_payloads
 func.func @extract_element_from_map_with_two_payloads(%arg0: tensor<32xi64>, %arg1: tensor<32xi32>) -> i64 {
-  // CHECK: %[[C0_INDEX:.*]] = arith.constant 0 : index
+  // CHECK-DAG: %[[C0_INDEX:.*]] = arith.constant 0 : index
   %c0 = arith.constant 0 : index
-  // CHECK: %[[C1_I64:.*]] = arith.constant 1 : i64
+  // CHECK-DAG: %[[C1_I64:.*]] = arith.constant 1 : i64
   %c1 = arith.constant 1 : i64
   // CHECK: %[[ARG_EXTRA0:.*]] = tensor.extract %arg0[%[[C0_INDEX]]] : tensor<32xi64>
   // CHECK: %[[ARG_EXTRA1:.*]] = tensor.extract %arg1[%[[C0_INDEX]]] : tensor<32xi32>
@@ -691,7 +691,7 @@ func.func @extract_from_for_iter_args_failed(%arg0: i64, %arg1: tensor<64x64xf32
 // CHECK:       %[[VAL_6:.*]] = tensor.extract_slice %[[VAL_5]][%[[VAL_2]], %[[VAL_2]]] [64, 64] [1, 1] : tensor<64x?xf32> to tensor<64x64xf32>
 // CHECK:       %[[VAL_7:.*]] = linalg.map { math.absf } ins(%[[VAL_6]] : tensor<64x64xf32>) outs(%[[ARG5]] : tensor<64x64xf32>)
 // CHECK:       %[[VAL_8:.*]] = tensor.empty() : tensor<64x64xi64>
-// CHECK:       %[[VAL_9:.*]] = linalg.map { arith.addi } ins(%[[ARG6]], %[[ARG3]] : tensor<64x64xi64>, tensor<64x64xi64>) outs(%[[VAL_8]] : tensor<64x64xi64>)
+// CHECK:       %[[VAL_9:.*]] = linalg.map { arith.addi {overflowFlags = #arith.overflow<none>} } ins(%[[ARG6]], %[[ARG3]] : tensor<64x64xi64>, tensor<64x64xi64>) outs(%[[VAL_8]] : tensor<64x64xi64>)
 // CHECK:       %[[VAL_10:.*]] = tensor.empty() : tensor<64x64xi64>
 // CHECK:       %[[VAL_11:.*]] = linalg.transpose ins(%[[VAL_9]] : tensor<64x64xi64>) outs(%[[VAL_10]] : tensor<64x64xi64>) permutation = [1, 0] 
 // CHECK:       scf.yield %[[VAL_7]], %[[VAL_11]] : tensor<64x64xf32>, tensor<64x64xi64>
