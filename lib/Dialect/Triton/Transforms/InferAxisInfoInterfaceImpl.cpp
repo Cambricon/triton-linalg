@@ -60,6 +60,14 @@ template <typename T> static inline T highestPowOf2Divisor(T n) {
   return (n & (~(n - 1)));
 }
 
+/// If lhs * rhs overflows, return max value possible value for the type.
+static int64_t multiplyDivisor(int64_t lhs, int64_t rhs) {
+  int64_t maxDivisor = highestPowOf2Divisor<int64_t>(0);
+  if (lhs > maxDivisor / rhs)
+    return maxDivisor;
+  return lhs * rhs;
+}
+
 static constexpr int log2Int(int64_t num) {
   return (num > 1) ? 1 + log2Int(num / 2) : 0;
 }
@@ -263,7 +271,7 @@ struct MulOpInferAxisInfoOpInterface
     // lhs = k * d_lhs
     // rhs = p * d_rhs
     // lhs * rhs = k * d_lhs * p * d_rhs = k * p * d_lhs * d_rhs
-    return lhs.getDivisibility(dim) * rhs.getDivisibility(dim);
+    return multiplyDivisor(lhs.getDivisibility(dim), rhs.getDivisibility(dim));
   }
 
   std::optional<int64_t> getConstantValue(arith::MulIOp op,
@@ -623,10 +631,16 @@ struct SelectOpInferAxisInfoOpInterface
         constantValue = lhsInfo.getConstantValue();
       }
     } else {
+      bool i1Cond = isa<IntegerType>(op->getOperand(0).getType());
       for (auto d = 0; d < rank; ++d) {
-        stride.push_back(std::gcd(
-            std::gcd(lhsInfo.getStride(d), argInfos[0].getConstancy(d)),
-            std::gcd(rhsInfo.getStride(d), argInfos[0].getConstancy(d))));
+        if (i1Cond) {
+          stride.push_back(
+              std::gcd(lhsInfo.getStride(d), rhsInfo.getStride(d)));
+        } else {
+          stride.push_back(std::gcd(
+              std::gcd(lhsInfo.getStride(d), argInfos[0].getConstancy(d)),
+              std::gcd(rhsInfo.getStride(d), argInfos[0].getConstancy(d))));
+        }
         strideValue.push_back(AxisInfoExt::kStrideValueInitValue);
         divisibility.push_back(
             std::min(lhsInfo.getDivisibility(d), rhsInfo.getDivisibility(d)));
