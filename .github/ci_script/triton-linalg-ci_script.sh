@@ -77,16 +77,12 @@ python3 .github/ci_script/combine_log.py "$request_root/log" "$request_root/log_
 
 wait
 
-# status=$(cat ${request_root}/status)
-
 status=$( head -n +1 ${request_root}/status )
 
 if [ "$status" != "success" ];then
-    return_info=$( sed -n 2p ${request_root}/status )
-    echo "${return_info}"
+    echo "${status}"
     exit -1
 else
-    return_info=$( sed -n 2p ${request_root}/status )
-    echo "${return_info}"
+    echo "${status}"
     exit 0
 fi
