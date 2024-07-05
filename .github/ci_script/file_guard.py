@@ -1,8 +1,9 @@
 import time
 import sys
 import os
+import argparse
 
-def file_guard():
+def file_guard(guard_status_file, guard_log_file):
     # where stores the last position that pointer pointed to.
     where= 0
     while True:
