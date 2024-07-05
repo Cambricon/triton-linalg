@@ -152,7 +152,7 @@ func.func @extract_slice_from_collapse_shape_op_with_0_rank(%arg0 : tensor<1x1xf
 // CHECK:           %[[VAL_2:.*]] = tensor.extract_slice %[[VAL_0]][0, 0] [16, 1] [2, 2] : tensor<128x16xi32> to tensor<16x1xi32>
 // CHECK:           %[[VAL_3:.*]] = tensor.extract_slice %[[VAL_1]][0, 0] [16, 1] [2, 2] : tensor<128x16xi32> to tensor<16x1xi32>
 // CHECK:           %[[VAL_4:.*]] = tensor.empty() : tensor<16x1xi32>
-// CHECK:           %[[VAL_5:.*]] = linalg.map { arith.addi {overflowFlags = #arith.overflow<none>} } ins(%[[VAL_2]], %[[VAL_3]] : tensor<16x1xi32>, tensor<16x1xi32>) outs(%[[VAL_4]] : tensor<16x1xi32>)
+// CHECK:           %[[VAL_5:.*]] = linalg.map { arith.addi } ins(%[[VAL_2]], %[[VAL_3]] : tensor<16x1xi32>, tensor<16x1xi32>) outs(%[[VAL_4]] : tensor<16x1xi32>)
 // CHECK:           %[[VAL_6:.*]] = tensor.collapse_shape %[[VAL_5]] {{\[\[}}0, 1]] : tensor<16x1xi32> into tensor<16xi32>
 // CHECK:           return %[[VAL_6]] : tensor<16xi32>
 // CHECK:         }
@@ -394,7 +394,7 @@ func.func @extractslice_outside_failed(%arg0: i64, %arg1: tensor<64x64xf32>, %ar
 // CHECK:             "test.foo"(%[[VAL_8]]) : (tensor<128xi32>) -> ()
 // CHECK:             %[[VAL_10:.*]] = tensor.extract_slice %[[VAL_0]][0, 0] [128, 1] [1, 1] : tensor<128x64xi32> to tensor<128x1xi32>
 // CHECK:             %[[VAL_11:.*]] = tensor.empty() : tensor<128x1xi32>
-// CHECK:             %[[VAL_12:.*]] = linalg.map { arith.addi {overflowFlags = #arith.overflow<none>} } ins(%[[VAL_9]], %[[VAL_10]] : tensor<128x1xi32>, tensor<128x1xi32>) outs(%[[VAL_11]] : tensor<128x1xi32>)
+// CHECK:             %[[VAL_12:.*]] = linalg.map { arith.addi } ins(%[[VAL_9]], %[[VAL_10]] : tensor<128x1xi32>, tensor<128x1xi32>) outs(%[[VAL_11]] : tensor<128x1xi32>)
 // CHECK:             %[[VAL_13:.*]] = tensor.collapse_shape %[[VAL_12]] {{\[\[}}0, 1]] : tensor<128x1xi32> into tensor<128xi32>
 // CHECK:             scf.yield %[[VAL_13]] : tensor<128xi32>
 // CHECK:           }

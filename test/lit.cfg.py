@@ -45,7 +45,7 @@ config.test_source_root = os.path.dirname(__file__)
 # test_exec_root: The root path where tests should be run.
 config.test_exec_root = os.path.join(config.triton_linalg_obj_root, 'test')
 config.triton_tools_dir = os.path.join(config.triton_linalg_obj_root,
-                                       'bin')
+                                       'tools/triton-linalg-opt')
 config.filecheck_dir = os.path.join(config.triton_obj_root, 'bin', 'FileCheck')
 
 tool_dirs = [

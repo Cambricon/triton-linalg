@@ -27,7 +27,7 @@ func.func @const_valid_int(%arg0: tensor<1x16x128x128xi32>) -> tensor<1x16x128x1
 // -----
 func.func @arith_addi(%arg0: tensor<128xi32>, %arg1: tensor<128xi32>) {
   // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<128xi32>
-  // CHECK: %[[MAPPED:.*]] = linalg.map { arith.addi {overflowFlags = #arith.overflow<none>} } ins(%arg0, %arg1 : tensor<128xi32>, tensor<128xi32>) outs(%[[INIT]] : tensor<128xi32>)
+  // CHECK: %[[MAPPED:.*]] = linalg.map { arith.addi } ins(%arg0, %arg1 : tensor<128xi32>, tensor<128xi32>) outs(%[[INIT]] : tensor<128xi32>)
   %0 = arith.addi %arg0, %arg1 : tensor<128xi32>
   return
 }
@@ -35,7 +35,7 @@ func.func @arith_addi(%arg0: tensor<128xi32>, %arg1: tensor<128xi32>) {
 // -----
 func.func @arith_subi(%arg0: tensor<128xi32>, %arg1: tensor<128xi32>) {
   // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<128xi32>
-  // CHECK: %[[MAPPED:.*]] = linalg.map { arith.subi {overflowFlags = #arith.overflow<none>} } ins(%arg0, %arg1 : tensor<128xi32>, tensor<128xi32>) outs(%[[INIT]] : tensor<128xi32>)
+  // CHECK: %[[MAPPED:.*]] = linalg.map { arith.subi } ins(%arg0, %arg1 : tensor<128xi32>, tensor<128xi32>) outs(%[[INIT]] : tensor<128xi32>)
   %0 = arith.subi %arg0, %arg1 : tensor<128xi32>
   return
 }
@@ -43,7 +43,7 @@ func.func @arith_subi(%arg0: tensor<128xi32>, %arg1: tensor<128xi32>) {
 // -----
 func.func @arith_muli(%arg0: tensor<128xi32>, %arg1: tensor<128xi32>) {
   // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<128xi32>
-  // CHECK: %[[MAPPED:.*]] = linalg.map { arith.muli {overflowFlags = #arith.overflow<none>} } ins(%arg0, %arg1 : tensor<128xi32>, tensor<128xi32>) outs(%[[INIT]] : tensor<128xi32>)
+  // CHECK: %[[MAPPED:.*]] = linalg.map { arith.muli } ins(%arg0, %arg1 : tensor<128xi32>, tensor<128xi32>) outs(%[[INIT]] : tensor<128xi32>)
   %0 = arith.muli %arg0, %arg1 : tensor<128xi32>
   return
 }
@@ -131,7 +131,7 @@ func.func @arith_xori(%arg0: tensor<128xi32>, %arg1: tensor<128xi32>) {
 // -----
 func.func @arith_shli(%arg0: tensor<128xi32>, %arg1: tensor<128xi32>) {
   // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<128xi32>
-  // CHECK: %[[MAPPED:.*]] = linalg.map { arith.shli {overflowFlags = #arith.overflow<none>} } ins(%arg0, %arg1 : tensor<128xi32>, tensor<128xi32>) outs(%[[INIT]] : tensor<128xi32>)
+  // CHECK: %[[MAPPED:.*]] = linalg.map { arith.shli } ins(%arg0, %arg1 : tensor<128xi32>, tensor<128xi32>) outs(%[[INIT]] : tensor<128xi32>)
   %0 = arith.shli %arg0, %arg1 : tensor<128xi32>
   return
 }
@@ -388,7 +388,7 @@ func.func @arith_addi_dynamic(%arg0: tensor<128x?xi32>, %arg1: tensor<128x?xi32>
   // CHECK: %[[CST:.*]] = arith.constant 1 : index
   // CHECK: %[[DYNAMIC_DIM:.*]] = tensor.dim %arg0, %[[CST]] : tensor<128x?xi32>
   // CHECK: %[[INIT:.*]] = tensor.empty(%[[DYNAMIC_DIM]]) : tensor<128x?xi32>
-  // CHECK: %[[MAPPED:.*]] = linalg.map { arith.addi {overflowFlags = #arith.overflow<none>} } ins(%arg0, %arg1 : tensor<128x?xi32>, tensor<128x?xi32>) outs(%[[INIT]] : tensor<128x?xi32>)
+  // CHECK: %[[MAPPED:.*]] = linalg.map { arith.addi } ins(%arg0, %arg1 : tensor<128x?xi32>, tensor<128x?xi32>) outs(%[[INIT]] : tensor<128x?xi32>)
   %0 = arith.addi %arg0, %arg1 : tensor<128x?xi32>
   return
 }
