@@ -1490,54 +1490,6 @@ struct TritonMulhiuiPattern : public OpConversionPattern<triton::MulhiUIOp> {
   }
 };
 
-/// Convert an `tt.histogram` operation to `arith.subi`, `arith.cmpi`,
-/// `arith.andi`, `scf.for`, `scf.if` operation.
-///
-/// Compute a histogram based on the input tensor with num_bins bins.
-/// The process consists of the following steps:
-/// 1. Set the minimum value (min_val) to 0 and the maximum value (max_val) to
-/// num_bins - 1.
-/// 2. Create a zero tensor of length num_bins to store the count for each bin.
-/// 3. Compute the histogram:
-///    1) Iterate through each value in the input tensor.
-///    2) If the value is between min_val and max_val (inclusive),
-///       calculate its corresponding bin index and increment the count for that
-///       bin.
-///
-/// ```mlir
-///   %1 = tt.histogram %0 : tensor<8xi32> -> tensor<2xi32>
-/// ```
-///
-/// converts to:
-///
-/// ```mlir
-///   %c0_i32 = arith.constant 0 : i32
-///   %c1_i32 = arith.constant 1 : i32
-///   %c2_i32 = arith.constant 2 : i32
-///   %0 = arith.subi %c2_i32, %c1_i32 : i32
-///   %1 = tensor.empty() : tensor<2xi32>
-///   %c0_i32_0 = arith.constant 0 : i32
-///   %2 = linalg.fill ins(%c0_i32_0 : i32)
-///                    outs(%1 : tensor<2xi32>) -> tensor<2xi32>
-///   %3 = scf.for ... {
-///     %extracted = tensor.extract %arg0[%arg1] : tensor<8xi32>
-///     %4 = arith.cmpi sle, %c0_i32, %extracted : i32
-///     %5 = arith.cmpi sge, %0, %extracted : i32
-///     %6 = arith.andi %4, %5 : i1
-///     %7 = scf.if %6 -> (tensor<2xi32>) {
-///       %8 = arith.subi %extracted, %c0_i32 : i32
-///       %9 = arith.index_cast %8 : i32 to index
-///       %extracted_1 = tensor.extract %arg2[%9] : tensor<2xi32>
-///       %c1_i32_2 = arith.constant 1 : i32
-///       %10 = arith.addi %extracted_1, %c1_i32_2 : i32
-///       %inserted = tensor.insert %10 into %arg2[%9] : tensor<2xi32>
-///       scf.yield %inserted : tensor<2xi32>
-///     } else {
-///       scf.yield %arg2 : tensor<2xi32>
-///     }
-///     scf.yield %7 : tensor<2xi32>
-///   }
-/// ```
 struct TritonHistogramPattern
     : public OpConversionPattern<triton::HistogramOp> {
   using OpConversionPattern<triton::HistogramOp>::OpConversionPattern;
@@ -1547,103 +1499,18 @@ struct TritonHistogramPattern
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Value input = adaptor.getSrc();
+    Value result = op.getResult();
 
-    auto inputTy = input.getType().cast<ShapedType>();
-    auto resultTy = op.getResult().getType().dyn_cast<RankedTensorType>();
-    if (!resultTy || !inputTy)
+    auto resultTy = result.getType().dyn_cast<RankedTensorType>();
+    if (!resultTy)
       return failure();
-    auto inputEleTy = inputTy.getElementType();
-    assert(inputEleTy.isa<IntegerType>() && "expected integer type");
-
-    // Get the number of bins from the first dimension size of the result
-    // tensor.
     assert(!resultTy.isDynamicDim(0) && "expected static dim");
-    int numBins = resultTy.getDimSize(0);
 
-    // Create a constant operation representing the minimum value (0).
-    Value minVal = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getZeroAttr(inputEleTy));
+    auto initOp = rewriter.create<tensor::EmptyOp>(loc, resultTy.getShape(),
+                                                   resultTy.getElementType());
+    rewriter.replaceOpWithNewOp<triton::linalg_ext::HistogramOp>(
+        op, TypeRange{result.getType()}, ValueRange{input}, initOp);
 
-    // Compute the maximum value (numBins - 1).
-    Value one = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIntegerAttr(inputEleTy, 1));
-    Value numBinsConstant = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIntegerAttr(inputEleTy, numBins));
-    Value maxVal = rewriter.create<arith::SubIOp>(loc, numBinsConstant, one);
-
-    // Initialize the histogram tensor with zeros.
-    auto histoInit = rewriter.create<tensor::EmptyOp>(
-        loc, resultTy.getShape(), resultTy.getElementType());
-    auto zeroElem = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getZeroAttr(resultTy.getElementType()));
-    Value histo = rewriter
-                      .create<linalg::FillOp>(loc, ValueRange{zeroElem},
-                                              ValueRange{histoInit})
-                      .result();
-
-    // Create a loop to iterate over each element in the input tensor.
-    auto inputSize =
-        rewriter.create<arith::ConstantIndexOp>(loc, inputTy.getShape()[0]);
-    auto zeroIndex = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    auto oneIndex = rewriter.create<arith::ConstantIndexOp>(loc, 1);
-    auto loop =
-        rewriter
-            .create<scf::ForOp>(
-                loc, zeroIndex, inputSize, oneIndex, ValueRange{histo},
-                [&](OpBuilder &b, Location nestedLoc, Value iv,
-                    ValueRange iterArgs) {
-                  // Extract the current value from the input tensor at the loop
-                  // index.
-                  Value currentIndexValue =
-                      b.create<tensor::ExtractOp>(nestedLoc, input, iv);
-
-                  // Compare the current value with the min and max values.
-                  Value cmpMin = b.create<arith::CmpIOp>(
-                      nestedLoc, arith::CmpIPredicate::sle, minVal,
-                      currentIndexValue);
-                  Value cmpMax = b.create<arith::CmpIOp>(
-                      nestedLoc, arith::CmpIPredicate::sge, maxVal,
-                      currentIndexValue);
-                  // Check if the current value is within the range [minVal,
-                  // maxVal].
-                  Value cond =
-                      b.create<arith::AndIOp>(nestedLoc, cmpMin, cmpMax);
-
-                  // Create an if-else block to update the histogram if the
-                  // condition is met.
-                  auto ifOp = rewriter.create<scf::IfOp>(
-                      loc, cond,
-                      [&](OpBuilder &builder, Location ifLoc) {
-                        // Calculate the histogram bin index for the current
-                        // value.
-                        Value idx = builder.create<arith::SubIOp>(
-                            ifLoc, currentIndexValue, minVal);
-                        idx = b.create<arith::IndexCastOp>(
-                            ifLoc, b.getIndexType(), idx);
-                        // Extract the current histogram value at the calculated
-                        // index.
-                        Value histoValue = builder.create<tensor::ExtractOp>(
-                            ifLoc, iterArgs[0], idx);
-                        // Increment the histogram value by 1.
-                        Value one = rewriter.create<arith::ConstantOp>(
-                            ifLoc, rewriter.getIntegerAttr(
-                                       resultTy.getElementType(), 1));
-                        Value updateHistVal = builder.create<arith::AddIOp>(
-                            ifLoc, histoValue, one);
-                        // Insert the updated value back into the histogram
-                        // tensor.
-                        Value updatedHisto = builder.create<tensor::InsertOp>(
-                            ifLoc, updateHistVal, iterArgs[0], idx);
-                        builder.create<scf::YieldOp>(ifLoc, updatedHisto);
-                      },
-                      [&](OpBuilder &builder, Location elseLoc) {
-                        builder.create<scf::YieldOp>(elseLoc, iterArgs[0]);
-                      });
-                  b.create<scf::YieldOp>(nestedLoc, ifOp.getResults());
-                })
-            .getResult(0);
-
-    rewriter.replaceOp(op, loop);
     return success();
   }
 };

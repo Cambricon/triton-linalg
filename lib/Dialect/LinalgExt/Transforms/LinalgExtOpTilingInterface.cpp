@@ -1966,6 +1966,96 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::ScanOp>
   }
 };
 
+template <>
+struct LinalgExtOpTilingInterface<triton::linalg_ext::HistogramOp>
+    : public TilingInterface::ExternalModel<
+          LinalgExtOpTilingInterface<triton::linalg_ext::HistogramOp>,
+          triton::linalg_ext::HistogramOp> {
+
+  SmallVector<Value> getDestinationOperands(Operation *op,
+                                            OpBuilder &builder) const {
+    return llvm::cast<DestinationStyleOpInterface>(op).getDpsInits();
+  }
+
+  SmallVector<utils::IteratorType> getLoopIteratorTypes(Operation *op) const {
+    triton::linalg_ext::HistogramOp histogramOp =
+        cast<triton::linalg_ext::HistogramOp>(op);
+    SmallVector<utils::IteratorType> loops(histogramOp.getInitType().getRank(),
+                                           utils::IteratorType::parallel);
+    return loops;
+  }
+
+  SmallVector<Range> getIterationDomain(Operation *op,
+                                        OpBuilder &builder) const {
+    Location loc = op->getLoc();
+    triton::linalg_ext::HistogramOp histogramOp =
+        cast<triton::linalg_ext::HistogramOp>(op);
+    Value zero = builder.create<arith::ConstantIndexOp>(loc, 0);
+    Value one = builder.create<arith::ConstantIndexOp>(loc, 1);
+    SmallVector<Range> ranges;
+    for (auto dim :
+         llvm::seq<int64_t>(0, histogramOp.getInitType().getRank())) {
+      OpFoldResult ub = getDim(builder, loc, histogramOp.getInit(), dim);
+      ranges.emplace_back(Range{zero, ub, one});
+    }
+    return ranges;
+  }
+
+  FailureOr<TilingResult>
+  getTiledImplementation(Operation *op, OpBuilder &builder,
+                         ArrayRef<OpFoldResult> offsets,
+                         ArrayRef<OpFoldResult> sizes) const {
+    triton::linalg_ext::HistogramOp histogramOp =
+        cast<triton::linalg_ext::HistogramOp>(op);
+    Location loc = histogramOp.getLoc();
+    int64_t rank = histogramOp.getInitType().getRank();
+
+    SmallVector<OpFoldResult> inputOffsets(offsets.begin(), offsets.end());
+    SmallVector<OpFoldResult> inputSizes(sizes.begin(), sizes.end());
+    auto oneAttr = builder.getI64IntegerAttr(1);
+    SmallVector<OpFoldResult> strides(rank, oneAttr);
+
+    auto inputSlice = builder.create<tensor::ExtractSliceOp>(
+        loc, histogramOp.getSrc()[0], inputOffsets, inputSizes, strides);
+    auto initSlice = builder.create<tensor::ExtractSliceOp>(
+        loc, histogramOp.getInit(), inputOffsets, inputSizes, strides);
+
+    Operation *tiledOp = builder.create<triton::linalg_ext::HistogramOp>(
+        loc, TypeRange{initSlice.getType()}, ValueRange{inputSlice}, initSlice);
+    return TilingResult{{tiledOp}, SmallVector<Value>(tiledOp->getResults())};
+  }
+
+  LogicalResult
+  getResultTilePosition(Operation *op, OpBuilder &builder,
+                        unsigned resultNumber, ArrayRef<OpFoldResult> offsets,
+                        ArrayRef<OpFoldResult> sizes,
+                        SmallVector<OpFoldResult> &resultOffsets,
+                        SmallVector<OpFoldResult> &resultSizes) const {
+    resultOffsets.assign(offsets.begin(), offsets.end());
+    resultSizes.assign(sizes.begin(), sizes.end());
+    return success();
+  }
+
+  FailureOr<TilingResult>
+  generateResultTileValue(Operation *op, OpBuilder &b, unsigned resultNumber,
+                          ArrayRef<OpFoldResult> offsets,
+                          ArrayRef<OpFoldResult> sizes) const {
+    auto tilingInterfaceOp = cast<TilingInterface>(op);
+    FailureOr<TilingResult> tilingResult =
+        tilingInterfaceOp.getTiledImplementation(b, offsets, sizes);
+    if (failed(tilingResult) || tilingResult->tiledOps.size() != 1)
+      return op->emitOpError("failed to generate tiled implementation");
+
+    return tilingResult;
+  }
+
+  LogicalResult generateScalarImplementation(Operation *op, OpBuilder &b,
+                                             Location loc,
+                                             ValueRange ivs) const {
+    llvm_unreachable("No scalar implementation for histogram op");
+  }
+};
+
 } // namespace
 
 template <typename OpType> static void registerOne(MLIRContext *ctx) {
@@ -1986,5 +2076,6 @@ void mlir::triton::linalg_ext::registerExtOpTilingInterfaceExternalModels(
         registerOne<triton::linalg_ext::AssertOp>(ctx);
         registerOne<triton::linalg_ext::ScanOp>(ctx);
         registerOne<triton::linalg_ext::LibdeviceCallOp>(ctx);
+        registerOne<triton::linalg_ext::HistogramOp>(ctx);
       });
 }

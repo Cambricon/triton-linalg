@@ -2099,6 +2099,39 @@ LogicalResult PadOp::verify() {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// Implementation of HistogramOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult HistogramOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
+  return memref::foldMemRefCast(*this);
+}
+
+void HistogramOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
+                        getDpsInits());
+}
+
+LogicalResult HistogramOp::verify() {
+  int inputOperandNum = getInit() ? (getNumOperands() - 1) : getNumOperands();
+  if (inputOperandNum > 1) {
+    return emitOpError("only accepts atmost 1 input operand!\n");
+  }
+
+  auto inputType = getSrc()[0].getType().cast<ShapedType>();
+  if (inputType.getRank() != 1) {
+    return emitOpError("only supports 1D input!\n");
+  }
+
+  if (!(inputType.getElementType().isa<IntegerType>())) {
+    return emitOpError("only supports integer input!\n");
+  }
+
+  return success();
+}
+
 /////// Operations corresponding to library calls defined with Tablegen ////////
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtNamedStructuredOps.yamlgen.cpp.inc"
 

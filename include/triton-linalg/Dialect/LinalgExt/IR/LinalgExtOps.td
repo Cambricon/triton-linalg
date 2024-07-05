@@ -1010,4 +1010,41 @@ def ScalarLibdeviceCallOp : LinalgExt_PureOp<"scalar_libdevice_call", [NoMemoryE
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
 }
+
+//===----------------------------------------------------------------------===//
+// Histogram op.
+//===----------------------------------------------------------------------===//
+def HistogramOp : LinalgExtBase_Op<"histogram", []> {
+  let summary = "return a histogram of the inputs.";
+  let description = [{
+    Return the histogram of the input tensor. The number of bins is equal to
+    the dimension of the output tensor. Each bins has a width of 1 and bins
+    start at 0.
+  }];
+
+  let arguments = (ins
+    Variadic<TensorOrMemref>:$src,
+    TensorOrMemref:$init
+  );
+  let results = (outs Variadic<AnyTensor>:$result);
+
+  let assemblyFormat = [{
+    attr-dict  `ins` `(` $src `:` type($src) `)`
+    `outs` `(` $init `:` type($init) `)`
+    (`->` type($result)^)?
+  }];
+
+  let extraClassDeclaration =  [{
+
+    ShapedType getInitType() {
+      return getInit().getType().cast<ShapedType>();;
+    }
+    LogicalResult reifyResultShapes(OpBuilder &b,
+                                    ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
+      return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+    }
+
+    MutableOperandRange getDpsInitsMutable() { return getInitMutable(); }
+  }];
+}
 #endif // TRITON_LINALG_DIALECT_LINALGEXT_IR_LINALGEXTOPS_TD
