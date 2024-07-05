@@ -64,7 +64,10 @@ echo "timestamp:${currentTimeStamp}" >> "$requests_path/${request_name}"
 # change dir group for server and client, or when server/client try to delete request, ftp may raise error.
 # start script
 python3 .github/ci_script/file_guard.py "$request_root/status" "$request_root/log" &
-python3 .github/ci_script/combine_log.py "$request_root/log" "$request_root/log_list" "$request_root/sub_logs" "$request_root/status" &
+if [ $? -ne 0 ]; then
+  echo "Failed to execute file_guard.py program"
+  exit -1
+fi
 
 wait
 
