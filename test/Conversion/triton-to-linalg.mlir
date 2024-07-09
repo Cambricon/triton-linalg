@@ -1452,3 +1452,36 @@ tt.func @scan_sub_1d_f32(%arg0: tensor<2048xf32>) -> tensor<2048xf32> {
   }) {axis = 0 : i32, reverse = false} : (tensor<2048xf32>) -> tensor<2048xf32>
   tt.return %0 : tensor<2048xf32>
 }
+
+// -----
+// CHECK-LABEL: @cat_tensor
+// CHECK-SAME: %[[ARG0:.*]]: tensor<32xf32>, %[[ARG1:.*]]: tensor<32xf32>
+tt.func public @cat_tensor(%arg0: tensor<32xf32>, %arg1: tensor<32xf32>) {
+  // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<64xf32>
+  // CHECK: %[[INSET1:.*]] = tensor.insert_slice %[[ARG0]] into %[[INIT]][0] [32] [1] : tensor<32xf32> into tensor<64xf32>
+  // CHECK: %[[INSET2:.*]] = tensor.insert_slice %[[ARG1]] into %[[INSET1]][%c32_0] [32] [1] : tensor<32xf32> into tensor<64xf32>
+  %0 = tt.cat %arg0, %arg1 : tensor<32xf32> -> tensor<64xf32>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @cat_0rank
+// CHECK-SAME: %[[ARG0:.*]]: tensor<f32>, %[[ARG1:.*]]: tensor<f32>
+tt.func public @cat_0rank(%arg0: tensor<f32>, %arg1: tensor<f32>) {
+  // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<2xf32>
+  // CHECK: %[[INSET1:.*]] = tensor.insert_slice %[[ARG0]] into %[[INIT]][0] [1] [1] : tensor<f32> into tensor<2xf32>
+  // CHECK: %[[INSET2:.*]] = tensor.insert_slice %[[ARG1]] into %[[INSET1]][%c1_0] [1] [1] : tensor<f32> into tensor<2xf32>
+  %0 = tt.cat %arg0, %arg1 : tensor<f32> -> tensor<2xf32>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @cat_3rank
+// CHECK-SAME: %[[ARG0:.*]]: tensor<32x16x8xf32>, %[[ARG1:.*]]: tensor<32x16x8xf32>
+tt.func public @cat_3rank(%arg0: tensor<32x16x8xf32>, %arg1: tensor<32x16x8xf32>) {
+  // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<64x16x8xf32>
+  // CHECK: %[[INSET1:.*]] = tensor.insert_slice %[[ARG0]] into %[[INIT]][0, 0, 0] [32, 16, 8] [1, 1, 1] : tensor<32x16x8xf32> into tensor<64x16x8xf32>
+  // CHECK: %[[INSET2:.*]] = tensor.insert_slice %[[ARG1]] into %[[INSET1]][%c32_0, 0, 0] [32, 16, 8] [1, 1, 1] : tensor<32x16x8xf32> into tensor<64x16x8xf32>
+  %0 = tt.cat %arg0, %arg1 : tensor<32x16x8xf32> -> tensor<64x16x8xf32>
+  tt.return
+}

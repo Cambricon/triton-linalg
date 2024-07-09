@@ -28,7 +28,6 @@ void buildTritonToLinalgPipeline(mlir::OpPassManager &pm) {
   pm.addPass(mlir::triton::createPointerStrengthReductionPass());
   // Since canonicalizer pass may convert single block function to multi-blocks,
   // we rerun this pass here.
-  pm.addPass(mlir::triton::createTritonToTensorPass());
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::triton::createTritonToLinalgPass());
   pm.addNestedPass<mlir::func::FuncOp>(

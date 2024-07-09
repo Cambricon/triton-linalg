@@ -71,6 +71,7 @@
 #include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
 #include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "triton-linalg/Dialect/Utils/Conventions.h"
+#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "triton-linalg/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
@@ -1269,6 +1270,72 @@ struct TritonScanReturnPattern
   }
 };
 
+/// Convert an `tt.cat` operation to `tensor.insert_slice`
+/// operation.
+///
+/// Concatenate two tensors along the highest dimension.
+/// The two input tensors must have the same shape.
+///
+/// ```mlir
+///   %0 = tt.cat %arg0, %arg1 : tensor<32xf32> -> tensor<64xf32>
+/// ```
+///
+/// converts to:
+///
+/// ```mlir
+/// %0 = tensor.empty() : tensor<64xf32>
+/// %1 = tensor.insert_slice %arg0 into %0[0] [32] [1] : tensor<32xf32> into
+///  tensor<64xf32>
+/// %c32_0 = arith.constant 32 : index
+/// %2 = tensor.insert_slice %arg1 into %inserted_slice[%c32_0] [32] [1] :
+///  tensor<32xf32> into tensor<64xf32>
+/// ```
+struct TritonCatPattern : public OpConversionPattern<triton::CatOp> {
+  using OpConversionPattern<triton::CatOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(triton::CatOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto type = typeConverter->convertType(op.getResult().getType());
+    if (!type)
+      return failure();
+
+    auto resultTy = type.cast<RankedTensorType>();
+
+    Location loc = op.getLoc();
+    Value init = rewriter.create<tensor::EmptyOp>(loc, resultTy.getShape(),
+                                                  resultTy.getElementType());
+
+    auto rank = resultTy.getRank();
+    // Insert slice params.
+    auto zero = rewriter.getIndexAttr(0);
+    auto one = rewriter.getIndexAttr(1);
+    SmallVector<OpFoldResult> offsets(rank, zero);
+    SmallVector<OpFoldResult> strides(rank, one);
+    SmallVector<OpFoldResult> sizes;
+
+    Value lhs = op.getOperand(0);
+    Value rhs = op.getOperand(1);
+    // Consider 0-rank tensor as tensor with one element.
+    if (lhs.getType().cast<RankedTensorType>().getRank() == 0) {
+      sizes = {one};
+    } else {
+      sizes = getDims(rewriter, loc, lhs);
+    }
+
+    auto firstInsert = rewriter.createOrFold<tensor::InsertSliceOp>(
+        loc, lhs, init, offsets, sizes, strides);
+    // The tt.cat op always concatenate two tensors along the highest dimension.
+    offsets[0] = rewriter.createOrFold<arith::AddIOp>(
+        loc, materializeOpFoldResult(rewriter, loc, offsets[0]),
+        materializeOpFoldResult(rewriter, loc, sizes[0]));
+    auto secondInsert = rewriter.createOrFold<tensor::InsertSliceOp>(
+        loc, rhs, firstInsert, offsets, sizes, strides);
+    rewriter.replaceOp(op, secondInsert);
+    return success();
+  }
+};
+
 /// Convert an `tt.join` operation to `tensor.insert_slice`
 /// operation.
 ///
@@ -1284,8 +1351,9 @@ struct TritonScanReturnPattern
 /// ```mlir
 ///   %0 = tensor.empty() : tensor<2xf32>
 ///   %1 = tensor.insert_slice %arg0 into %0[0] [1] [1] : tensor<f32> into
-///   tensor<2xf32> %2 = tensor.insert_slice %arg1 into %1[1] [1] [1] :
-///   tensor<f32> into tensor<2xf32>
+///   tensor<2xf32>
+///   %2 = tensor.insert_slice %arg1 into %1[1] [1] [1] : tensor<f32> into
+///   tensor<2xf32>
 /// ```
 struct TritonJoinPattern : public OpConversionPattern<triton::JoinOp> {
   using OpConversionPattern<triton::JoinOp>::OpConversionPattern;
@@ -1591,17 +1659,18 @@ static void
 populateTritonToLinalgPatterns(RewritePatternSet &patterns,
                                triton::TritonLinalgTypeConverter &converter) {
   MLIRContext *context = patterns.getContext();
-  patterns.add<
-      TritonBroadcastPattern, TritonSplatPattern, TritonExpandDimPattern,
-      TritonAddPtrPattern, TritonMakeRangePattern, TritonDotPattern,
-      TritonBitcastPattern, TritonReducePattern, TritonReduceReturnPattern,
-      TritonPureExternElementwisePattern, TritonPtrToIntPattern,
-      TritonIntToPtrPattern, TritonTransPattern, TritonReturnOpConversion,
-      TritonCallOpPattern, TritonFuncOpPattern, TritonViewPattern,
-      TritonPrintPattern, TritonAssertOpPattern, TritonScanPattern,
-      TritonScanReturnPattern, TritonJoinPattern, TritonMulhiuiPattern,
-      TritonSplitPattern, TritonClampFOpPattern, TritonPreciseSqrtOpPattern,
-      TritonPreciseDivFOpPattern, TritonHistogramPattern>(converter, context);
+  patterns
+      .add<TritonBroadcastPattern, TritonSplatPattern, TritonExpandDimPattern,
+           TritonAddPtrPattern, TritonMakeRangePattern, TritonDotPattern,
+           TritonBitcastPattern, TritonReducePattern, TritonReduceReturnPattern,
+           TritonPureExternElementwisePattern, TritonPtrToIntPattern,
+           TritonIntToPtrPattern, TritonTransPattern, TritonReturnOpConversion,
+           TritonCallOpPattern, TritonFuncOpPattern, TritonViewPattern,
+           TritonPrintPattern, TritonAssertOpPattern, TritonScanPattern,
+           TritonScanReturnPattern, TritonCatPattern, TritonJoinPattern,
+           TritonMulhiuiPattern, TritonSplitPattern, TritonClampFOpPattern,
+           TritonPreciseSqrtOpPattern, TritonPreciseDivFOpPattern,
+           TritonHistogramPattern>(converter, context);
 }
 
 static void populateArithConversionPatterns(RewritePatternSet &patterns) {
