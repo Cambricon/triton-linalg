@@ -738,7 +738,7 @@ def AssertOp : Op<LinalgExt_Dialect, "assert", [
                   ReifyRankedShapedTypeOpInterface]> {
   let summary = "lianlg assert operation";
   let description = [{
-    'linalg_ext.assert' takes a condition tensor, a message string.
+    `linalg_ext.assert` takes a condition tensor, a message string.
     If the condition is false, the message is printed, and the program is aborted.
   }];
 
@@ -801,7 +801,7 @@ def ScanOp : LinalgExtBase_Op<"scan", [
           outs(%output, %init: tensor<16x32x64xf32>, tensor<16x64xf32>)
           dimension = [1]
           {
-          ^bb0(%in: f32, %out: f32, init: f32):
+          ^bb0(%in: f32, %out: f32, %init: f32):
             %0 = arith.addf %init, %in: f32
             linalg_ext.yield %0, %0: f32, f32
           }
@@ -1003,7 +1003,7 @@ def ScalarLibdeviceCallOp : LinalgExt_PureOp<"scalar_libdevice_call", [NoMemoryE
       `->` type($result)
     }];
   let builders = [
-    OpBuilder<(ins "mlir::Type":$resultType, "ValueRange":$inputs, 
+    OpBuilder<(ins "mlir::Type":$resultType, "ValueRange":$inputs,
         "StringAttr":$symbol, CArg<"ArrayRef<NamedAttribute>",
         "{}">:$attributes)>,
   ];

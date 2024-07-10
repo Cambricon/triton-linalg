@@ -5,11 +5,11 @@
 //===----------------------------------------------------------------------===//
 #include <algorithm>
 #include <assert.h>
-#include <bits/std_abs.h>
 #include <memory>
 #include <numeric>
 #include <optional>
 #include <stdint.h>
+#include <stdlib.h>
 #include <type_traits>
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
