@@ -590,8 +590,8 @@ Value TritonPtrScatterConversionBase::getDynamicMemRef(
 //===----------------------------------------------------------------------===//
 // TritonTensorPtrLoadStoreOpConversionBase
 //===----------------------------------------------------------------------===//
-SmallVector<OpFoldResult>
-TritonTensorPtrLoadStoreOpConversionBase::getActualSizes(
+TritonTensorPtrLoadStoreOpConversionBase::PtrInfo
+TritonTensorPtrLoadStoreOpConversionBase::getPtrInfo(
     Location loc, std::optional<ArrayRef<int>> boundaryCheck,
     ArrayRef<int64_t> tensorShape, const TensorPointerMetaInfoTracker &tracker,
     ConversionPatternRewriter &rewriter) const {
@@ -599,14 +599,26 @@ TritonTensorPtrLoadStoreOpConversionBase::getActualSizes(
       llvm::map_range(tensorShape, [&rewriter](int64_t dim) -> OpFoldResult {
         return rewriter.getIndexAttr(dim);
       }));
+  SmallVector<OpFoldResult> offsets(tracker.getOffsets().begin(),
+                                    tracker.getOffsets().end());
+  SmallVector<OpFoldResult> padLeftSizes = offsets;
   if (boundaryCheck) {
     for (auto i : boundaryCheck.value()) {
-      OpFoldResult remainSize = subOFRs(tracker.getSizes()[i],
-                                        tracker.getOffsets()[i], loc, rewriter);
-      blockSizes[i] = minOFRs(remainSize, blockSizes[i], loc, rewriter);
+      auto originOffset = tracker.getOffsets()[i];
+      offsets[i] =
+          maxOFRs(originOffset, rewriter.getIndexAttr(0), loc, rewriter);
+      padLeftSizes[i] =
+          minOFRs(subOFRs(offsets[i], originOffset, loc, rewriter),
+                  blockSizes[i], loc, rewriter);
+      OpFoldResult remainSize =
+          subOFRs(tracker.getSizes()[i], offsets[i], loc, rewriter);
+      remainSize = maxOFRs(remainSize, rewriter.getIndexAttr(0), loc, rewriter);
+      blockSizes[i] = minOFRs(
+          remainSize, subOFRs(blockSizes[i], padLeftSizes[i], loc, rewriter),
+          loc, rewriter);
     }
   }
-  return blockSizes;
+  return {offsets, padLeftSizes, blockSizes};
 }
 
 SmallVector<DimInfo> TritonTensorPtrLoadStoreOpConversionBase::getDimInfos(

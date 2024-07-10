@@ -447,12 +447,12 @@ public:
     SmallVector<int64_t> permutations =
         getPermutationFromOrder(tracker.getOrder());
     auto dimInfos = getDimInfos(tracker.getStrides(), resultTy.getShape());
-    auto sizes = getActualSizes(loc, op.getBoundaryCheck(), resultTy.getShape(),
-                                tracker, rewriter);
+    auto ptrInfo = getPtrInfo(loc, op.getBoundaryCheck(), resultTy.getShape(),
+                              tracker, rewriter);
     auto originalMemRef =
-        getMemRef(rewriter.getRemappedValue(tracker.getBase()),
-                  tracker.getOffsets(), sizes, tracker.getStrides(),
-                  permutations, dimInfos, resultTy.getElementType(), rewriter,
+        getMemRef(rewriter.getRemappedValue(tracker.getBase()), ptrInfo.offsets,
+                  ptrInfo.sizes, tracker.getStrides(), permutations, dimInfos,
+                  resultTy.getElementType(), rewriter,
                   getCacheModeAttr(op.getContext(), op.getCache()));
 
     Value sliceTensor = rewriter.create<bufferization::ToTensorOp>(
@@ -466,7 +466,7 @@ public:
 
     if (op.getBoundaryCheck().empty()) {
       sliceTensor = transformResultWithTransposeAndDimInfo(
-          sliceTensor, permutations, dimInfos, sizes, rewriter);
+          sliceTensor, permutations, dimInfos, ptrInfo.sizes, rewriter);
       rewriter.replaceOp(op, sliceTensor);
       return success();
     }
@@ -492,11 +492,10 @@ public:
     }
 
     auto value = transformResultWithTransposeAndDimInfo(
-        sliceTensor, permutations, dimInfos, sizes, rewriter);
-    value = getPadOrInsertOpWithOther(
-        loc, other, resultTy, value,
-        SmallVector<OpFoldResult>(resultTy.getRank(), rewriter.getIndexAttr(0)),
-        sizes, rewriter);
+        sliceTensor, permutations, dimInfos, ptrInfo.sizes, rewriter);
+    value = getPadOrInsertOpWithOther(loc, other, resultTy, value,
+                                      ptrInfo.padLeftSizes, ptrInfo.sizes,
+                                      rewriter);
     rewriter.replaceOp(op, value);
     return success();
   }
@@ -526,12 +525,12 @@ public:
     SmallVector<int64_t> permutations =
         getPermutationFromOrder(tracker.getOrder());
     auto dimInfos = getDimInfos(tracker.getStrides(), valueTy.getShape());
-    auto sizes = getActualSizes(loc, op.getBoundaryCheck(), valueTy.getShape(),
-                                tracker, rewriter);
+    auto ptrInfo = getPtrInfo(loc, op.getBoundaryCheck(), valueTy.getShape(),
+                              tracker, rewriter);
     auto originalMemRef =
-        getMemRef(rewriter.getRemappedValue(tracker.getBase()),
-                  tracker.getOffsets(), sizes, tracker.getStrides(),
-                  permutations, dimInfos, valueTy.getElementType(), rewriter,
+        getMemRef(rewriter.getRemappedValue(tracker.getBase()), ptrInfo.offsets,
+                  ptrInfo.sizes, tracker.getStrides(), permutations, dimInfos,
+                  valueTy.getElementType(), rewriter,
                   getCacheModeAttr(op.getContext(), op.getCache()));
     auto value = op.getValue();
     auto zeroAttr = rewriter.getIndexAttr(0);
@@ -541,9 +540,11 @@ public:
     if (!op.getBoundaryCheck().empty()) {
       auto rank = value.getType().cast<ShapedType>().getRank();
       value = rewriter.create<tensor::ExtractSliceOp>(
-          loc, value, SmallVector<OpFoldResult>(rank, rewriter.getIndexAttr(0)),
-          permutateAndRemoveBroadcastDims<OpFoldResult>(sizes, permutations,
-                                                        dimInfos),
+          loc, value,
+          permutateAndRemoveBroadcastDims<OpFoldResult>(ptrInfo.padLeftSizes,
+                                                        permutations, dimInfos),
+          permutateAndRemoveBroadcastDims<OpFoldResult>(ptrInfo.sizes,
+                                                        permutations, dimInfos),
           SmallVector<OpFoldResult>(rank, rewriter.getIndexAttr(1)));
     }
     auto materializeOp =
