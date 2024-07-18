@@ -1020,6 +1020,13 @@ def HistogramOp : LinalgExtBase_Op<"histogram", []> {
     Return the histogram of the input tensor. The number of bins is equal to
     the dimension of the output tensor. Each bins has a width of 1 and bins
     start at 0.
+
+    Example:
+    ```
+    %hist = linalg_ext.histogram
+      ins(%input:tensor<128xi32>)
+      outs(%init:tensor<16xi32>) -> tensor<16xi32>
+    ```
   }];
 
   let arguments = (ins
@@ -1035,15 +1042,13 @@ def HistogramOp : LinalgExtBase_Op<"histogram", []> {
   }];
 
   let extraClassDeclaration =  [{
-
     ShapedType getInitType() {
-      return getInit().getType().cast<ShapedType>();;
+      return getInit().getType().cast<ShapedType>();
     }
     LogicalResult reifyResultShapes(OpBuilder &b,
                                     ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
       return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
     }
-
     MutableOperandRange getDpsInitsMutable() { return getInitMutable(); }
   }];
 }

@@ -2115,18 +2115,23 @@ void HistogramOp::getEffects(
 }
 
 LogicalResult HistogramOp::verify() {
-  int inputOperandNum = getInit() ? (getNumOperands() - 1) : getNumOperands();
-  if (inputOperandNum > 1) {
-    return emitOpError("only accepts atmost 1 input operand!\n");
+  if (getNumDpsInputs() != 1) {
+    return emitOpError("only accepts atmost 1 input operand!");
   }
 
   auto inputType = getSrc()[0].getType().cast<ShapedType>();
   if (inputType.getRank() != 1) {
-    return emitOpError("only supports 1D input!\n");
+    return emitOpError("only supports 1D input!");
+  }
+  if (!(inputType.getElementType().isa<IntegerType>())) {
+    return emitOpError("only supports integer input!");
   }
 
-  if (!(inputType.getElementType().isa<IntegerType>())) {
-    return emitOpError("only supports integer input!\n");
+  if (getInitType().getRank() != 1) {
+    return emitOpError("only supports 1D output!");
+  }
+  if (!getInitType().getElementType().isa<IntegerType>()) {
+    return emitOpError("only supports integer output!");
   }
 
   return success();
