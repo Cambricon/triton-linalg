@@ -1327,7 +1327,7 @@ LogicalResult ScanOp::verify() {
   }
 
   if (expectedInitShape !=
-      getInits()[numInputs].getType().cast<ShapedType>().getShape()) {
+      getInits()[numOutputs].getType().cast<ShapedType>().getShape()) {
     return emitOpError() << "inits shape is not equal to the expected shape "
                          << expectedInitShape << ".";
   }

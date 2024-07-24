@@ -902,8 +902,16 @@ def ScanOp : LinalgExtBase_Op<"scan", [
     }
 
     SmallVector<OpOperand *> getOpOperandsMatchingBBargs() {
-      // Latest llvm use getDpsInputs, change it when upgrade.
-      return getDpsInputOperands();
+      // LinalgExtOps default implementation.
+      // This interface is different from
+      // LinalgExtStructuredOps getOpOperandsMatchingBBargs.
+      llvm::SmallVector<OpOperand *> result;
+      result.reserve(this->getNumOperands());
+      llvm::transform(
+        this->getOperation()->getOpOperands(),
+        std::back_inserter(result),
+        [](OpOperand &opOperand) { return &opOperand; });
+      return result;
     }
 
     Block* getBlock() { return getBody(); }
