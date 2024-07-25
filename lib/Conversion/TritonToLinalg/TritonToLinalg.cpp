@@ -852,19 +852,16 @@ struct TritonTransPattern : public OpConversionPattern<triton::TransOp> {
   matchAndRewrite(triton::TransOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    RankedTensorType srcTy =
-        adaptor.getSrc().getType().cast<RankedTensorType>();
-    auto rank = srcTy.getRank();
+    RankedTensorType resTy = op.getResult().getType().cast<RankedTensorType>();
+    auto rank = resTy.getRank();
     if (rank <= 1) {
       rewriter.replaceOp(op, adaptor.getSrc());
       return success();
     }
 
     SmallVector<int64_t> permutation(op.getOrder());
-    SmallVector<int64_t> retShape(srcTy.getShape().rbegin(),
-                                  srcTy.getShape().rend());
-    auto initOp =
-        rewriter.create<tensor::EmptyOp>(loc, retShape, srcTy.getElementType());
+    auto initOp = rewriter.create<tensor::EmptyOp>(loc, resTy.getShape(),
+                                                   resTy.getElementType());
     rewriter.replaceOpWithNewOp<linalg::TransposeOp>(op, adaptor.getSrc(),
                                                      initOp, permutation);
 
