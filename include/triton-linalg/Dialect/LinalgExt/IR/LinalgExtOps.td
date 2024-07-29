@@ -1021,11 +1021,17 @@ def HistogramOp : LinalgExtBase_Op<"histogram", []> {
     the dimension of the output tensor. Each bins has a width of 1 and bins
     start at 0.
 
+    If the input data contains integer values, the output will represent the
+    frequency of occurrences of each integer value in the input tensor.
+    For example, if the input tensor has values `[0, 0, 2, 1, 2, 1, 0, 1]`, and the
+    output tensor has 3 bins, the resulting histogram is [3, 3, 2], showing the count of
+    each value (0, 1, and 2).
+
     Example:
     ```
     %hist = linalg_ext.histogram
-      ins(%input:tensor<128xi32>)
-      outs(%init:tensor<16xi32>) -> tensor<16xi32>
+      ins(%input:tensor<8xi32>)
+      outs(%init:tensor<3xi32>) -> tensor<3xi32>
     ```
   }];
 

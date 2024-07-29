@@ -2116,7 +2116,7 @@ void HistogramOp::getEffects(
 
 LogicalResult HistogramOp::verify() {
   if (getNumDpsInputs() != 1) {
-    return emitOpError("only accepts atmost 1 input operand!");
+    return emitOpError("only supports 1 input operand!");
   }
 
   auto inputType = getSrc()[0].getType().cast<ShapedType>();
