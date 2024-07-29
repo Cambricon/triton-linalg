@@ -136,6 +136,10 @@ inline raw_ostream &operator<<(raw_ostream &os, const Mask &s) {
 }
 
 using Result = std::variant<Scalar, SimpleRange, Mask>;
+inline raw_ostream &operator<<(raw_ostream &os, const Result &s) {
+  std::visit([&os](const auto &val) { os << val; }, s);
+  return os;
+}
 
 /// A visitor(std::visit functor) used to wrapper calculations between different
 /// of results.
@@ -235,15 +239,44 @@ struct CmpVisitor : public VisitorBase {
       : VisitorBase(loc, rewriter), cmpTy(cmpTy) {}
   template <typename T1, typename T2>
   FailureOr<Result> operator()(const T1 &lhs, const T2 &rhs) {
+    // Compare range and scalar.
     if constexpr (std::is_same_v<SimpleRange, T1> &&
                   std::is_same_v<Scalar, T2>) {
       return compareSimpleRange(lhs, rhs, cmpTy);
+    }
+    // Compare scalar and range.
+    if constexpr (std::is_same_v<Scalar, T1> &&
+                  std::is_same_v<SimpleRange, T2>) {
+      // The function compareSimpleRange handles comparisons between
+      // a range and a scalar. When the input is in the form
+      // of (scalar, range), it is necessary to swap the order of the
+      // arguments and map the comparison operation to its equivalent operation.
+      return compareSimpleRange(rhs, lhs, reversePredicate(cmpTy));
     }
     return rewriter.notifyMatchFailure(loc, "Unsupported cmpi scenario");
   }
 
 private:
   arith::CmpIPredicate cmpTy;
+
+  arith::CmpIPredicate reversePredicate(mlir::arith::CmpIPredicate cmpTy) {
+    /*
+     *  (range < scalar) <=> (scalar > range)
+     *  (range > scalar) <=> (scalar < range)
+     *  (range <= scale) <=> (scalar >= range)
+     *  (range >= scalar) <=> (scalar <= range)
+     */
+    static const llvm::DenseMap<arith::CmpIPredicate, arith::CmpIPredicate>
+        map = {
+            {arith::CmpIPredicate::slt, arith::CmpIPredicate::sgt},
+            {arith::CmpIPredicate::sgt, arith::CmpIPredicate::slt},
+            {arith::CmpIPredicate::sle, arith::CmpIPredicate::sge},
+            {arith::CmpIPredicate::sge, arith::CmpIPredicate::sle},
+        };
+    auto it = map.find(cmpTy);
+    assert(it != map.end());
+    return it->second;
+  }
   FailureOr<Result> compareSimpleRange(const SimpleRange &lhs,
                                        const Scalar &rhs,
                                        mlir::arith::CmpIPredicate cmpTy) {
