@@ -228,6 +228,137 @@ static void printCommonStructuredOpParts(OpAsmPrinter &p, ValueRange inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// BEGIN copied from llvm-project mlir/lib/Dialect/Linalg/IR/LinalgOps.cpp
+//===----------------------------------------------------------------------===//
+static void addBodyWithPayloadOp(OpAsmParser &parser, OperationState &result,
+                                 const OperationName &payloadOpName,
+                                 const NamedAttrList &payloadOpAttrs,
+                                 ArrayRef<Value> operands,
+                                 bool initFirst = false) {
+  OpBuilder b(parser.getContext());
+  Region *body = result.addRegion();
+  Block &block = body->emplaceBlock();
+  b.setInsertionPointToStart(&block);
+  SmallVector<Value> bbArgs;
+  for (auto &operand : operands) {
+    block.addArgument(operand.getType().cast<ShapedType>().getElementType(),
+                      b.getUnknownLoc());
+  }
+  SmallVector<Value> payloadOpOperands;
+  // If initFirst flag is enabled, we consider init as the first position of
+  // payload operands.
+  if (initFirst) {
+    payloadOpOperands.push_back(block.getArguments().back());
+    for (const auto &arg : block.getArguments().drop_back())
+      payloadOpOperands.push_back(arg);
+  } else {
+    payloadOpOperands = {block.getArguments().begin(),
+                         block.getArguments().end()};
+  }
+
+  Operation *payloadOp = b.create(
+      result.location, b.getStringAttr(payloadOpName.getStringRef()),
+      payloadOpOperands,
+      TypeRange{
+          result.operands.back().getType().cast<ShapedType>().getElementType()},
+      payloadOpAttrs);
+  b.create<YieldOp>(result.location, payloadOp->getResults());
+}
+
+// Retrieve the operation from the body, if it is the only one (except
+// yield) and if it gets the same amount of arguments as the body does.
+// If initFirst flag is enabled, we check that init takes the first position in
+// operands of payload.
+static Operation *findPayloadOp(Block *body, bool initFirst = false) {
+  if (body->getOperations().size() != 2)
+    return nullptr;
+  Operation &payload = body->getOperations().front();
+  assert(isa<YieldOp>(body->getOperations().back()));
+
+  if (payload.getNumOperands() == 0 ||
+      payload.getNumOperands() != body->getNumArguments())
+    return nullptr;
+  if (initFirst) {
+    // check init
+    if (payload.getOperands().back() != body->getArgument(0))
+      return nullptr;
+    // check rest
+    for (const auto &[operand, bbArg] :
+         llvm::zip(payload.getOperands(), body->getArguments().drop_front())) {
+      if (bbArg != operand)
+        return nullptr;
+    }
+  } else {
+    for (const auto &[operand, bbArg] :
+         llvm::zip(payload.getOperands(), body->getArguments())) {
+      if (bbArg != operand)
+        return nullptr;
+    }
+  }
+  return &payload;
+}
+
+void printShortFormReduce(OpAsmPrinter &p, Operation *payloadOp) {
+  SmallVector<StringRef> elidedAttrs;
+  std::string attrToElide;
+  p << " { " << payloadOp->getName().getStringRef();
+  for (const auto &attr : payloadOp->getAttrs()) {
+    auto fastAttr = attr.getValue().dyn_cast<mlir::arith::FastMathFlagsAttr>();
+    if (fastAttr && fastAttr.getValue() == mlir::arith::FastMathFlags::none) {
+      attrToElide = attr.getName().str();
+      elidedAttrs.push_back(attrToElide);
+      break;
+    }
+  }
+  p.printOptionalAttrDict(payloadOp->getAttrs(), elidedAttrs);
+  p << " }";
+}
+
+static ParseResult parseDenseI64ArrayAttr(OpAsmParser &parser,
+                                          NamedAttrList &attributes,
+                                          StringRef attributeName) {
+  if (parser.parseKeyword(attributeName) || parser.parseEqual())
+    return failure();
+
+  attributes.set(attributeName, DenseI64ArrayAttr::parse(parser, Type{}));
+  return success();
+}
+
+static void printDenseI64ArrayAttr(OpAsmPrinter &p, StringRef attributeName,
+                                   ArrayRef<int64_t> attributeValue) {
+  p << ' ' << attributeName << " = [" << attributeValue << "] ";
+}
+
+static ParseResult parseDstStyleOp(
+    OpAsmParser &parser, OperationState &result,
+    function_ref<ParseResult(OpAsmParser &, NamedAttrList &)> parseAttrsFn =
+        nullptr) {
+  // Parse `ins` and `outs`.
+  SmallVector<Type, 4> inputTypes, outputTypes;
+  if (parseCommonStructuredOpParts(parser, result, inputTypes, outputTypes,
+                                   /*addOperandSegmentSizes=*/false))
+    return failure();
+
+  // Add result types.
+  for (Type outputType : outputTypes) {
+    if (llvm::isa<RankedTensorType>(outputType))
+      result.addTypes(outputType);
+  }
+
+  // Parse required attributes.
+  if (parseAttrsFn && failed(parseAttrsFn(parser, result.attributes)))
+    return failure();
+
+  // Parse optional attributes.
+  if (parser.parseOptionalAttrDict(result.attributes))
+    return failure();
+  return success();
+}
+//===----------------------------------------------------------------------===//
+// END copied from llvm-project mlir/lib/Dialect/Linalg/IR/LinalgOps.cpp
+//===----------------------------------------------------------------------===//
+
+//===----------------------------------------------------------------------===//
 // Helper functions for named Linalg ops defined in ods-gen from LinalgOps.cpp.
 //===----------------------------------------------------------------------===//
 
@@ -1651,6 +1782,259 @@ void GatherAtomicCASOp::getEffects(
   getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
                         getDpsInits());
 }
+
+//===----------------------------------------------------------------------===//
+// BEGIN refers to linalg.reduce
+//===----------------------------------------------------------------------===//
+
+template <typename T> static LogicalResult verifyArgMaxMinOp(T op) {
+  ArrayRef<int64_t> dimensionsRef = op.getDimensions();
+
+  for (int64_t i = 1; i < op.getNumDpsInputs(); ++i) {
+    if (llvm::cast<ShapedType>(op.getInputs()[i].getType()).getShape() !=
+        llvm::cast<ShapedType>(op.getInputs()[0].getType()).getShape()) {
+      return op->emitOpError()
+             << "expects all inputs to have the same shapes. "
+                "Shape at input-index "
+             << i << " is not equal to the shape at input-index 0.";
+    }
+  }
+  for (int64_t i = 1; i < op.getNumDpsInits(); ++i) {
+    if (llvm::cast<ShapedType>(op.getInits()[i].getType()).getShape() !=
+        llvm::cast<ShapedType>(op.getInits()[0].getType()).getShape()) {
+      return op->emitOpError()
+             << "expects all outputs to have the same shapes. "
+                "Shape at output-index "
+             << i << " is not equal to the shape at output-index 0.";
+    }
+  }
+  auto inputType = llvm::cast<ShapedType>(op.getInputs()[0].getType());
+  auto initType = llvm::cast<ShapedType>(op.getInits()[0].getType());
+
+  DenseSet<int64_t> dimensionsToReduce;
+  for (int64_t dimension : dimensionsRef) {
+    if (dimension < 0 || dimension >= inputType.getRank()) {
+      return op->emitOpError()
+             << "dimensions for reduction should be in the range [0, "
+             << inputType.getRank() - 1 << "].";
+    }
+    dimensionsToReduce.insert(dimension);
+  }
+
+  auto inputDims = inputType.getShape();
+  auto initDims = initType.getShape();
+
+  // Input dimensions that will be left after the reduction.
+  SmallVector<int64_t> reducedInputDims;
+  for (const auto &en : llvm::enumerate(inputDims)) {
+    if (!dimensionsToReduce.count(en.index()))
+      reducedInputDims.push_back(en.value());
+  }
+
+  if (reducedInputDims.size() != static_cast<size_t>(initType.getRank())) {
+    return op->emitOpError()
+           << "number of dimensions after reduction " << reducedInputDims.size()
+           << " doesn't match the init rank " << initType.getRank();
+  }
+
+  if (reducedInputDims != initDims)
+    return op->emitOpError()
+           << "init dimensions [" << initDims
+           << "] doesn't match input dimensions after reduction ["
+           << reducedInputDims << "]";
+
+  Block *block = op.getBody();
+  if (block->getNumArguments() != op->getNumOperands())
+    return op->emitOpError()
+           << "mismatching number of operands and block arguments";
+
+  // Check that the first block arguments match the element type of the inputs.
+  for (auto [input, bbArg] : llvm::zip(op.getInputs(), block->getArguments())) {
+    Type inputElementType =
+        llvm::cast<ShapedType>(input.getType()).getElementType();
+    if (inputElementType != bbArg.getType())
+      return op->emitOpError()
+             << "input element type " << inputElementType
+             << " does not match corresponding block argument type "
+             << bbArg.getType();
+  }
+
+  // Check that the last block arguments match the element type of the outputs.
+  for (auto [output, bbArg] :
+       llvm::zip(op.getDpsInits(),
+                 block->getArguments().take_back(op.getNumDpsInits()))) {
+    auto outputElementType =
+        llvm::cast<ShapedType>(output.getType()).getElementType();
+    if (outputElementType != bbArg.getType())
+      return op->emitOpError()
+             << "output element type " << outputElementType
+             << " does not match corresponding block argument type "
+             << bbArg.getType();
+  }
+  return success();
+}
+
+static ParseResult parseArgMaxMin(OpAsmParser &parser, OperationState &result) {
+  std::optional<OperationName> payloadOpName;
+  NamedAttrList payloadOpAttrs;
+  if (succeeded(parser.parseOptionalLBrace())) {
+    FailureOr<OperationName> operationName = parser.parseCustomOperationName();
+    if (failed(operationName))
+      return failure();
+    if (parser.parseOptionalAttrDict(payloadOpAttrs))
+      return failure();
+    payloadOpName = operationName.value();
+    if (parser.parseRBrace())
+      return failure();
+  }
+
+  if (parseDstStyleOp(
+          parser, result, [&](OpAsmParser &parser, NamedAttrList &attributes) {
+            return parseDenseI64ArrayAttr(parser, attributes, "dimensions");
+          }))
+    return failure();
+
+  if (payloadOpName.has_value()) {
+    addBodyWithPayloadOp(parser, result, payloadOpName.value(), payloadOpAttrs,
+                         ArrayRef(result.operands), /*initFirst=*/true);
+  } else {
+    SmallVector<OpAsmParser::Argument> regionArgs;
+    if (parser.parseArgumentList(regionArgs, OpAsmParser::Delimiter::Paren,
+                                 /*allowType=*/true, /*allowAttrs=*/true)) {
+      return failure();
+    }
+
+    Region *body = result.addRegion();
+    if (parser.parseRegion(*body, regionArgs))
+      return failure();
+  }
+
+  return success();
+}
+
+template <typename T> static void printArgMaxMin(OpAsmPrinter &p, T op) {
+  Block *mapper = op.getBody();
+  Operation *payloadOp = findPayloadOp(mapper, /*initFirst=*/true);
+  if (payloadOp) {
+    printShortFormReduce(p, payloadOp);
+  }
+
+  printCommonStructuredOpParts(p, op.getDpsInputs(), op.getDpsInits());
+  printDenseI64ArrayAttr(p, op.getDimensionsAttrName(), op.getDimensions());
+  p.printOptionalAttrDict(op->getAttrs(), {op.getDimensionsAttrName()});
+  if (!payloadOp) {
+    // Print region if the payload op was not detected.
+    p.increaseIndent();
+    p.printNewline();
+    p << "(";
+    llvm::interleaveComma(mapper->getArguments(), p,
+                          [&](auto arg) { p.printRegionArgument(arg); });
+    p << ") ";
+
+    p.printRegion(op.getCombiner(), /*printEntryBlockArgs=*/false);
+    p.decreaseIndent();
+  }
+}
+
+//===----------------------------------------------------------------------===//
+// ArgMaxOp
+//===----------------------------------------------------------------------===//
+
+void ArgMaxOp::build(
+    OpBuilder &builder, OperationState &result, ValueRange inputs,
+    ValueRange inits, ArrayRef<int64_t> dimensions,
+    function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
+    ArrayRef<NamedAttribute> attributes) {
+  build(builder, result, TypeRange{}, inputs, inits, dimensions);
+  result.addAttributes(attributes);
+
+  // Add output types for `RankedTensorType` output arguments.
+  for (Value init : inits) {
+    Type initType = init.getType();
+    if (initType.isa<RankedTensorType>())
+      result.addTypes(initType);
+  }
+
+  if (bodyBuild)
+    buildGenericRegion(builder, result.location, *result.regions.front(),
+                       inputs, inits, bodyBuild);
+}
+
+void ArgMaxOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  getGenericEffectsImpl(effects, cast<LinalgOp>(getOperation()));
+}
+
+ParseResult ArgMaxOp::parse(OpAsmParser &parser, OperationState &result) {
+  return parseArgMaxMin(parser, result);
+}
+
+void ArgMaxOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  if (!getResults().empty())
+    setNameFn(getResults().front(), "argmax");
+}
+
+void ArgMaxOp::print(OpAsmPrinter &p) { printArgMaxMin(p, *this); }
+
+LogicalResult ArgMaxOp::verify() { return verifyArgMaxMinOp(*this); }
+
+LogicalResult ArgMaxOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
+  return memref::foldMemRefCast(*this);
+}
+
+//===----------------------------------------------------------------------===//
+// ArgMinOp
+//===----------------------------------------------------------------------===//
+
+void ArgMinOp::build(
+    OpBuilder &builder, OperationState &result, ValueRange inputs,
+    ValueRange inits, ArrayRef<int64_t> dimensions,
+    function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
+    ArrayRef<NamedAttribute> attributes) {
+  build(builder, result, TypeRange{}, inputs, inits, dimensions);
+  result.addAttributes(attributes);
+
+  // Add output types for `RankedTensorType` output arguments.
+  for (Value init : inits) {
+    Type initType = init.getType();
+    if (initType.isa<RankedTensorType>())
+      result.addTypes(initType);
+  }
+
+  if (bodyBuild)
+    buildGenericRegion(builder, result.location, *result.regions.front(),
+                       inputs, inits, bodyBuild);
+}
+
+void ArgMinOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  getGenericEffectsImpl(effects, cast<LinalgOp>(getOperation()));
+}
+
+ParseResult ArgMinOp::parse(OpAsmParser &parser, OperationState &result) {
+  return parseArgMaxMin(parser, result);
+}
+
+void ArgMinOp::getAsmResultNames(
+    function_ref<void(Value, StringRef)> setNameFn) {
+  if (!getResults().empty())
+    setNameFn(getResults().front(), "argmin");
+}
+
+void ArgMinOp::print(OpAsmPrinter &p) { printArgMaxMin(p, *this); }
+
+LogicalResult ArgMinOp::verify() { return verifyArgMaxMinOp(*this); }
+
+LogicalResult ArgMinOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
+  return memref::foldMemRefCast(*this);
+}
+
+//===----------------------------------------------------------------------===//
+// END refers to linalg.reduce
+//===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
 // Implementation of PadOp

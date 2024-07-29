@@ -169,6 +169,34 @@ static Value sliceRemaining(ConversionPatternRewriter &rewriter, Location loc,
                                                  strides);
 }
 
+static Value getInitConstValue(ReductionMode mode, ShapedType type,
+                               Location &loc, PatternRewriter &rewriter) {
+  auto elementType = type.getElementType();
+  switch (mode) {
+  case ReductionMode::ARGMAX:
+    if (isa<FloatType>(elementType)) {
+      return arith::getIdentityValue(arith::AtomicRMWKind::maximumf,
+                                     elementType, rewriter, loc);
+    } else if (elementType.isIntOrIndex()) {
+      return rewriter.create<arith::ConstantOp>(
+          loc, elementType, rewriter.getIntegerAttr(elementType, -1));
+    }
+    break;
+  case ReductionMode::ARGMIN:
+    if (isa<FloatType>(elementType)) {
+      return arith::getIdentityValue(arith::AtomicRMWKind::minimumf,
+                                     elementType, rewriter, loc);
+    } else if (elementType.isIntOrIndex()) {
+      return rewriter.create<arith::ConstantOp>(
+          loc, elementType, rewriter.getIntegerAttr(elementType, -1));
+    }
+    break;
+  default:
+    break;
+  }
+  return nullptr;
+}
+
 /// Create PrefixAttr for PrintOp.
 FailureOr<StringAttr> createPrefixAttr(StringAttr prefixAttr, Value operand,
                                        bool hex, triton::PrintOp op,
@@ -601,31 +629,59 @@ struct TritonReducePattern : public OpConversionPattern<triton::ReduceOp> {
 
     llvm::SmallVector<Value> initVals;
     // As we need to analysis the body of reduce op to get the init value,
-    // currently we only support single paylod op. Otherwise, We use a portion
-    // of the input as the initial value for the output.
+    // currently we only support single paylod op and argmax/min op.
+    // Otherwise, We use a portion of the input as the initial value for
+    // the output.
+    auto mode = reducePatternRecognition(op);
     do {
-      if (op.getNumResults() == 1) {
-        Operation *payloadOp =
-            triton::linalg_ext::findPayloadOp(&op.getCombineOp().front());
-        if (!payloadOp)
-          break;
-        std::optional<TypedAttr> fillValAttr =
-            arith::getNeutralElement(payloadOp);
-        // When the requirements are not met, go to the later general
-        // implementation.
-        if (!fillValAttr.has_value())
-          break;
-        Value fillVal =
-            rewriter.create<arith::ConstantOp>(loc, fillValAttr.value());
-        // Create empty vectors as init values.
-        for (TensorType t : convertedResultTensorTypes) {
-          auto initOp = rewriter.create<tensor::EmptyOp>(loc, t.getShape(),
-                                                         t.getElementType());
-          auto fillOp =
-              rewriter.create<linalg::FillOp>(loc, fillVal, initOp.getResult());
-          initVals.push_back(fillOp.getResult(0));
+      if (mode.has_value()) {
+        // Deal single payload.
+        if (op.getNumResults() == 1) {
+          Operation *payloadOp =
+              triton::linalg_ext::findPayloadOp(&op.getCombineOp().front());
+          if (!payloadOp)
+            break;
+          std::optional<TypedAttr> fillValAttr =
+              arith::getNeutralElement(payloadOp);
+          // When the requirements are not met, go to the later general
+          // implementation.
+          if (!fillValAttr.has_value())
+            break;
+          Value initVal =
+              rewriter.create<arith::ConstantOp>(loc, fillValAttr.value());
+          // Create empty vectors as init values.
+          for (TensorType t : convertedResultTensorTypes) {
+            auto initOp = rewriter.create<tensor::EmptyOp>(loc, t.getShape(),
+                                                           t.getElementType());
+            Value fillInitValue =
+                rewriter
+                    .create<linalg::FillOp>(loc, initVal, initOp.getResult())
+                    .getResult(0);
+            initVals.push_back(fillInitValue);
+          }
+        } else if (mode == ReductionMode::ARGMAX ||
+                   mode == ReductionMode::ARGMIN) {
+          // Deal argmax/min op.
+          bool canGetInit = true;
+          for (auto initTy : convertedResultTensorTypes) {
+            auto initVal = getInitConstValue(*mode, initTy, loc, rewriter);
+            if (!initVal) {
+              canGetInit = false;
+              break;
+            }
+            auto initOp = rewriter.create<tensor::EmptyOp>(
+                loc, initTy.getShape(), initTy.getElementType());
+            Value fillInitVal =
+                rewriter
+                    .create<linalg::FillOp>(loc, initVal, initOp.getResult())
+                    .getResult(0);
+            initVals.push_back(fillInitVal);
+          }
+          if (!canGetInit) {
+            initVals.clear();
+            break;
+          }
         }
-
         // Create a linalg.reduce on the same input and move the combine region
         // there. (ReduceReturnOpConversion will take care of the terminator.)
         auto reduceOp = rewriter.create<linalg::ReduceOp>(
@@ -644,14 +700,12 @@ struct TritonReducePattern : public OpConversionPattern<triton::ReduceOp> {
         // Otherwise, the result has to be a scalar, so we need to extract the
         // scalar from the 0-ranked result tensor.
         SmallVector<Value> results;
-        Value scalar = rewriter.create<tensor::ExtractOp>(
-            loc,
-            SmallVector<Type>(convertedResultTensorTypes)
-                .begin()
-                ->dyn_cast<RankedTensorType>()
-                .getElementType(),
-            reduceOp->getResults()[0], /*indices=*/ValueRange{});
-        results.push_back(scalar);
+        for (auto [tensor, type] :
+             llvm::zip(reduceOp->getResults(), convertedResultTensorTypes)) {
+          Value scalar = rewriter.create<tensor::ExtractOp>(
+              loc, type.getElementType(), tensor, /*indices=*/ValueRange{});
+          results.push_back(scalar);
+        }
         rewriter.replaceOp(op, results);
 
         return success();

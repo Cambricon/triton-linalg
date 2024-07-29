@@ -11,15 +11,20 @@
 #include <assert.h>
 #include <stdint.h>
 
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/Linalg/IR/Linalg.h"
 #include "mlir/Dialect/Tensor/Utils/Utils.h"
 #include "mlir/Dialect/Utils/StaticValueUtils.h"
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Block.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
+#include "mlir/IR/OpDefinition.h"
 #include "mlir/IR/Operation.h"
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
+#include "mlir/Support/LLVM.h"
+#include "mlir/Support/LogicalResult.h"
 #include "triton-linalg/Dialect/LinalgExt/Utils/Utils.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallVector.h"
@@ -27,6 +32,12 @@
 #include "llvm/ADT/iterator.h"
 
 using namespace mlir;
+using namespace triton;
+
+namespace mlir {
+class Block;
+class Operation;
+} // namespace mlir
 
 Operation *triton::linalg_ext::findPayloadOp(Block *body, bool initFirst) {
   if (body->getOperations().size() != 2)
@@ -55,4 +66,170 @@ Operation *triton::linalg_ext::findPayloadOp(Block *body, bool initFirst) {
     }
   }
   return &payload;
+}
+
+/// Check whether the reduce op can convert to argmax/min operation.
+std::optional<ReductionMode>
+triton::matchArgMaxMinPattern(triton::ReduceOp op) {
+  // We're looking for an op that looks like this:
+  //
+  // %9:2 = "tt.reduce"(%8, %3) <{axis = 0 : i32}> ({
+  // ^bb0(%arg9: f32, %arg10: i32, %arg11: f32, %arg12: i32):
+  // -------------------------------------------------
+  //   %11 = arith.cmpf oeq, %arg9, %arg11 : f32
+  //   %12 = arith.cmpi slt, %arg10, %arg12 : i32
+  //   %13 = arith.andi %11, %12 : i1
+  // -------------------------------------------------
+  //   %14 = arith.cmpf ogt, %arg9, %arg11 : f32
+  // -------------------------------------------------
+  //   %15 = arith.ori %14, %13 : i1
+  // -------------------------------------------------
+  //   %16 = arith.select %15, %arg9, %arg11 : f32
+  //   %17 = arith.select %15, %arg10, %arg12 : i32
+  //   tt.reduce.return %16, %17 : f32, i32
+  // }) : (tensor<4096xf32>, tensor<4096xi32>) -> (f32, i32)
+  if (op.getBody()->getNumArguments() != 4) {
+    return std::nullopt;
+  }
+
+  Block *block = &op.getRegion().front();
+  Operation &lastOp = block->getOperations().back();
+
+  //   %15 = arith.ori %14, %13 : i1
+  //   %16 = arith.select %15, %arg9, %arg11 : f32
+  //   linalg.yield %16, %17 : f32, i32
+  SmallVector<Operation *> lineOut0;
+  SmallVector<int> inputIndex0 = {0, 0};
+  Operation *result0 =
+      UpstreamMatcher<triton::ReduceReturnOp, arith::SelectOp,
+                      arith::OrIOp>::matchLine(lineOut0, &lastOp, inputIndex0,
+                                               inputIndex0.size(), false);
+  if (result0 == nullptr) {
+    return std::nullopt;
+  }
+
+  //   %15 = arith.ori %14, %13 : i1
+  //   %17 = arith.select %15, %arg10, %arg12 : i32
+  //   linalg.yield %16, %17 : f32, i32
+  SmallVector<Operation *> lineOut1;
+  SmallVector<int> inputIndex1 = {1, 0};
+  Operation *result1 =
+      UpstreamMatcher<triton::ReduceReturnOp, arith::SelectOp,
+                      arith::OrIOp>::matchLine(lineOut1, &lastOp, inputIndex1,
+                                               inputIndex1.size(), false);
+  if (result1 == nullptr || lineOut1[2] != lineOut0[2]) {
+    return std::nullopt;
+  }
+
+  auto oriOp = lineOut0[2];
+  //   %14 = arith.cmpf ogt, %arg9, %arg11 : f32
+  //   %15 = arith.ori %14, %13 : i1
+  SmallVector<Operation *> lineOut2;
+  SmallVector<int> inputIndex2 = {0};
+  Operation *result2 = UpstreamMatcher<arith::OrIOp, arith::CmpFOp>::matchLine(
+      lineOut2, oriOp, inputIndex2, inputIndex2.size(), false);
+  if (result2 == nullptr) {
+    return std::nullopt;
+  }
+
+  //   %13 = arith.andi %11, %12 : i1
+  //   %15 = arith.ori %14, %13 : i1
+  SmallVector<Operation *> lineOut3;
+  SmallVector<int> inputIndex3 = {1};
+  Operation *result3 = UpstreamMatcher<arith::OrIOp, arith::AndIOp>::matchLine(
+      lineOut3, oriOp, inputIndex3, inputIndex3.size(), false);
+  if (result3 == nullptr) {
+    return std::nullopt;
+  }
+
+  auto andiOp = lineOut3[1];
+  //   %11 = arith.cmpf oeq, %arg9, %arg11 : f32
+  //   %13 = arith.andi %11, %12 : i1
+  SmallVector<Operation *> lineOut4;
+  SmallVector<int> inputIndex4 = {0};
+  Operation *result4 = UpstreamMatcher<arith::AndIOp, arith::CmpFOp>::matchLine(
+      lineOut4, andiOp, inputIndex4, inputIndex4.size(), false);
+  if (result4 == nullptr ||
+      dyn_cast<arith::CmpFOp>(lineOut4[1]).getPredicate() !=
+          arith::CmpFPredicate::OEQ) {
+    return std::nullopt;
+  }
+
+  //   %12 = arith.cmpi slt, %arg10, %arg12 : i32
+  //   %13 = arith.andi %11, %12 : i1
+  SmallVector<Operation *> lineOut5;
+  SmallVector<int> inputIndex5 = {1};
+  Operation *result5 = UpstreamMatcher<arith::AndIOp, arith::CmpIOp>::matchLine(
+      lineOut5, andiOp, inputIndex5, inputIndex5.size(), false);
+  if (result5 == nullptr ||
+      dyn_cast<arith::CmpIOp>(lineOut5[1]).getPredicate() !=
+          arith::CmpIPredicate::slt) {
+    return std::nullopt;
+  }
+
+  auto cmpfOp = dyn_cast<arith::CmpFOp>(lineOut2[1]);
+  if (cmpfOp.getPredicate() == arith::CmpFPredicate::OGT) {
+    return ReductionMode::ARGMAX;
+  } else if (cmpfOp.getPredicate() == arith::CmpFPredicate::OLT) {
+    return ReductionMode::ARGMIN;
+  }
+
+  return std::nullopt;
+}
+
+/// Check whether the reduce op is supported and get the reduction mode
+/// if supported.
+std::optional<ReductionMode> triton::getReductionMode(triton::ReduceOp op) {
+  if (isSingleStatementReduceOpWithType<arith::AddFOp, triton::ReduceOp>(op) ||
+      isSingleStatementReduceOpWithType<arith::AddIOp, triton::ReduceOp>(op))
+    return ReductionMode::SUM;
+
+  if (isSingleStatementReduceOpWithType<arith::MaxNumFOp, triton::ReduceOp>(
+          op) ||
+      isSingleStatementReduceOpWithType<arith::MaximumFOp, triton::ReduceOp>(
+          op) ||
+      isSingleStatementReduceOpWithType<arith::MaxSIOp, triton::ReduceOp>(op))
+    return ReductionMode::MAX;
+
+  if (isSingleStatementReduceOpWithType<arith::MaxUIOp, triton::ReduceOp>(op))
+    return ReductionMode::UMAX;
+
+  if (isSingleStatementReduceOpWithType<arith::MinNumFOp, triton::ReduceOp>(
+          op) ||
+      isSingleStatementReduceOpWithType<arith::MinimumFOp, triton::ReduceOp>(
+          op) ||
+      isSingleStatementReduceOpWithType<arith::MinSIOp, triton::ReduceOp>(op))
+    return ReductionMode::MIN;
+
+  if (isSingleStatementReduceOpWithType<arith::MinUIOp, triton::ReduceOp>(op))
+    return ReductionMode::UMIN;
+
+  if (isSingleStatementReduceOpWithType<arith::MulFOp, triton::ReduceOp>(op))
+    return ReductionMode::PROD;
+
+  if (isSingleStatementReduceOpWithType<arith::AndIOp, triton::ReduceOp>(op))
+    return ReductionMode::AND;
+
+  if (isSingleStatementReduceOpWithType<arith::OrIOp, triton::ReduceOp>(op))
+    return ReductionMode::OR;
+
+  if (isSingleStatementReduceOpWithType<arith::XOrIOp, triton::ReduceOp>(op))
+    return ReductionMode::XOR;
+  // Unsupport reduce op mode.
+  return std::nullopt;
+}
+
+/// Identify the pattern of the reduce operator.
+std::optional<ReductionMode>
+triton::reducePatternRecognition(triton::ReduceOp op) {
+  auto mode = getReductionMode(op);
+  if (mode.has_value()) {
+    return mode;
+  }
+  mode = matchArgMaxMinPattern(op);
+  if (mode.has_value()) {
+    return mode;
+  }
+
+  return std::nullopt;
 }
