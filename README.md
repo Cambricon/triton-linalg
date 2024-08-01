@@ -17,7 +17,7 @@ demands more efficiently. For this purpose, the `triton-linalg` repository adher
 
 This repo now includes `triton` as a submodule and builds as an out-of-tree backend.
 
-To build this repo clone `triton-linalg` to a folder called `triton_linalg` (notice the **underscore**).
+To build this repo clone `triton-linalg` to a folder called `triton_linalg`.
 
 You need to set the `TRITON_PLUGIN_DIRS` environment variable to the location of your `triton-linalg` directory for `triton` to find it.
 
@@ -53,8 +53,10 @@ Linalg can be used as a stand-alone component to convert Triton dialect to the L
 Stand-alone example:
 
 ```
-triton-linalg-opt --convert-triton-to-linalg ${TRITON_LINALG_DIR}/test/Dialect/LinalgExt/ops.mlir
+triton-linalg-opt --triton-to-linalg ${TRITON_LINALG_DIR}/test/Dialect/LinalgExt/ops.mlir
 ```
+
+> We can not use --convert-triton-to-linalg, as it necessitates certain preprocessing passes prior to execution.
 
 ## Implementation details
 
