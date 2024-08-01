@@ -423,9 +423,14 @@ def AtomicCASOp : Op<LinalgExt_Dialect, "atomic_cas", [
                      ReifyRankedShapedTypeOpInterface]> {
   let summary = [{ LinalgExt atomic CAS operation for continuous buffer. }];
   let description = [{
-    AtomicCASOp has three inputs: input, cmp and val.
-    Compares cmp with input. if cmp == input, store val to input,
-    else store the original value of input to init.
+    AtomicCASOp has three inputs: ``input``, ``cmp`` and ``val``.
+
+    AtomicCASOp has one inits: ``init``.
+
+    Stores the original value of ``input`` to ``init``.
+
+    Compares ``cmp`` with ``input``. If ``input`` == ``cmp``, stores ``val`` to
+    ``input``, else keeps the value of ``input``.
   }];
 
   let arguments = (ins
@@ -491,11 +496,17 @@ def GatherAtomicCASOp : Op<LinalgExt_Dialect, "gather_atomic_cas", [
                            ReifyRankedShapedTypeOpInterface]> {
   let summary = [{ LinalgExt atomic CAS operation for discrete buffer. }];
   let description = [{
-    AtomicCASOp has four inputs: input, cmp, val and indice.
-    Compares cmp with input. if cmp == input, store val to input,
-    else store the original value of input to init.
-    Note that the input must point to discrete data, so we add extra
-    indice like ``GatherOp`` to deal with this situation.
+    GatherAtomicCASOp has four inputs: ``input``, ``cmp``, ``val`` and ``indice``.
+
+    GatherAtomicCASOp has one inits: ``init``.
+
+    Stores the original value of ``input`` to ``init``.
+
+    Compares ``cmp`` with ``input``. If ``input`` == ``cmp``, stores ``val``
+    to ``input``, else keeps the value of ``input``.
+
+    Note that the ``input`` must point to discrete data, so we add extra
+    ``indice`` like ``GatherOp`` to deal with this situation.
   }];
 
   let arguments = (ins
@@ -733,6 +744,7 @@ def PadOp : LinalgExtBase_Op<"pad", [AttrSizedOperandSegments]> {
 // Op definition for AssertOp
 //===----------------------------------------------------------------------===//
 def AssertOp : Op<LinalgExt_Dialect, "assert", [
+                  DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
                   DestinationStyleOpInterface,
                   LinalgExtInterface,
                   ReifyRankedShapedTypeOpInterface]> {

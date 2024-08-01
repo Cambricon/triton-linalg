@@ -111,6 +111,7 @@ static void buildIdentityRegion(OpBuilder &builder, Location loc,
                        b.create<Yield>(loc, args[0]);
                      });
 }
+
 // Helper function for getEffect impl from LinalgOps.cpp.
 static void getGenericEffectsImpl(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
@@ -120,15 +121,15 @@ static void getGenericEffectsImpl(
   for (auto operand : inputOperands) {
     if (!llvm::isa<MemRefType>(operand.getType()))
       continue;
-    effects.emplace_back(MemoryEffects::Read::get(), operand,
+    effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
   }
   for (auto operand : outputOperands) {
     if (!llvm::isa<MemRefType>(operand.getType()))
       continue;
-    effects.emplace_back(MemoryEffects::Read::get(), operand,
-                         SideEffects::DefaultResource::get());
-    effects.emplace_back(MemoryEffects::Write::get(), operand,
+    effects.emplace_back(MemoryEffects::Write::get(), operand, /*stage=*/1,
+                         /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
   }
 }
@@ -1346,8 +1347,27 @@ LogicalResult ScatterOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
 void ScatterOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  if (!hasPureBufferSemantics())
+    return;
+
+  if (mask()) {
+    effects.emplace_back(MemoryEffects::Read::get(), mask(), /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
+                         SideEffects::DefaultResource::get());
+    effects.emplace_back(MemoryEffects::Read::get(), update(), /*stage=*/0,
+                         /*effectOnFullRegion=*/false,
+                         SideEffects::DefaultResource::get());
+  } else {
+    effects.emplace_back(MemoryEffects::Read::get(), update(), /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
+                         SideEffects::DefaultResource::get());
+  }
+  effects.emplace_back(MemoryEffects::Read::get(), indice(), /*stage=*/0,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), getInit(), /*stage=*/1,
+                       /*effectOnFullRegion=*/false,
+                       SideEffects::DefaultResource::get());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1389,6 +1409,14 @@ void ScanOp::getEffects(
         &effects) {
   getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
                         getDpsInits());
+
+  for (auto operand : getDpsInits()) {
+    if (!llvm::isa<MemRefType>(operand.getType()))
+      continue;
+    effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
+                         SideEffects::DefaultResource::get());
+  }
 }
 
 LogicalResult ScanOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
@@ -1636,8 +1664,27 @@ LogicalResult GatherOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
 void GatherOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+  if (!hasPureBufferSemantics())
+    return;
+
+  effects.emplace_back(MemoryEffects::Read::get(), input(), /*stage=*/0,
+                       /*effectOnFullRegion=*/false,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), indice(), /*stage=*/0,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
+  if (mask()) {
+    effects.emplace_back(MemoryEffects::Read::get(), mask(), /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
+                         SideEffects::DefaultResource::get());
+    effects.emplace_back(MemoryEffects::Write::get(), getInit(), /*stage=*/1,
+                         /*effectOnFullRegion=*/false,
+                         SideEffects::DefaultResource::get());
+  } else {
+    effects.emplace_back(MemoryEffects::Write::get(), getInit(), /*stage=*/1,
+                         /*effectOnFullRegion=*/true,
+                         SideEffects::DefaultResource::get());
+  }
 }
 
 //===----------------------------------------------------------------------===//
@@ -1671,20 +1718,28 @@ LogicalResult AtomicRMWOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
 void AtomicRMWOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  for (auto *operand : getDpsInputOperands()) {
-    if (!operand->get().getType().isa<MemRefType>())
-      continue;
-    effects.emplace_back(MemoryEffects::Read::get(), operand->get(),
+  // FIXME: When atomic ops support memref input, we should remove the effects
+  // of tensor.
+  if (!hasPureBufferSemantics()) {
+    effects.emplace_back(MemoryEffects::Read::get(), src(),
                          SideEffects::DefaultResource::get());
-  }
-  effects.emplace_back(MemoryEffects::Read::get(), src(),
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), src(),
-                       SideEffects::DefaultResource::get());
-  if (dst().getType().isa<MemRefType>()) {
-    effects.emplace_back(MemoryEffects::Write::get(), dst(),
+    effects.emplace_back(MemoryEffects::Write::get(), src(),
                          SideEffects::DefaultResource::get());
+    return;
   }
+
+  effects.emplace_back(MemoryEffects::Read::get(), input(), /*stage=*/0,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), src(), /*stage=*/0,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), src(), /*stage=*/1,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), dst(), /*stage=*/1,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1726,18 +1781,47 @@ LogicalResult GatherAtomicRMWOp::fold(FoldAdaptor,
 void GatherAtomicRMWOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  for (auto *operand : getDpsInputOperands()) {
-    if (!operand->get().getType().isa<MemRefType>())
-      continue;
-    effects.emplace_back(MemoryEffects::Read::get(), operand->get(),
+  // FIXME: When atomic ops support memref input, we should remove the effects
+  // of tensor.
+  if (!hasPureBufferSemantics()) {
+    effects.emplace_back(MemoryEffects::Read::get(), src(),
                          SideEffects::DefaultResource::get());
+    effects.emplace_back(MemoryEffects::Write::get(), src(),
+                         SideEffects::DefaultResource::get());
+    return;
   }
-  effects.emplace_back(MemoryEffects::Read::get(), src(),
+
+  effects.emplace_back(MemoryEffects::Read::get(), indice(), /*stage=*/0,
+                       /*effectOnFullRegion=*/true,
                        SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), src(),
-                       SideEffects::DefaultResource::get());
-  if (window().getType().isa<MemRefType>()) {
-    effects.emplace_back(MemoryEffects::Write::get(), window(),
+  if (mask()) {
+    effects.emplace_back(MemoryEffects::Read::get(), mask(), /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
+                         SideEffects::DefaultResource::get());
+    effects.emplace_back(MemoryEffects::Read::get(), input(), /*stage=*/0,
+                         /*effectOnFullRegion=*/false,
+                         SideEffects::DefaultResource::get());
+    effects.emplace_back(MemoryEffects::Read::get(), src(), /*stage=*/0,
+                         /*effectOnFullRegion=*/false,
+                         SideEffects::DefaultResource::get());
+    effects.emplace_back(MemoryEffects::Write::get(), src(), /*stage=*/1,
+                         /*effectOnFullRegion=*/false,
+                         SideEffects::DefaultResource::get());
+    effects.emplace_back(MemoryEffects::Write::get(), window(), /*stage=*/1,
+                         /*effectOnFullRegion=*/false,
+                         SideEffects::DefaultResource::get());
+  } else {
+    effects.emplace_back(MemoryEffects::Read::get(), input(), /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
+                         SideEffects::DefaultResource::get());
+    effects.emplace_back(MemoryEffects::Read::get(), src(), /*stage=*/0,
+                         /*effectOnFullRegion=*/true,
+                         SideEffects::DefaultResource::get());
+    effects.emplace_back(MemoryEffects::Write::get(), src(), /*stage=*/1,
+                         /*effectOnFullRegion=*/true,
+                         SideEffects::DefaultResource::get());
+    effects.emplace_back(MemoryEffects::Write::get(), window(), /*stage=*/1,
+                         /*effectOnFullRegion=*/true,
                          SideEffects::DefaultResource::get());
   }
 }
@@ -1752,14 +1836,31 @@ LogicalResult AtomicCASOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
 void AtomicCASOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
+  // FIXME: When atomic ops support memref input, we should remove the effects
+  // of tensor.
   if (!hasPureBufferSemantics()) {
     effects.emplace_back(MemoryEffects::Read::get(), input(),
                          SideEffects::DefaultResource::get());
     effects.emplace_back(MemoryEffects::Write::get(), input(),
                          SideEffects::DefaultResource::get());
+    return;
   }
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+
+  effects.emplace_back(MemoryEffects::Read::get(), input(), /*stage=*/0,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), input(), /*stage=*/1,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), cmp(), /*stage=*/0,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), val(), /*stage=*/0,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), getInit(), /*stage=*/1,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
 }
 
 //===----------------------------------------------------------------------===//
@@ -1773,14 +1874,34 @@ LogicalResult GatherAtomicCASOp::fold(FoldAdaptor,
 void GatherAtomicCASOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
+  // FIXME: When atomic ops support memref input, we should remove the effects
+  // of tensor.
   if (!hasPureBufferSemantics()) {
     effects.emplace_back(MemoryEffects::Read::get(), input(),
                          SideEffects::DefaultResource::get());
     effects.emplace_back(MemoryEffects::Write::get(), input(),
                          SideEffects::DefaultResource::get());
+    return;
   }
-  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
-                        getDpsInits());
+
+  effects.emplace_back(MemoryEffects::Read::get(), input(), /*stage=*/0,
+                       /*effectOnFullRegion=*/false,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), input(), /*stage=*/1,
+                       /*effectOnFullRegion=*/false,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), cmp(), /*stage=*/0,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), val(), /*stage=*/0,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Read::get(), indice(), /*stage=*/0,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), getInit(), /*stage=*/1,
+                       /*effectOnFullRegion=*/true,
+                       SideEffects::DefaultResource::get());
 }
 
 //===----------------------------------------------------------------------===//
@@ -2484,6 +2605,25 @@ LogicalResult PadOp::verify() {
 }
 
 //===----------------------------------------------------------------------===//
+// Implementation of AssertOp
+//===----------------------------------------------------------------------===//
+void AssertOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(MemoryEffects::Write::get(), /*stage=*/1,
+                       /*effectOnFullRegion=*/false,
+                       SideEffects::DefaultResource::get());
+
+  for (auto operand : getDpsInputs()) {
+    if (!llvm::isa<MemRefType>(operand.getType()))
+      continue;
+    effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
+                         /*effectOnFullRegion=*/false,
+                         SideEffects::DefaultResource::get());
+  }
+}
+
+//===----------------------------------------------------------------------===//
 // Implementation of HistogramOp
 //===----------------------------------------------------------------------===//
 
@@ -2527,9 +2667,8 @@ LogicalResult HistogramOp::verify() {
 void ScalarAssertOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
-  effects.emplace_back(MemoryEffects::Read::get(), 0, false,
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), 0, false,
+  effects.emplace_back(MemoryEffects::Write::get(), /*stage=*/1,
+                       /*effectOnFullRegion=*/false,
                        SideEffects::DefaultResource::get());
 }
 
