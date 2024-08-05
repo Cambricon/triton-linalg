@@ -2137,6 +2137,18 @@ LogicalResult HistogramOp::verify() {
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// ScalarAssertOp
+//===----------------------------------------------------------------------===//
+void ScalarAssertOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  effects.emplace_back(MemoryEffects::Read::get(), 0, false,
+                       SideEffects::DefaultResource::get());
+  effects.emplace_back(MemoryEffects::Write::get(), 0, false,
+                       SideEffects::DefaultResource::get());
+}
+
 /////// Operations corresponding to library calls defined with Tablegen ////////
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtNamedStructuredOps.yamlgen.cpp.inc"
 

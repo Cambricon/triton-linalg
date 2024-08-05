@@ -32,6 +32,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
 #include "triton-linalg/Dialect/Triton/Transforms/PassDetail.h" // IWYU pragma: keep
 #include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
 #include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
@@ -50,6 +51,7 @@
 #include "llvm/ADT/iterator.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Casting.h"
+#include "llvm/Support/FormatVariadic.h"
 
 using namespace mlir;
 using namespace triton;
@@ -511,9 +513,58 @@ class CanonicalizeTtMaskAccessPattern : public OpRewritePattern<OpTy> {
   }
 };
 
+class CanonicalizeTtAssertPattern : public OpRewritePattern<triton::AssertOp> {
+public:
+  explicit CanonicalizeTtAssertPattern(MLIRContext *ctx)
+      : OpRewritePattern<triton::AssertOp>(ctx) {}
+
+  LogicalResult matchAndRewrite(triton::AssertOp op,
+                                PatternRewriter &rewriter) const override {
+    auto condVal = op.getCondition();
+    auto valType = condVal.getType();
+    auto rank = valType.getRank();
+    auto assertMessage =
+        llvm::formatv("{0}:{1}: {2} Assertion `{3}` failed", op.getFile(),
+                      op.getLine(), op.getFunc(), op.getMessage());
+    assert(valType.getElementType().isa<mlir::IntegerType>() &&
+           "Only support int tensor for assert");
+    // If the AssertOp input shape dimension is 1 or 0 dimension and the 0th
+    // dimension is 1, it is converted to ScalarAssertOp.
+    if ((rank != 1 && rank != 0) || (rank > 0 && valType.getShape()[0] != 1)) {
+      return failure();
+    }
+    auto rankType = valType.cast<RankedTensorType>();
+    auto elemType = rankType.getElementType();
+    Value zeroIndex = rewriter.create<arith::ConstantIndexOp>(op.getLoc(), 0);
+    Value cond;
+    if (rank == 0) {
+      cond =
+          rewriter.create<tensor::ExtractOp>(op.getLoc(), condVal).getResult();
+    } else {
+      cond = rewriter.create<tensor::ExtractOp>(op.getLoc(), condVal, zeroIndex)
+                 .getResult();
+    }
+    // If the input data type is not i1, cast it to i1.
+    if (!elemType.isInteger(1)) {
+      Value zero = rewriter.create<arith::ConstantOp>(
+          op.getLoc(), rewriter.getIntegerAttr(elemType, 0));
+      cond = rewriter.create<arith::CmpIOp>(
+          op.getLoc(), arith::CmpIPredicate::ne, cond, zero);
+    }
+    rewriter.create<triton::linalg_ext::ScalarAssertOp>(op.getLoc(), cond,
+                                                        assertMessage.str());
+    rewriter.eraseOp(op);
+    return success();
+  }
+};
+
 struct CanonicalizeTritonPass
     : public CanonicalizeTritonBase<CanonicalizeTritonPass> {
 
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<triton::linalg_ext::LinalgExtDialect, tensor::TensorDialect,
+                    scf::SCFDialect, arith::ArithDialect>();
+  }
   void runOnOperation() override {
     MLIRContext &ctx = getContext();
     // Canonicalize mask-related ops and its connection.
@@ -530,7 +581,8 @@ struct CanonicalizeTritonPass
     patterns.insert<CanonicalizeTtBroadCastPattern, CanonicalizeTtLoadPattern,
                     CanonicalizeTtMaskAccessPattern<triton::LoadOp>,
                     CanonicalizeTtMaskAccessPattern<triton::StoreOp>,
-                    CanonicalizeTtMaskAccessPattern<triton::AtomicRMWOp>>(&ctx);
+                    CanonicalizeTtMaskAccessPattern<triton::AtomicRMWOp>,
+                    CanonicalizeTtAssertPattern>(&ctx);
 
     if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                             std::move(patterns)))) {

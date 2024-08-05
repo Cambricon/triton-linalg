@@ -777,6 +777,26 @@ def AssertOp : Op<LinalgExt_Dialect, "assert", [
 }
 
 //===----------------------------------------------------------------------===//
+// Op definition for ScalarAssertOp
+//===----------------------------------------------------------------------===//
+def ScalarAssertOp : Op<LinalgExt_Dialect, "scalar_assert", [DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "linalg scalar assert operation";
+  let description = [{
+    `linalg_ext.scalar_assert` takes a condition scalar, a message string.
+    If the condition is false, the message is printed, and the program is aborted.
+  }];
+
+  let arguments = (ins
+    I1:$condition,
+    StrAttr:$msg
+  );
+
+  let assemblyFormat = [{
+    attr-dict `ins` `(` $condition `:` type($condition) `)`
+  }];
+}
+
+//===----------------------------------------------------------------------===//
 // Scan Op.
 //===----------------------------------------------------------------------===//
 def ScanOp : LinalgExtBase_Op<"scan", [

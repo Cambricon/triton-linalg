@@ -1122,13 +1122,13 @@ public:
     auto assertMessage =
         llvm::formatv("{0}:{1}: {2} Assertion `{3}` failed", op.getFile(),
                       op.getLine(), op.getFunc(), op.getMessage());
-    auto resultTy = valType.cast<RankedTensorType>();
+    auto rankType = valType.cast<RankedTensorType>();
 
     // Only supports int type.
-    assert(resultTy.getElementType().isa<mlir::IntegerType>() &&
+    assert(rankType.getElementType().isa<mlir::IntegerType>() &&
            "Only support int tensor for assert");
 
-    rewriter.create<triton::linalg_ext::AssertOp>(op.getLoc(), resultTy,
+    rewriter.create<triton::linalg_ext::AssertOp>(op.getLoc(), rankType,
                                                   condVal, assertMessage.str());
 
     rewriter.eraseOp(op);
