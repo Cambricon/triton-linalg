@@ -601,7 +601,8 @@ TritonTensorPtrLoadStoreOpConversionBase::getPtrInfo(
       }));
   SmallVector<OpFoldResult> offsets(tracker.getOffsets().begin(),
                                     tracker.getOffsets().end());
-  SmallVector<OpFoldResult> padLeftSizes = offsets;
+  SmallVector<OpFoldResult> padLeftSizes(tensorShape.size(),
+                                         rewriter.getIndexAttr(0));
   if (boundaryCheck) {
     for (auto i : boundaryCheck.value()) {
       auto originOffset = tracker.getOffsets()[i];
