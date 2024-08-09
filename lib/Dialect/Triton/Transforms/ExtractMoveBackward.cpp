@@ -30,6 +30,7 @@
 #include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Dialect.h"
+#include "mlir/IR/Dominance.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/OpDefinition.h"
@@ -233,7 +234,8 @@ static Value reshapeToResultTypeByDropUnitDims(OpBuilder &b, Location loc,
     reassociation.front().insert(reassociation.front().begin(),
                                  leadingInconsistentDims.begin(),
                                  leadingInconsistentDims.end());
-
+  OpBuilder::InsertionGuard guard(b);
+  b.setInsertionPointAfterValue(value);
   return b.create<tensor::CollapseShapeOp>(loc, value, reassociation);
 }
 
@@ -355,10 +357,73 @@ ExtractState::ExtractState(tensor::ExtractSliceOp op)
 
 } // anonymous namespace
 
+/// Get the insertion point by analysing values that will be used.
+static OpBuilder::InsertPoint getInsertionPoint(ArrayRef<Value> values,
+                                                ExtractState &state,
+                                                PatternRewriter &rewriter) {
+  // Collect all related values.
+  SmallVector<OpFoldResult> opFoldResults;
+  opFoldResults.append(state.offsets);
+  opFoldResults.append(state.sizes);
+  opFoldResults.append(state.strides);
+  std::pair<ArrayAttr, SmallVector<Value>> attrOrVals =
+      decomposeMixedValues(rewriter, opFoldResults);
+  SmallVector<Value> dependentVals = attrOrVals.second;
+  dependentVals.append(SmallVector<Value>(values));
+
+  // Create current func op dominance info.
+  auto funcOp = dependentVals.front()
+                    .getParentRegion()
+                    ->getParentOfType<FunctionOpInterface>();
+  DominanceInfo domInfo(funcOp);
+  // Divide values by different blocks.
+  DenseMap<Block *, SmallVector<Value>> blockVals;
+  for (auto val : dependentVals) {
+    Block *block = val.getParentBlock();
+    if (blockVals.count(block)) {
+      blockVals[block].emplace_back(val);
+    } else {
+      blockVals.insert({block, SmallVector<Value>{val}});
+    }
+  }
+  // Find the innermost block according to dominance info. Note: here all
+  // related values will be used to create operations, so their defining block
+  // is locating at the same branch of dominance tree. Global variable is not
+  // considered.
+  Block *innerBlock = blockVals.begin()->first;
+  for (auto &[key, value] : blockVals) {
+    if (domInfo.dominates(innerBlock, key)) {
+      innerBlock = key;
+    }
+  }
+  // Find the last value in the innermost block.
+  SmallVector<Value> innerVals = blockVals[innerBlock];
+  SmallVector<Operation *> ops;
+  SmallVector<Value> args;
+  for (auto val : innerVals) {
+    auto op = val.getDefiningOp();
+    if (op) {
+      ops.emplace_back(op);
+    } else {
+      args.emplace_back(val);
+    }
+  }
+  // If op exists, find the last one as the insertion point.
+  if (!ops.empty()) {
+    llvm::sort(
+        ops, [](Operation *a, Operation *b) { return a->isBeforeInBlock(b); });
+    return OpBuilder::InsertPoint(innerBlock, ++Block::iterator(ops.back()));
+  }
+  // Otherwise, return one argument as the insertion point.
+  return OpBuilder::InsertPoint(
+      innerBlock, llvm::cast<BlockArgument>(args.front()).getOwner()->begin());
+}
+
 static void getExtractedValueFrom(Value value, ExtractState &state,
                                   Location loc, PatternRewriter &rewriter) {
   if (state.extractedVal)
     return;
+  rewriter.restoreInsertionPoint(getInsertionPoint({value}, state, rewriter));
   // Get value by tensor.extract.
   if (state.type == ExtractType::EXTRACT) {
     state.extractedVal = rewriter.create<tensor::ExtractOp>(
@@ -481,6 +546,10 @@ void ExtractAnalysis::visitOperandFromOp(linalg::MapOp op, ExtractState &state,
   // Retrieve extracted operands.
   SmallVector<Value> foldOperands(llvm::map_range(
       operandStates, [](const ExtractState &s) { return s.extractedVal; }));
+
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.restoreInsertionPoint(
+      getInsertionPoint(foldOperands, state, rewriter));
   if (state.type == ExtractType::EXTRACT) {
     // Map operands to extracted operands.
     IRMapping bvm;
@@ -516,6 +585,9 @@ template <>
 void ExtractAnalysis::visitOperandFromOp(linalg::FillOp op, ExtractState &state,
                                          Location loc,
                                          PatternRewriter &rewriter) {
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.restoreInsertionPoint(
+      getInsertionPoint({op.getResult(0)}, state, rewriter));
   if (state.type == ExtractType::EXTRACT) {
     state.extractedVal = op.getOperand(0);
     return;
@@ -534,6 +606,9 @@ void ExtractAnalysis::visitOperandFromOp(linalg_ext::MakeRangeOp op,
                                          PatternRewriter &rewriter) {
   assert(state.offsets.size() == 1 &&
          "Offset size must be 1 for make_range op.");
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.restoreInsertionPoint(
+      getInsertionPoint({op.getResult(0)}, state, rewriter));
   if (state.type == ExtractType::EXTRACT) {
     Value offset = rewriter.create<arith::IndexCastOp>(
         loc, op.getStart().getType(),
@@ -575,6 +650,9 @@ void ExtractAnalysis::visitOperandFromOp(linalg::BroadcastOp op,
 
   visitOperand(op.getInput(), operandState, op, loc, rewriter);
 
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.restoreInsertionPoint(
+      getInsertionPoint({operandState.extractedVal}, state, rewriter));
   if (state.type == ExtractType::EXTRACT)
     state.extractedVal = operandState.extractedVal;
   else {
@@ -591,6 +669,9 @@ void ExtractAnalysis::visitOperandFromOp(linalg::BroadcastOp op,
 static void extractFromCollapseShapeOp(tensor::CollapseShapeOp op,
                                        ExtractState &state, Location loc,
                                        PatternRewriter &rewriter) {
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.restoreInsertionPoint(
+      getInsertionPoint({op->getResult(0)}, state, rewriter));
   Value collapseSrc = op.getSrc();
   auto reassociationIndices = op.getReassociationIndices();
   int64_t resRank = op.getResultType().getRank();
@@ -634,6 +715,9 @@ static void extractFromCollapseShapeOp(tensor::CollapseShapeOp op,
 static void extractSliceFromCollapseShapeOp(tensor::CollapseShapeOp op,
                                             ExtractState &state, Location loc,
                                             PatternRewriter &rewriter) {
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.restoreInsertionPoint(
+      getInsertionPoint({op->getResult(0)}, state, rewriter));
   Value collapseSrc = op.getSrc();
   Value collapseDst = op.getResult();
   auto reassociationIndices = op.getReassociationIndices();
@@ -677,7 +761,6 @@ static void extractSliceFromCollapseShapeOp(tensor::CollapseShapeOp op,
     getExtractedValueFrom(collapseDst, state, loc, rewriter);
     return;
   }
-
   // If the reassociation is empty, the operand state is constructed based on
   // the rank of source.
   int64_t srcRank = op.getSrcType().getRank();
@@ -691,6 +774,7 @@ static void extractSliceFromCollapseShapeOp(tensor::CollapseShapeOp op,
   auto resultTy = tensor::ExtractSliceOp::inferResultType(
       srcTy, state.offsets, state.sizes, state.strides);
   ExtractAnalysis::visitOperand(collapseSrc, operandState, op, loc, rewriter);
+  rewriter.setInsertionPointAfterValue(operandState.extractedVal);
   state.extractedVal = rewriter.create<tensor::CollapseShapeOp>(
       loc, resultTy, operandState.extractedVal, reassociationIndices);
 }
@@ -708,6 +792,9 @@ void ExtractAnalysis::visitOperandFromOp(tensor::CollapseShapeOp op,
 static void extractFromExpandShapeOp(tensor::ExpandShapeOp op,
                                      ExtractState &state, Location loc,
                                      PatternRewriter &rewriter) {
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.restoreInsertionPoint(
+      getInsertionPoint({op->getResult(0)}, state, rewriter));
   Value expandSrc = op.getSrc();
   Value expandDst = op.getResult();
   int64_t srcRank = op.getSrcType().getRank();
@@ -735,7 +822,6 @@ static void extractFromExpandShapeOp(tensor::ExpandShapeOp op,
     }
     dstDimIdx += reassociationIndices[srcDimIdx].size();
   }
-
   ExtractAnalysis::visitOperand(expandSrc, operandState, op, loc, rewriter);
   state.extractedVal = operandState.extractedVal;
 }
@@ -748,6 +834,9 @@ static void extractFromExpandShapeOp(tensor::ExpandShapeOp op,
 static void extractSliceFromExpandShapeOp(tensor::ExpandShapeOp op,
                                           ExtractState &state, Location loc,
                                           PatternRewriter &rewriter) {
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.restoreInsertionPoint(
+      getInsertionPoint({op->getResult(0)}, state, rewriter));
   Value expandSrc = op.getSrc();
   Value expandDst = op.getResult();
   int64_t srcRank = op.getSrcType().getRank();
@@ -805,11 +894,11 @@ static void extractSliceFromExpandShapeOp(tensor::ExpandShapeOp op,
     getExtractedValueFrom(expandDst, state, loc, rewriter);
     return;
   }
-
   auto srcTy = op.getResultType().cast<RankedTensorType>();
   auto resultTy = tensor::ExtractSliceOp::inferResultType(
       srcTy, state.offsets, state.sizes, state.strides);
   ExtractAnalysis::visitOperand(expandSrc, operandState, op, loc, rewriter);
+  rewriter.setInsertionPointAfterValue(operandState.extractedVal);
   state.extractedVal = rewriter.create<tensor::ExpandShapeOp>(
       loc, resultTy, operandState.extractedVal, reassociationIndices);
 }
@@ -840,6 +929,10 @@ void ExtractAnalysis::visitOperandFromOp(Operation *op, ExtractState &state,
     visitOperand(v, operandState, op, loc, rewriter);
     operandStates.push_back(operandState);
   }
+
+  OpBuilder::InsertionGuard guard(rewriter);
+  rewriter.restoreInsertionPoint(
+      getInsertionPoint({op->getResult(0)}, state, rewriter));
 
   SmallVector<Value> foldOperands(llvm::map_range(
       operandStates, [](const ExtractState &s) { return s.extractedVal; }));
@@ -906,10 +999,6 @@ LogicalResult ExtractAnalysis::rewriteExtractLikeOp(OpTy op,
   if constexpr (std::is_same_v<OpTy, tensor::ExtractSliceOp>)
     if (!isOutputRankReduced(op))
       return failure();
-
-  OpBuilder::InsertionGuard guard(rewriter);
-  // Any inserted instruction should be before this extract operation.
-  rewriter.setInsertionPoint(op);
 
   // Set as the flag for the original tensor.extract operation.
   ExtractState state{op};
