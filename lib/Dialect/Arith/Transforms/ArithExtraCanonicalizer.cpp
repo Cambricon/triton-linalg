@@ -31,6 +31,7 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "triton-linalg/Dialect/Arith/Transforms/Passes.h"
+#include "triton-linalg/Dialect/ArithExt/IR/ArithExt.h"
 #include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -228,7 +229,9 @@ struct ArithCanonicalizerPass
     : public arith_ext::ArithCanonicalizerBase<ArithCanonicalizerPass> {
   ArithCanonicalizerPass() = default;
   ArithCanonicalizerPass(const ArithCanonicalizerPass &) = default;
-
+  void getDependentDialects(DialectRegistry &registry) const override {
+    registry.insert<arith_ext::ArithExtDialect>();
+  }
   void runOnOperation() override {
     Operation *op = getOperation();
     auto *ctx = op->getContext();
@@ -236,8 +239,8 @@ struct ArithCanonicalizerPass
     patterns.add<ScalarDivToMul, CanonicalizeCmpSelectToMinMax,
                  CanonicalizeArithI1Pattern<arith::MulIOp, arith::AndIOp>,
                  CanonicalizeArithI1Pattern<arith::AddIOp, arith::XOrIOp>,
-                 CanonicalizeNanStatement<arith::MaximumFOp>,
-                 CanonicalizeNanStatement<arith::MinimumFOp>>(
+                 CanonicalizeNanStatement<arith_ext::MaxFirstFOp>,
+                 CanonicalizeNanStatement<arith_ext::MinFirstFOp>>(
         patterns.getContext());
     if (failed(applyPatternsAndFoldGreedily(op, std::move(patterns))))
       return signalPassFailure();

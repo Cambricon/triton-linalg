@@ -24,7 +24,7 @@
 #include "triton-linalg/Conversion/MathToLinalg/MathToLinalg.h"
 #include "triton-linalg/Conversion/PassDetail.h"
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h" // IWYU pragma: keep
-#include "triton-linalg/Dialect/MathExt/IR/Math.h" // IWYU pragma: keep
+#include "triton-linalg/Dialect/MathExt/IR/MathExt.h" // IWYU pragma: keep
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/StringRef.h"
 

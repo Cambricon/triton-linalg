@@ -15,6 +15,7 @@
 #include "mlir/IR/Types.h"
 #include "mlir/IR/Value.h"
 #include "mlir/Support/LLVM.h"
+#include "triton-linalg/Dialect/ArithExt/IR/ArithExt.h"
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/StringRef.h"
@@ -112,17 +113,25 @@ mlir::triton::getCmpSelectResult(OpBuilder &builder, Location loc,
   auto rhs = op.getRhs();
   switch (predicate) {
   case arith::CmpFPredicate::OGT:
-  case arith::CmpFPredicate::UGT:
   case arith::CmpFPredicate::OGE:
+    return operandsSwapped
+               ? builder.create<arith_ext::MinFirstFOp>(loc, lhs, rhs)
+               : builder.create<arith_ext::MaxFirstFOp>(loc, rhs, lhs);
+  case arith::CmpFPredicate::UGT:
   case arith::CmpFPredicate::UGE:
-    return operandsSwapped ? builder.create<arith::MinimumFOp>(loc, lhs, rhs)
-                           : builder.create<arith::MaximumFOp>(loc, lhs, rhs);
+    return operandsSwapped
+               ? builder.create<arith_ext::MinFirstFOp>(loc, rhs, lhs)
+               : builder.create<arith_ext::MaxFirstFOp>(loc, lhs, rhs);
   case arith::CmpFPredicate::OLT:
-  case arith::CmpFPredicate::ULT:
   case arith::CmpFPredicate::OLE:
+    return operandsSwapped
+               ? builder.create<arith_ext::MaxFirstFOp>(loc, lhs, rhs)
+               : builder.create<arith_ext::MinFirstFOp>(loc, rhs, lhs);
+  case arith::CmpFPredicate::ULT:
   case arith::CmpFPredicate::ULE:
-    return operandsSwapped ? builder.create<arith::MaximumFOp>(loc, lhs, rhs)
-                           : builder.create<arith::MinimumFOp>(loc, lhs, rhs);
+    return operandsSwapped
+               ? builder.create<arith_ext::MaxFirstFOp>(loc, rhs, lhs)
+               : builder.create<arith_ext::MinFirstFOp>(loc, lhs, rhs);
   default:
     return std::nullopt;
   }

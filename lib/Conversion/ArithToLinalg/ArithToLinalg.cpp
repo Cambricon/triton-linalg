@@ -31,6 +31,7 @@
 #include "triton-linalg/Conversion/ArithToLinalg/ArithToLinalg.h"
 #include "triton-linalg/Conversion/LinalgCommon/Pattern.h"
 #include "triton-linalg/Conversion/PassDetail.h"
+#include "triton-linalg/Dialect/ArithExt/IR/ArithExt.h"
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h" // IWYU pragma: keep
 #include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "triton-linalg/Dialect/Utils/ShapeUtils.h"
@@ -132,6 +133,8 @@ void mlir::triton::populateArithToLinalgPatterns(RewritePatternSet &patterns) {
       GenericOpPattern<arith::MaxUIOp>, GenericOpPattern<arith::MinimumFOp>,
       GenericOpPattern<arith::MinSIOp>, GenericOpPattern<arith::MinUIOp>,
       GenericOpPattern<arith::MaxNumFOp>, GenericOpPattern<arith::MinNumFOp>,
+      GenericOpPattern<arith_ext::MinFirstFOp>,
+      GenericOpPattern<arith_ext::MaxFirstFOp>,
       // Floating point ops.
       GenericOpPattern<arith::MulFOp>, GenericOpPattern<arith::DivFOp>,
       GenericOpPattern<arith::RemFOp>,
@@ -151,15 +154,16 @@ void mlir::triton::populateArithToLinalgPatterns(RewritePatternSet &patterns) {
 namespace {
 struct ArithToLinalgPass : public ArithToLinalgPassBase<ArithToLinalgPass> {
   ArithToLinalgPass() = default;
-
   void runOnOperation() override {
     MLIRContext &ctx = getContext();
     ConversionTarget target(ctx);
     target.addLegalDialect<linalg::LinalgDialect, linalg_ext::LinalgExtDialect,
                            tensor::TensorDialect>();
-    target.addDynamicallyLegalDialect<arith::ArithDialect>([&](Operation *op) {
-      return !op->getResultTypes().front().isa<ShapedType>();
-    });
+    target.addDynamicallyLegalDialect<arith::ArithDialect,
+                                      arith_ext::ArithExtDialect>(
+        [&](Operation *op) {
+          return !op->getResultTypes().front().isa<ShapedType>();
+        });
     // Setup conversion patterns.
     RewritePatternSet patterns(&ctx);
     populateArithToLinalgPatterns(patterns);
