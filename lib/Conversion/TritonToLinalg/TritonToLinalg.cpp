@@ -889,6 +889,23 @@ public:
   }
 };
 
+class PtrExtractOpPattern : public OpConversionPattern<tensor::ExtractOp> {
+  using OpConversionPattern<tensor::ExtractOp>::OpConversionPattern;
+
+public:
+  PtrExtractOpPattern(triton::TritonLinalgTypeConverter &converter,
+                      MLIRContext *context)
+      : OpConversionPattern<tensor::ExtractOp>(converter, context) {}
+
+  LogicalResult
+  matchAndRewrite(tensor::ExtractOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<tensor::ExtractOp>(op, adaptor.getTensor(),
+                                                   op.getIndices());
+    return success();
+  }
+};
+
 class PtrExtractSliceOpPattern
     : public OpConversionPattern<tensor::ExtractSliceOp> {
   using OpConversionPattern<tensor::ExtractSliceOp>::OpConversionPattern;
@@ -904,6 +921,42 @@ public:
     rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
         op, adaptor.getSource(), op.getMixedOffsets(), op.getMixedSizes(),
         op.getMixedStrides());
+    return success();
+  }
+};
+
+class PtrExpandShapeOpPattern
+    : public OpConversionPattern<tensor::ExpandShapeOp> {
+  using OpConversionPattern<tensor::ExpandShapeOp>::OpConversionPattern;
+
+public:
+  PtrExpandShapeOpPattern(triton::TritonLinalgTypeConverter &converter,
+                          MLIRContext *context)
+      : OpConversionPattern<tensor::ExpandShapeOp>(converter, context) {}
+
+  LogicalResult
+  matchAndRewrite(tensor::ExpandShapeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<tensor::ExpandShapeOp>(
+        op, op.getType(), adaptor.getSrc(), op.getReassociationIndices());
+    return success();
+  }
+};
+
+class PtrCollapseShapeOpPattern
+    : public OpConversionPattern<tensor::CollapseShapeOp> {
+  using OpConversionPattern<tensor::CollapseShapeOp>::OpConversionPattern;
+
+public:
+  PtrCollapseShapeOpPattern(triton::TritonLinalgTypeConverter &converter,
+                            MLIRContext *context)
+      : OpConversionPattern<tensor::CollapseShapeOp>(converter, context) {}
+
+  LogicalResult
+  matchAndRewrite(tensor::CollapseShapeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<tensor::CollapseShapeOp>(
+        op, adaptor.getSrc(), op.getReassociationIndices());
     return success();
   }
 };
@@ -1685,7 +1738,10 @@ void triton::TritonToLinalgPass::populatePatterns(
   patterns.add<OptimizationBarrierOpPattern, GPUBarrierOpPattern>(converter,
                                                                   context);
   patterns.add<PtrSelectOpPattern>(converter, context, 0);
+  patterns.add<PtrExtractOpPattern>(converter, context, 0);
   patterns.add<PtrExtractSliceOpPattern>(converter, context, 0);
+  patterns.add<PtrExpandShapeOpPattern>(converter, context, 0);
+  patterns.add<PtrCollapseShapeOpPattern>(converter, context, 0);
   populateTritonToLinalgPatterns(patterns, converter);
   populateArithToLinalgPatterns(patterns);
   populateArithConversionPatterns(patterns);

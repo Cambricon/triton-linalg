@@ -6,6 +6,8 @@
 
 #ifndef TRITON_LINALG_DIALECT_TRITON_UTILS_POINTERINFO_H
 #define TRITON_LINALG_DIALECT_TRITON_UTILS_POINTERINFO_H
+
+#include "triton/Dialect/Triton/IR/Dialect.h"
 #include <stdint.h>
 
 namespace mlir {
@@ -18,8 +20,9 @@ public:
   PtrInfo(Value ptr, ArrayRef<Value> offsets)
       : pointer(ptr), tensorPtrOffsets(offsets) {}
 
-  PtrInfo(Value ptr, ArrayRef<Value> sizes, ArrayRef<Value> strides,
-          ArrayRef<Value> offsets, ArrayRef<int32_t> order)
+  PtrInfo(Value ptr, const SmallVector<Value> &sizes,
+          const SmallVector<Value> &strides, const SmallVector<Value> &offsets,
+          const ArrayRef<int32_t> &order)
       : pointer(ptr), tensorPtrSizes(sizes), tensorPtrStrides(strides),
         tensorPtrOffsets(offsets), tensorPtrOrder(order) {}
 

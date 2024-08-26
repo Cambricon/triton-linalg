@@ -290,17 +290,9 @@ private:
       return failure();
     }
     IRRewriter rewriter(ptr.getContext());
-    SmallVector<Value> sizes;
-    SmallVector<Value> strides;
-    SmallVector<Value> offsets;
-    SmallVector<int32_t> orders;
-    for (int i = 0; i < makeTensorPtrOp.getOffsets().size(); ++i) {
-      sizes.push_back(makeTensorPtrOp.getShape()[i]);
-      strides.push_back(makeTensorPtrOp.getStrides()[i]);
-      offsets.push_back(makeTensorPtrOp.getOffsets()[i]);
-      orders.push_back(makeTensorPtrOp.getOrder()[i]);
-    }
-    return PtrInfo(makeTensorPtrOp.getBase(), sizes, strides, offsets, orders);
+    return PtrInfo(makeTensorPtrOp.getBase(), makeTensorPtrOp.getShape(),
+                   makeTensorPtrOp.getStrides(), makeTensorPtrOp.getOffsets(),
+                   makeTensorPtrOp.getOrder());
   }
 
   template <typename OperationT>
@@ -566,18 +558,9 @@ private:
     }
     // Get previous ptr of tensor and infos.
     if (auto makeTensorPtrOp = ptr.getDefiningOp<triton::MakeTensorPtrOp>()) {
-      SmallVector<Value> sizes;
-      SmallVector<Value> strides;
-      SmallVector<Value> offsets;
-      SmallVector<int32_t> orders;
-      for (int i = 0; i < makeTensorPtrOp.getOffsets().size(); ++i) {
-        sizes.push_back(makeTensorPtrOp.getShape()[i]);
-        strides.push_back(makeTensorPtrOp.getStrides()[i]);
-        offsets.push_back(makeTensorPtrOp.getOffsets()[i]);
-        orders.push_back(makeTensorPtrOp.getOrder()[i]);
-      }
-      return PtrInfo(makeTensorPtrOp.getBase(), sizes, strides, offsets,
-                     orders);
+      return PtrInfo(makeTensorPtrOp.getBase(), makeTensorPtrOp.getShape(),
+                     makeTensorPtrOp.getStrides(), makeTensorPtrOp.getOffsets(),
+                     makeTensorPtrOp.getOrder());
     }
     return failure();
   }

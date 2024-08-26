@@ -178,6 +178,16 @@ LogicalResult PointerMetaInfoTracker::parseOp<triton::BroadcastOp>(
 }
 
 template <>
+LogicalResult PointerMetaInfoTracker::parseOp<tensor::ExtractOp>(
+    tensor::ExtractOp op, Location loc, ConversionPatternRewriter &rewriter) {
+  if (failed(parse(op.getTensor(), loc, rewriter)))
+    return failure();
+  this->offset =
+      rewriter.create<tensor::ExtractOp>(loc, this->offset, op.getIndices());
+  return success();
+}
+
+template <>
 LogicalResult PointerMetaInfoTracker::parseOp<tensor::ExtractSliceOp>(
     tensor::ExtractSliceOp op, Location loc,
     ConversionPatternRewriter &rewriter) {
@@ -244,16 +254,17 @@ PointerMetaInfoTracker::parse(Value operand, Location loc,
     // mark it as a failure. For example, tt.bitwise for cases with unequal bit
     // width, so here we use isProcessedSuccessfully to store its state.
     bool isProcessedSuccessfully = true;
-    auto res = llvm::TypeSwitch<Operation *, LogicalResult>(defOp)
-                   .Case<triton::AddPtrOp, triton::BitcastOp, triton::SplatOp,
-                         triton::BroadcastOp, triton::ExpandDimsOp,
-                         tensor::ExpandShapeOp, tensor::CollapseShapeOp,
-                         tensor::ExtractSliceOp>([&](auto op) {
-                     auto ret = parseOp(op, loc, rewriter);
-                     isProcessedSuccessfully = ret.succeeded();
-                     return ret;
-                   })
-                   .Default([](Operation *) { return failure(); });
+    auto res =
+        llvm::TypeSwitch<Operation *, LogicalResult>(defOp)
+            .Case<triton::AddPtrOp, triton::BitcastOp, triton::SplatOp,
+                  triton::BroadcastOp, triton::ExpandDimsOp,
+                  tensor::ExpandShapeOp, tensor::CollapseShapeOp,
+                  tensor::ExtractOp, tensor::ExtractSliceOp>([&](auto op) {
+              auto ret = parseOp(op, loc, rewriter);
+              isProcessedSuccessfully = ret.succeeded();
+              return ret;
+            })
+            .Default([](Operation *) { return failure(); });
     if (res.succeeded())
       return isProcessedSuccessfully;
     if (res.failed() && !isProcessedSuccessfully)

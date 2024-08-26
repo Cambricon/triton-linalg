@@ -893,26 +893,28 @@ struct ExpandShapeOpInferAxisInfoOpInterface
     ArrayRef<int64_t> srcShape = expandShapeOp.getSrcType().getShape();
     ArrayRef<int64_t> resShape = expandShapeOp.getResultType().getShape();
     AxisInfoExt::DimVectorT divisibility, stride, strideValue;
-    for (const auto &indices :
+    for (auto [srcDim, indice] :
          llvm::enumerate(expandShapeOp.getReassociationIndices())) {
       // Init expanded axisinfo by source axisinfo.
-      int64_t srcDim = indices.index();
       int64_t srcDivisibility = opInfo.getDivisibility()[srcDim];
       int64_t srcStride = opInfo.getStride()[srcDim];
       int64_t srcStrideValue = opInfo.getStrideValue()[srcDim];
-      for (auto indice : indices.value()) {
-        stride.push_back(srcStride);
-        strideValue.push_back(srcStrideValue);
-        divisibility.push_back(srcDivisibility);
-      }
-      if (indices.value().size() == 1)
+      AxisInfoExt::DimVectorT initStride(indice.size(), srcStride);
+      AxisInfoExt::DimVectorT initStrideValue(indice.size(), srcStrideValue);
+      AxisInfoExt::DimVectorT initDivisibility(indice.size(), srcDivisibility);
+      stride.insert(stride.end(), initStride.begin(), initStride.end());
+      strideValue.insert(strideValue.end(), initStrideValue.begin(),
+                         initStrideValue.end());
+      divisibility.insert(divisibility.end(), initDivisibility.begin(),
+                          initDivisibility.end());
+      if (indice.size() == 1)
         continue;
 
       // Calculate axisinfo of expanded dimension.
       int64_t nextStride = srcStride;
       int64_t nextStrideValue = srcStrideValue;
       int64_t nextDivisibility = srcDivisibility;
-      for (auto resDim : llvm::reverse(indices.value())) {
+      for (auto resDim : llvm::reverse(indice)) {
         if (nextStride >= resShape[resDim] &&
             nextStride % resShape[resDim] == 0) {
           strideValue[resDim] = nextStrideValue;
@@ -986,8 +988,11 @@ struct CollapseShapeOpInferAxisInfoOpInterface
         int64_t srcDivisibility = opInfo.getDivisibility()[srcDim];
         bool isLastDimFullStrided =
             opInfo.getStride()[srcDim + 1] == srcShape[srcDim + 1];
-        if (srcStrideValue == resStride * resStrideValue &&
-            isLastDimFullStrided) {
+        if (resStride == 1) {
+          resStride = srcStride;
+          resStrideValue = srcStrideValue;
+        } else if (srcStrideValue == resStride * resStrideValue &&
+                   isLastDimFullStrided) {
           resStride *= srcStride;
         }
         resDivisibility = std::max(resDivisibility, srcDivisibility);
