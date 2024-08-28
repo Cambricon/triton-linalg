@@ -2081,6 +2081,33 @@ void ArgMaxOp::build(
                        inputs, inits, bodyBuild);
 }
 
+void ArgMaxOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
+                             ArrayRef<NamedAttribute> attrs) {
+  RegionBuilderHelper helper(block.getArgument(0).getContext(), block);
+  assert(block.getNumArguments() == 4 &&
+         "ArgMaxOp regionBuilder expects 4 (>=0) args");
+  SmallVector<Value> yields;
+  auto loc = block.getArgument(0).getLoc();
+  Value cmpfResOeq =
+      b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OEQ,
+                              block.getArgument(0), block.getArgument(2));
+  Value cmpiRes =
+      b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::slt,
+                              block.getArgument(1), block.getArgument(3));
+  Value andiRes = b.create<arith::AndIOp>(loc, cmpfResOeq, cmpiRes);
+  Value cmpfResOgt =
+      b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OGT,
+                              block.getArgument(0), block.getArgument(2));
+  Value oriRes = b.create<arith::OrIOp>(loc, cmpfResOgt, andiRes);
+  Value selectRes1 = b.create<arith::SelectOp>(
+      loc, oriRes, block.getArgument(0), block.getArgument(2));
+  Value selectRes2 = b.create<arith::SelectOp>(
+      loc, oriRes, block.getArgument(1), block.getArgument(3));
+  yields.push_back(selectRes1);
+  yields.push_back(selectRes2);
+  helper.yieldOutputs(yields);
+}
+
 void ArgMaxOp::getEffects(
     SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
         &effects) {
@@ -2127,6 +2154,33 @@ void ArgMinOp::build(
   if (bodyBuild)
     buildGenericRegion(builder, result.location, *result.regions.front(),
                        inputs, inits, bodyBuild);
+}
+
+void ArgMinOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
+                             ArrayRef<NamedAttribute> attrs) {
+  RegionBuilderHelper helper(block.getArgument(0).getContext(), block);
+  assert(block.getNumArguments() == 4 &&
+         "ArgMinOp regionBuilder expects 4 (>=0) args");
+  SmallVector<Value> yields;
+  auto loc = block.getArgument(0).getLoc();
+  Value cmpfResOeq =
+      b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OEQ,
+                              block.getArgument(0), block.getArgument(2));
+  Value cmpiRes =
+      b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::slt,
+                              block.getArgument(1), block.getArgument(3));
+  Value andiRes = b.create<arith::AndIOp>(loc, cmpfResOeq, cmpiRes);
+  Value cmpfResOgt =
+      b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OLT,
+                              block.getArgument(0), block.getArgument(2));
+  Value oriRes = b.create<arith::OrIOp>(loc, cmpfResOgt, andiRes);
+  Value selectRes1 = b.create<arith::SelectOp>(
+      loc, oriRes, block.getArgument(0), block.getArgument(2));
+  Value selectRes2 = b.create<arith::SelectOp>(
+      loc, oriRes, block.getArgument(1), block.getArgument(3));
+  yields.push_back(selectRes1);
+  yields.push_back(selectRes2);
+  helper.yieldOutputs(yields);
 }
 
 void ArgMinOp::getEffects(

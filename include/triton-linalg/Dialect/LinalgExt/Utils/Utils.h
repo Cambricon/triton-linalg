@@ -218,7 +218,7 @@ enum class ReductionMode {
 std::optional<ReductionMode> getReductionMode(triton::ReduceOp op);
 
 /// Check whether the reduce op can convert to argmax/min operation.
-std::optional<ReductionMode> matchArgMaxMinPattern(triton::ReduceOp op);
+std::optional<ReductionMode> matchArgMaxMinPattern(Region *region);
 
 /// Identify the pattern of the reduce operator.
 std::optional<ReductionMode> reducePatternRecognition(triton::ReduceOp op);

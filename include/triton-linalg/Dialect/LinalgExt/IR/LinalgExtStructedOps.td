@@ -344,12 +344,13 @@ class ArgMaxMinBaseOp<string mnemonic, list<Trait> props>
     std::string getLibraryCallName() {
       return "op_has_no_registered_library_name";
     }
-
+    static void regionBuilder(ImplicitLocOpBuilder &b,
+                              Block &block, ArrayRef<NamedAttribute> attrs);
     // Implement functions necessary for DestinationStyleOpInterface.
     static std::function<void(mlir::ImplicitLocOpBuilder &, mlir::Block &,
                               mlir::ArrayRef<mlir::NamedAttribute>)>
     getRegionBuilder() {
-      return nullptr;
+      return regionBuilder;
     }
     MutableOperandRange getDpsInitsMutable() { return getInitsMutable(); }
   }];

@@ -68,9 +68,50 @@ Operation *triton::linalg_ext::findPayloadOp(Block *body, bool initFirst) {
   return &payload;
 }
 
+/// Check whether the reduce op is supported and get the reduction mode
+/// if supported.
+std::optional<ReductionMode> triton::getReductionMode(triton::ReduceOp op) {
+  if (isSingleStatementReduceOpWithType<arith::AddFOp, triton::ReduceOp>(op) ||
+      isSingleStatementReduceOpWithType<arith::AddIOp, triton::ReduceOp>(op))
+    return ReductionMode::SUM;
+
+  if (isSingleStatementReduceOpWithType<arith::MaxNumFOp, triton::ReduceOp>(
+          op) ||
+      isSingleStatementReduceOpWithType<arith::MaximumFOp, triton::ReduceOp>(
+          op) ||
+      isSingleStatementReduceOpWithType<arith::MaxSIOp, triton::ReduceOp>(op))
+    return ReductionMode::MAX;
+
+  if (isSingleStatementReduceOpWithType<arith::MaxUIOp, triton::ReduceOp>(op))
+    return ReductionMode::UMAX;
+
+  if (isSingleStatementReduceOpWithType<arith::MinNumFOp, triton::ReduceOp>(
+          op) ||
+      isSingleStatementReduceOpWithType<arith::MinimumFOp, triton::ReduceOp>(
+          op) ||
+      isSingleStatementReduceOpWithType<arith::MinSIOp, triton::ReduceOp>(op))
+    return ReductionMode::MIN;
+
+  if (isSingleStatementReduceOpWithType<arith::MinUIOp, triton::ReduceOp>(op))
+    return ReductionMode::UMIN;
+
+  if (isSingleStatementReduceOpWithType<arith::MulFOp, triton::ReduceOp>(op))
+    return ReductionMode::PROD;
+
+  if (isSingleStatementReduceOpWithType<arith::AndIOp, triton::ReduceOp>(op))
+    return ReductionMode::AND;
+
+  if (isSingleStatementReduceOpWithType<arith::OrIOp, triton::ReduceOp>(op))
+    return ReductionMode::OR;
+
+  if (isSingleStatementReduceOpWithType<arith::XOrIOp, triton::ReduceOp>(op))
+    return ReductionMode::XOR;
+  // Unsupport reduce op mode.
+  return std::nullopt;
+}
+
 /// Check whether the reduce op can convert to argmax/min operation.
-std::optional<ReductionMode>
-triton::matchArgMaxMinPattern(triton::ReduceOp op) {
+std::optional<ReductionMode> triton::matchArgMaxMinPattern(Region *region) {
   // We're looking for an op that looks like this:
   //
   // %9:2 = "tt.reduce"(%8, %3) <{axis = 0 : i32}> ({
@@ -88,12 +129,12 @@ triton::matchArgMaxMinPattern(triton::ReduceOp op) {
   //   %17 = arith.select %15, %arg10, %arg12 : i32
   //   tt.reduce.return %16, %17 : f32, i32
   // }) : (tensor<4096xf32>, tensor<4096xi32>) -> (f32, i32)
-  if (op.getBody()->getNumArguments() != 4) {
+  if (region->getNumArguments() != 4) {
     return std::nullopt;
   }
 
-  Block *block = &op.getRegion().front();
-  Operation &lastOp = block->getOperations().back();
+  Block &block = region->front();
+  Operation *terminatorOp = block.getTerminator();
 
   //   %15 = arith.ori %14, %13 : i1
   //   %16 = arith.select %15, %arg9, %arg11 : f32
@@ -101,9 +142,8 @@ triton::matchArgMaxMinPattern(triton::ReduceOp op) {
   SmallVector<Operation *> lineOut0;
   SmallVector<int> inputIndex0 = {0, 0};
   Operation *result0 =
-      UpstreamMatcher<triton::ReduceReturnOp, arith::SelectOp,
-                      arith::OrIOp>::matchLine(lineOut0, &lastOp, inputIndex0,
-                                               inputIndex0.size(), false);
+      UpstreamMatcher<Operation *, arith::SelectOp, arith::OrIOp>::matchLine(
+          lineOut0, terminatorOp, inputIndex0, inputIndex0.size(), false);
   if (result0 == nullptr) {
     return std::nullopt;
   }
@@ -114,9 +154,8 @@ triton::matchArgMaxMinPattern(triton::ReduceOp op) {
   SmallVector<Operation *> lineOut1;
   SmallVector<int> inputIndex1 = {1, 0};
   Operation *result1 =
-      UpstreamMatcher<triton::ReduceReturnOp, arith::SelectOp,
-                      arith::OrIOp>::matchLine(lineOut1, &lastOp, inputIndex1,
-                                               inputIndex1.size(), false);
+      UpstreamMatcher<Operation *, arith::SelectOp, arith::OrIOp>::matchLine(
+          lineOut1, terminatorOp, inputIndex1, inputIndex1.size(), false);
   if (result1 == nullptr || lineOut1[2] != lineOut0[2]) {
     return std::nullopt;
   }
@@ -177,48 +216,6 @@ triton::matchArgMaxMinPattern(triton::ReduceOp op) {
   return std::nullopt;
 }
 
-/// Check whether the reduce op is supported and get the reduction mode
-/// if supported.
-std::optional<ReductionMode> triton::getReductionMode(triton::ReduceOp op) {
-  if (isSingleStatementReduceOpWithType<arith::AddFOp, triton::ReduceOp>(op) ||
-      isSingleStatementReduceOpWithType<arith::AddIOp, triton::ReduceOp>(op))
-    return ReductionMode::SUM;
-
-  if (isSingleStatementReduceOpWithType<arith::MaxNumFOp, triton::ReduceOp>(
-          op) ||
-      isSingleStatementReduceOpWithType<arith::MaximumFOp, triton::ReduceOp>(
-          op) ||
-      isSingleStatementReduceOpWithType<arith::MaxSIOp, triton::ReduceOp>(op))
-    return ReductionMode::MAX;
-
-  if (isSingleStatementReduceOpWithType<arith::MaxUIOp, triton::ReduceOp>(op))
-    return ReductionMode::UMAX;
-
-  if (isSingleStatementReduceOpWithType<arith::MinNumFOp, triton::ReduceOp>(
-          op) ||
-      isSingleStatementReduceOpWithType<arith::MinimumFOp, triton::ReduceOp>(
-          op) ||
-      isSingleStatementReduceOpWithType<arith::MinSIOp, triton::ReduceOp>(op))
-    return ReductionMode::MIN;
-
-  if (isSingleStatementReduceOpWithType<arith::MinUIOp, triton::ReduceOp>(op))
-    return ReductionMode::UMIN;
-
-  if (isSingleStatementReduceOpWithType<arith::MulFOp, triton::ReduceOp>(op))
-    return ReductionMode::PROD;
-
-  if (isSingleStatementReduceOpWithType<arith::AndIOp, triton::ReduceOp>(op))
-    return ReductionMode::AND;
-
-  if (isSingleStatementReduceOpWithType<arith::OrIOp, triton::ReduceOp>(op))
-    return ReductionMode::OR;
-
-  if (isSingleStatementReduceOpWithType<arith::XOrIOp, triton::ReduceOp>(op))
-    return ReductionMode::XOR;
-  // Unsupport reduce op mode.
-  return std::nullopt;
-}
-
 /// Identify the pattern of the reduce operator.
 std::optional<ReductionMode>
 triton::reducePatternRecognition(triton::ReduceOp op) {
@@ -226,7 +223,7 @@ triton::reducePatternRecognition(triton::ReduceOp op) {
   if (mode.has_value()) {
     return mode;
   }
-  mode = matchArgMaxMinPattern(op);
+  mode = matchArgMaxMinPattern(&op.getRegion());
   if (mode.has_value()) {
     return mode;
   }
