@@ -30,6 +30,12 @@ namespace triton {
 class AxisInfoLattice : public mlir::dataflow::Lattice<AxisInfoExt> {
 public:
   using Lattice::Lattice;
+  ChangeResult join(const AxisInfoExt &rhs);
+  bool isInitialized() { return initialized; }
+
+private:
+  bool initialized = false;
+  using mlir::dataflow::Lattice<AxisInfoExt>::join;
 };
 
 //===--------------------------------------------------------------------===//

@@ -51,6 +51,22 @@ using namespace mlir::triton;
 //===--------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
+// AxisInfoLattice
+//===----------------------------------------------------------------------===//
+
+ChangeResult AxisInfoLattice::join(const AxisInfoExt &rhs) {
+  if (!initialized) {
+    initialized = true;
+    auto &kepval = getValue();
+    if (kepval == rhs)
+      return ChangeResult::NoChange;
+    kepval = rhs;
+    return ChangeResult::Change;
+  }
+  return mlir::dataflow::Lattice<AxisInfoExt>::join(rhs);
+}
+
+//===----------------------------------------------------------------------===//
 // AxisInfoAnalysisExt
 //===----------------------------------------------------------------------===//
 

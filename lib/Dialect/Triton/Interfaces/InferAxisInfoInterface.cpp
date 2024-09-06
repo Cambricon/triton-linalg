@@ -121,9 +121,8 @@ AxisInfoExt AxisInfoExt::join(const AxisInfoExt &lhs, const AxisInfoExt &rhs) {
   DimVectorT stride(lhsRank, kInitValue);
   DimVectorT strideValue(lhsRank, kStrideValueInitValue);
   for (auto d = 0; d < lhsRank; ++d) {
-    divisibility[d] =
-        leastCommonMultiple(lhs.getDivisibility(d), rhs.getDivisibility(d));
-    stride[d] = leastCommonMultiple(lhs.getStride(d), rhs.getStride(d));
+    divisibility[d] = std::gcd(lhs.getDivisibility(d), rhs.getDivisibility(d));
+    stride[d] = std::gcd(lhs.getStride(d), rhs.getStride(d));
     if (lhs.strideValue[d] != kStrideValueInitValue &&
         rhs.strideValue[d] != kStrideValueInitValue &&
         lhs.strideValue[d] == rhs.strideValue[d]) {
