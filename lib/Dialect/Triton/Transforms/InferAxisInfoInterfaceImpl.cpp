@@ -93,7 +93,7 @@ struct ConstantOpInferAxisInfoOpInterface
   void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
                       SetAxisInfoFn setResultAxisInfo) const {
     arith::ConstantOp constantOp = cast<arith::ConstantOp>(op);
-    auto intAttr = constantOp.getValue().dyn_cast<IntegerAttr>();
+    auto intAttr = dyn_cast<IntegerAttr>(constantOp.getValue());
     if (intAttr) {
       int64_t value = intAttr.getValue().getZExtValue();
 
@@ -104,10 +104,10 @@ struct ConstantOpInferAxisInfoOpInterface
     }
 
     // TODO: generalize to dense attr.
-    auto splatAttr = constantOp.getValue().dyn_cast<SplatElementsAttr>();
+    auto splatAttr = dyn_cast<SplatElementsAttr>(constantOp.getValue());
     if (splatAttr && splatAttr.getElementType().isIntOrIndex()) {
       int64_t value = splatAttr.getSplatValue<APInt>().getZExtValue();
-      TensorType ty = splatAttr.getType().cast<TensorType>();
+      TensorType ty = cast<TensorType>(splatAttr.getType());
       return setResultAxisInfo(
           constantOp.getResult(),
           AxisInfoExt(AxisInfoExt::DimVectorT(ty.getRank(),
@@ -293,8 +293,7 @@ struct DivOpInferAxisInfoOpInterface
     OpTy divOp = cast<OpTy>(op);
     assert(argInfos.size() == 2 && "Expected two operands");
 
-    auto resTy =
-        divOp.getResult().getType().template dyn_cast<RankedTensorType>();
+    auto resTy = dyn_cast<RankedTensorType>(divOp.getResult().getType());
     if (!resTy)
       return setResultAxisInfo(divOp.getResult(), AxisInfoExt{});
     auto shape = resTy.getShape();
@@ -378,8 +377,7 @@ struct RemOpInferAxisInfoOpInterface
     OpTy remOp = cast<OpTy>(op);
     assert(argInfos.size() == 2 && "Expected two operands");
 
-    auto resTy =
-        remOp.getResult().getType().template dyn_cast<RankedTensorType>();
+    auto resTy = dyn_cast<RankedTensorType>(remOp.getResult().getType());
     if (!resTy)
       return setResultAxisInfo(remOp.getResult(), AxisInfoExt{});
     auto shape = resTy.getShape();
@@ -465,7 +463,7 @@ struct CmpOpInferAxisInfoOpInterface
     arith::CmpIOp cmpOp = cast<arith::CmpIOp>(op);
     assert(argInfos.size() == 2 && "Expected two operands");
 
-    auto resTy = cmpOp.getResult().getType().dyn_cast<RankedTensorType>();
+    auto resTy = dyn_cast<RankedTensorType>(cmpOp.getResult().getType());
     if (!resTy)
       return setResultAxisInfo(cmpOp.getResult(), AxisInfoExt{});
     auto shape = resTy.getShape();
@@ -631,8 +629,7 @@ struct SelectOpInferAxisInfoOpInterface
     arith::SelectOp selectOp = cast<arith::SelectOp>(op);
     assert(argInfos.size() == 3 && "Expected three operands");
 
-    auto resTy =
-        selectOp.getResult().getType().template dyn_cast<RankedTensorType>();
+    auto resTy = dyn_cast<RankedTensorType>(selectOp.getResult().getType());
     if (!resTy)
       return setResultAxisInfo(selectOp.getResult(), AxisInfoExt());
     auto shape = resTy.getShape();
@@ -794,10 +791,10 @@ struct BroadcastOpInferAxisInfoOpInterface
                       SetAxisInfoFn setResultAxisInfo) const {
     triton::BroadcastOp broadcastOp = cast<triton::BroadcastOp>(op);
     assert(argInfos.size() == 1 && "Expected one operand");
-    TensorType retTy = broadcastOp.getResult().getType().cast<TensorType>();
+    TensorType retTy = cast<TensorType>(broadcastOp.getResult().getType());
     ArrayRef<int64_t> retShape = retTy.getShape();
     TensorType opTy =
-        broadcastOp.getOperand().getType().dyn_cast_or_null<TensorType>();
+        dyn_cast_or_null<TensorType>(broadcastOp.getOperand().getType());
     ArrayRef<int64_t> opShape;
     SmallVector<int64_t> scalarAsShapeOne(retTy.getRank(), 1);
     if (opTy) {
@@ -835,7 +832,7 @@ struct SplatOpInferAxisInfoOpInterface
                       SetAxisInfoFn setResultAxisInfo) const {
     triton::SplatOp splatOp = cast<triton::SplatOp>(op);
     assert(argInfos.size() == 1 && "Expected one operand");
-    TensorType retTy = splatOp.getResult().getType().cast<TensorType>();
+    TensorType retTy = cast<TensorType>(splatOp.getResult().getType());
     AxisInfoExt::DimVectorT divisibility, stride, strideValue;
     for (int d = 0; d < retTy.getRank(); ++d) {
       divisibility.push_back(argInfos[0].getDivisibility(0));

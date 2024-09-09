@@ -107,17 +107,17 @@ def ScatterOp : LinalgExtBase_Op<"scatter", []> {
         return Value();
       }
       ShapedType getUpdateType() {
-        return update().getType().cast<ShapedType>();
+        return mlir::cast<ShapedType>(update().getType());
       }
       ShapedType getIndiceType() {
-        return indice().getType().cast<ShapedType>();
+        return mlir::cast<ShapedType>(indice().getType());
       }
       ShapedType getInitType() {
-        return getInit().getType().cast<ShapedType>();
+        return mlir::cast<ShapedType>(getInit().getType());
       }
       ShapedType getMaskType() {
         if (mask()) {
-          return mask().getType().cast<ShapedType>();
+          return mlir::cast<ShapedType>(mask().getType());
         }
         return {};
       }
@@ -131,7 +131,7 @@ def ScatterOp : LinalgExtBase_Op<"scatter", []> {
       }
       LogicalResult reifyResultShapes(OpBuilder &b,
                                       ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
-        return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+        return mlir::cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
       }
       MutableOperandRange getDpsInitsMutable() { return getInitMutable(); }
     }];
@@ -222,14 +222,14 @@ def GatherOp : LinalgExtBase_Op<"gather", []> {
         return Value();
       }
       ShapedType getInputType() {
-        return input().getType().cast<ShapedType>();
+        return mlir::cast<ShapedType>(input().getType());
       }
       ShapedType getIndiceType() {
-        return indice().getType().cast<ShapedType>();
+        return mlir::cast<ShapedType>(indice().getType());
       }
       ShapedType getMaskType() {
         if (mask()) {
-          return mask().getType().cast<ShapedType>();
+          return mlir::cast<ShapedType>(mask().getType());
         }
         return {};
       }
@@ -239,14 +239,14 @@ def GatherOp : LinalgExtBase_Op<"gather", []> {
             .back();
       }
       ShapedType getInitType() {
-        return getInit().getType().cast<ShapedType>();
+        return mlir::cast<ShapedType>(getInit().getType());
       }
       int64_t getBatchDimNum() {
         return getIndiceType().getRank() - 1;
       }
       LogicalResult reifyResultShapes(OpBuilder &b,
                                       ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
-        return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+        return mlir::cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
       }
       MutableOperandRange getDpsInitsMutable() { return getInitMutable(); }
     }];
@@ -306,14 +306,14 @@ def AtomicRMWOp : LinalgExtBase_Op<"atomic_rmw", [AttrSizedOperandSegments, Same
         return getDpsInitOperand(1)->get();
       }
       ShapedType getInputType() {
-        return input().getType().cast<ShapedType>();
+        return mlir::cast<ShapedType>(input().getType());
       }
       ShapedType getSrcType() {
-        return src().getType().cast<ShapedType>();
+        return mlir::cast<ShapedType>(src().getType());
       }
       LogicalResult reifyResultShapes(OpBuilder &b,
                                       ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
-        return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+        return mlir::cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
       }
       MutableOperandRange getDpsInitsMutable() { return getInitsMutable(); }
     }];
@@ -388,17 +388,17 @@ def GatherAtomicRMWOp : LinalgExtBase_Op<"gather_atomic_rmw", [AttrSizedOperandS
         return getDpsInitOperand(1)->get();
       }
       ShapedType getInputType() {
-        return input().getType().cast<ShapedType>();
+        return mlir::cast<ShapedType>(input().getType());
       }
       ShapedType getSrcType() {
-        return src().getType().cast<ShapedType>();
+        return mlir::cast<ShapedType>(src().getType());
       }
       ShapedType getIndiceType() {
-        return indice().getType().cast<ShapedType>();
+        return mlir::cast<ShapedType>(indice().getType());
       }
       ShapedType getMaskType() {
         if (mask()) {
-          return mask().getType().cast<ShapedType>();
+          return mlir::cast<ShapedType>(mask().getType());
         }
         return {};
       }
@@ -407,7 +407,7 @@ def GatherAtomicRMWOp : LinalgExtBase_Op<"gather_atomic_rmw", [AttrSizedOperandS
       }
       LogicalResult reifyResultShapes(OpBuilder &b,
                                       ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
-        return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+        return mlir::cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
       }
       MutableOperandRange getDpsInitsMutable() { return getInitsMutable(); }
     }];
@@ -462,24 +462,24 @@ def AtomicCASOp : Op<LinalgExt_Dialect, "atomic_cas", [
 
     // Base helper function.
     ShapedType getInputType() {
-      return input().getType().cast<ShapedType>();
+      return mlir::cast<ShapedType>(input().getType());
     }
 
     ShapedType getCmpType() {
-      return cmp().getType().cast<ShapedType>();
+      return mlir::cast<ShapedType>(cmp().getType());
     }
 
     ShapedType getValType() {
-      return val().getType().cast<ShapedType>();
+      return mlir::cast<ShapedType>(val().getType());
     }
 
     ShapedType getInitType() {
-      return getInit().getType().cast<ShapedType>();;
+      return mlir::cast<ShapedType>(getInit().getType());
     }
 
     LogicalResult reifyResultShapes(OpBuilder &b,
                                     ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
-      return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+      return mlir::cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
     }
 
     MutableOperandRange getDpsInitsMutable() { return getInitMutable(); }
@@ -541,23 +541,23 @@ def GatherAtomicCASOp : Op<LinalgExt_Dialect, "gather_atomic_cas", [
 
     // Base helper function.
     ShapedType getInputType() {
-      return input().getType().cast<ShapedType>();
+      return mlir::cast<ShapedType>(input().getType());
     }
 
     ShapedType getCmpType() {
-      return cmp().getType().cast<ShapedType>();
+      return mlir::cast<ShapedType>(cmp().getType());
     }
 
     ShapedType getValType() {
-      return val().getType().cast<ShapedType>();
+      return mlir::cast<ShapedType>(val().getType());
     }
 
     ShapedType getIndiceType() {
-      return indice().getType().cast<ShapedType>();
+      return mlir::cast<ShapedType>(indice().getType());
     }
 
     ShapedType getInitType() {
-      return getInit().getType().cast<ShapedType>();;
+      return mlir::cast<ShapedType>(getInit().getType());
     }
 
     int64_t getIndexDepth() {
@@ -566,7 +566,7 @@ def GatherAtomicCASOp : Op<LinalgExt_Dialect, "gather_atomic_cas", [
 
     LogicalResult reifyResultShapes(OpBuilder &b,
                                     ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
-      return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+      return mlir::cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
     }
 
     MutableOperandRange getDpsInitsMutable() { return getInitMutable(); }
@@ -674,10 +674,10 @@ def PadOp : LinalgExtBase_Op<"pad", [AttrSizedOperandSegments]> {
       return getDpsInputOperand(0)->get();
     }
     ShapedType getInputType() {
-      return input().getType().cast<ShapedType>();
+      return mlir::cast<ShapedType>(input().getType());
     }
     ShapedType getInitType() {
-      return getInit().getType().cast<ShapedType>();
+      return mlir::cast<ShapedType>(getInit().getType());
     }
     Type getPaddingValueType() {
       return getPvalue().getType();
@@ -734,7 +734,7 @@ def PadOp : LinalgExtBase_Op<"pad", [AttrSizedOperandSegments]> {
     //===----------------------------------------------------------------------===//
     LogicalResult reifyResultShapes(OpBuilder &b,
                                     ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
-      return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+      return mlir::cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
     }
     MutableOperandRange getDpsInitsMutable() { return getInitMutable(); }
   }];
@@ -769,11 +769,11 @@ def AssertOp : Op<LinalgExt_Dialect, "assert", [
   let extraClassDeclaration =  [{
 
     ShapedType getInitType() {
-      return getCondition().getType().cast<ShapedType>();;
+      return mlir::cast<ShapedType>(getCondition().getType());
     }
     LogicalResult reifyResultShapes(OpBuilder &b,
                                     ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
-      return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+      return mlir::cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
     }
     // Method to implement for specifying output range for
     // DestinationStyleOpInterface
@@ -872,12 +872,12 @@ def ScanOp : LinalgExtBase_Op<"scan", [
 
     Block::BlockArgListType getRegionInputArgs() {
       return getBlock()->getArguments().take_front(
-          cast<DestinationStyleOpInterface>(*this->getOperation())
+          mlir::cast<DestinationStyleOpInterface>(*this->getOperation())
               .getNumDpsInputs());
     }
     Block::BlockArgListType getRegionOutputArgs() {
       return getBlock()->getArguments().take_back(
-          cast<DestinationStyleOpInterface>(*this->getOperation())
+          mlir::cast<DestinationStyleOpInterface>(*this->getOperation())
               .getNumDpsInits());
     }
     llvm::SmallVector<Value> inputs() {
@@ -902,7 +902,7 @@ def ScanOp : LinalgExtBase_Op<"scan", [
       return outputs;
     }
     ShapedType getOperandType() {
-      return inputs()[0].getType().cast<ShapedType>();
+      return mlir::cast<ShapedType>(inputs()[0].getType());
     }
     int64_t getOperandRank() {
       return getOperandType().getRank();
@@ -910,7 +910,7 @@ def ScanOp : LinalgExtBase_Op<"scan", [
 
     LogicalResult reifyResultShapes(OpBuilder &b,
                                     ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
-      return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+      return mlir::cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
     }
 
     SmallVector<OpOperand *> getOpOperandsMatchingBBargs() {
@@ -990,10 +990,10 @@ def LibdeviceCallOp : Op<LinalgExt_Dialect, "libdevice_call", [
                           [&](OpOperand *operand) { return operand->get(); }));
     }
     ShapedType getOperandType() {
-      return getInputs()[0].getType().cast<ShapedType>();
+      return mlir::cast<ShapedType>(getInputs()[0].getType());
     }
     ShapedType getInitType() {
-      return getInit().getType().cast<ShapedType>();;
+      return mlir::cast<ShapedType>(getInit().getType());
     }
     int64_t getOperandRank() {
       return getOperandType().getRank();
@@ -1001,7 +1001,7 @@ def LibdeviceCallOp : Op<LinalgExt_Dialect, "libdevice_call", [
 
     LogicalResult reifyResultShapes(OpBuilder &b,
                                     ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
-      return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+      return mlir::cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
     }
 
     MutableOperandRange getDpsInitsMutable() { return getInitMutable(); }
@@ -1089,11 +1089,11 @@ def HistogramOp : LinalgExtBase_Op<"histogram", []> {
 
   let extraClassDeclaration =  [{
     ShapedType getInitType() {
-      return getInit().getType().cast<ShapedType>();
+      return mlir::cast<ShapedType>(getInit().getType());
     }
     LogicalResult reifyResultShapes(OpBuilder &b,
                                     ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
-      return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+      return mlir::cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
     }
     MutableOperandRange getDpsInitsMutable() { return getInitMutable(); }
   }];

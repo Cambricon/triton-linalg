@@ -559,9 +559,9 @@ public:
   /// Get the value of the constant and assign it to scalar.
   FailureOr<Result> parseOp(arith::ConstantOp constOp) {
     // Scalar constant will be processed in func parseIntScalar.
-    auto attr = constOp.getValue().cast<DenseElementsAttr>();
+    auto attr = cast<DenseElementsAttr>(constOp.getValue());
 
-    if (!attr.isSplat() || !attr.getElementType().isa<IntegerType>()) {
+    if (!attr.isSplat() || !isa<IntegerType>(attr.getElementType())) {
       return rewriter.notifyMatchFailure(
           loc, "All elements must share a single integer constant value");
     }
@@ -658,7 +658,7 @@ public:
   /// Operand is the result of make_range.
   /// Set start and end accordingly; step size must be 1.
   FailureOr<Result> parseOp(triton::MakeRangeOp rangeOp) {
-    auto shape = rangeOp.getType().cast<ShapedType>().getShape();
+    auto shape = cast<ShapedType>(rangeOp.getType()).getShape();
     auto start = rangeOp.getStart();
     auto end = rangeOp.getEnd();
     assert(((end - start + shape[0] - 1) / shape[0] == 1) &&
@@ -681,8 +681,8 @@ public:
     auto dst = broadcastOp.getResult();
     // We canonicalize tt.broadcast in triton canonicalization pass,
     // so no scalar case here.
-    auto dstShape = dst.getType().cast<ShapedType>().getShape();
-    auto srcShape = src.getType().cast<ShapedType>().getShape();
+    auto dstShape = cast<ShapedType>(dst.getType()).getShape();
+    auto srcShape = cast<ShapedType>(src.getType()).getShape();
     assert(srcShape.size() == dstShape.size() &&
            "rank of source and destination should match");
 
@@ -703,7 +703,7 @@ public:
   FailureOr<Result> parseOp(triton::SplatOp splatOp) {
     auto src = splatOp.getSrc();
     auto dst = splatOp.getResult();
-    auto dstShape = dst.getType().cast<ShapedType>().getShape();
+    auto dstShape = cast<ShapedType>(dst.getType()).getShape();
 
     auto ret = parse(src);
     if (failed(ret))
@@ -724,11 +724,10 @@ public:
       return failure();
 
     auto axis = expandDimsOp.getAxis();
-    assert(expandDimsOp.getResult()
-                   .getType()
-                   .cast<ShapedType>()
-                   .getShape()[axis] == 1 &&
-           "expect changed dimension to be 1 in expand_dims");
+    assert(
+        cast<ShapedType>(expandDimsOp.getResult().getType()).getShape()[axis] ==
+            1 &&
+        "expect changed dimension to be 1 in expand_dims");
 
     if (failed(std::visit(ExpandDimVisitor(loc, rewriter, axis), *ret)))
       return failure();
@@ -756,12 +755,12 @@ public:
   }
 
   FailureOr<Result> parseUnknownValue(Value operand) {
-    auto type = operand.getType().dyn_cast<ShapedType>();
+    auto type = dyn_cast<ShapedType>(operand.getType());
     if (!type)
       return rewriter.notifyMatchFailure(
           loc, "only support track shaped type value");
 
-    assert((type.getElementType().isa<IndexType, IntegerType, FloatType>() &&
+    assert((isa<IndexType, IntegerType, FloatType>(type.getElementType()) &&
             "unsupport unknown value type"));
 
     Result ret;
@@ -775,7 +774,7 @@ public:
   }
 
   FailureOr<Result> parse(Value operand) {
-    if (operand.getType().isa<IntegerType>()) {
+    if (isa<IntegerType>(operand.getType())) {
       return parseIntScalar(operand);
     }
 
@@ -800,7 +799,7 @@ private:
 } // namespace
 
 void MaskTracker::parse(Value operand, Location loc, RewriterBase &rewriter) {
-  auto shapeTy = operand.getType().dyn_cast<ShapedType>();
+  auto shapeTy = dyn_cast<ShapedType>(operand.getType());
   if (!shapeTy)
     return;
   int64_t rank = shapeTy.getRank();

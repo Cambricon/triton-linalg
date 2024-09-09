@@ -82,12 +82,12 @@ struct ScalarDivToMul final : public OpRewritePattern<arith::DivFOp> {
 
     // Case2: 'rhs' is a const float tensor.
     auto constDivisor = divisor.getDefiningOp<arith::ConstantOp>();
-    auto divisorType = divisor.getType().dyn_cast_or_null<TensorType>();
+    auto divisorType = dyn_cast_or_null<TensorType>(divisor.getType());
     if (!constDivisor || !divisorType ||
-        !divisorType.getElementType().isa<FloatType>()) {
+        !isa<FloatType>(divisorType.getElementType())) {
       return failure();
     }
-    auto constAttr = constDivisor.getValue().dyn_cast<DenseElementsAttr>();
+    auto constAttr = dyn_cast<DenseElementsAttr>(constDivisor.getValue());
     // Take the reciprocal element by element.
     auto multiplierVal = llvm::to_vector(llvm::map_range(
         constAttr.getValues<APFloat>(), [&](const APFloat &value) -> Attribute {

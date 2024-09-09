@@ -166,7 +166,7 @@ def MakeRangeOp : LinalgStructuredBase_Op<"make_range",
     }
     MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
     ShapedType getOutputOperandType() {
-      return getOutputs().front().getType().cast<ShapedType>();
+      return mlir::cast<ShapedType>(getOutputs().front().getType());
     }
   }];
 }
@@ -315,7 +315,7 @@ class ArgMaxMinBaseOp<string mnemonic, list<Trait> props>
   let extraClassDeclaration = structuredOpsBaseDecls # [{
     // Declare functions necessary for LinalgStructuredInterface.
     SmallVector<mlir::utils::IteratorType> getIteratorTypesArray() {
-      int64_t inputRank = getInputs()[0].getType().cast<ShapedType>().getRank();
+      int64_t inputRank = mlir::cast<ShapedType>(getInputs()[0].getType()).getRank();
       SmallVector<mlir::utils::IteratorType> iteratorTypes(inputRank,
                                                      mlir::utils::IteratorType::parallel);
       for (int64_t reductionDim : getDimensions())
@@ -330,7 +330,7 @@ class ArgMaxMinBaseOp<string mnemonic, list<Trait> props>
         setNameFn(v, "init");
     }
     ArrayAttr getIndexingMaps() {
-      int64_t inputRank = getInputs()[0].getType().cast<ShapedType>().getRank();
+      int64_t inputRank = mlir::cast<ShapedType>(getInputs()[0].getType()).getRank();
       SmallVector<AffineMap> affineMaps(
           getNumDpsInputs(),
           AffineMap::getMultiDimIdentityMap(inputRank, getContext()));

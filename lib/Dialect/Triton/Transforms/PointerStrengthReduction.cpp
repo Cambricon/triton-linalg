@@ -392,7 +392,7 @@ LogicalResult PtrStrengthReductionPattern<triton::BroadcastOp>::matchAndRewrite(
   auto newOffset = rewriter.create<triton::BroadcastOp>(
       loc,
       RankedTensorType::get(
-          op.getResult().getType().cast<ShapedType>().getShape(),
+          cast<ShapedType>(op.getResult().getType()).getShape(),
           getElementTypeOrSelf(info->offset().getType())),
       info->offset());
   auto newPtr = rewriter.create<triton::BroadcastOp>(
@@ -413,7 +413,7 @@ LogicalResult PtrStrengthReductionPattern<triton::ReshapeOp>::matchAndRewrite(
   auto newOffset = rewriter.create<triton::ReshapeOp>(
       loc,
       RankedTensorType::get(
-          op.getResult().getType().cast<ShapedType>().getShape(),
+          cast<ShapedType>(op.getResult().getType()).getShape(),
           getElementTypeOrSelf(info->offset().getType())),
       info->offset(), false);
   auto newPtr = rewriter.create<triton::ReshapeOp>(
@@ -434,7 +434,7 @@ LogicalResult PtrStrengthReductionPattern<triton::TransOp>::matchAndRewrite(
   auto newOffset = rewriter.create<triton::TransOp>(
       loc,
       RankedTensorType::get(
-          op.getResult().getType().cast<ShapedType>().getShape(),
+          cast<ShapedType>(op.getResult().getType()).getShape(),
           getElementTypeOrSelf(info->offset().getType())),
       info->offset(), op.getOrder());
   auto newPtr = rewriter.create<triton::TransOp>(loc, op.getResult().getType(),
@@ -526,11 +526,11 @@ public:
 
 private:
   bool isTritonPtrWithTensor(Type type) const {
-    if (auto ptrType = type.dyn_cast<triton::PointerType>()) {
-      return triton::getPointeeType(type).isa<TensorType>();
+    if (auto ptrType = dyn_cast<triton::PointerType>(type)) {
+      return isa<TensorType>(triton::getPointeeType(type));
     }
-    if (auto tensorTy = type.dyn_cast<TensorType>()) {
-      return tensorTy.getElementType().isa<triton::PointerType>();
+    if (auto tensorTy = dyn_cast<TensorType>(type)) {
+      return isa<triton::PointerType>(tensorTy.getElementType());
     }
     return false;
   }
@@ -548,7 +548,7 @@ private:
       rewriter.setInsertionPointAfter(splatOp);
       Type offsetType = rewriter.getIntegerType(32);
       assert(isTritonPtrWithTensor(splatOp.getResult().getType()));
-      if (auto type = splatOp.getResult().getType().dyn_cast<ShapedType>()) {
+      if (auto type = dyn_cast<ShapedType>(splatOp.getResult().getType())) {
         offsetType =
             RankedTensorType::get(type.getShape(), rewriter.getIntegerType(32));
       }
@@ -617,7 +617,7 @@ private:
       auto offset = info.offset();
       if (isIntType(offset, 32)) {
         Type targetOffsetType = rewriter.getIntegerType(64);
-        if (auto type = offset.getType().dyn_cast<ShapedType>()) {
+        if (auto type = dyn_cast<ShapedType>(offset.getType())) {
           targetOffsetType = RankedTensorType::get(type.getShape(),
                                                    rewriter.getIntegerType(64));
         }

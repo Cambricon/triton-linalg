@@ -116,7 +116,7 @@ mlir::triton::canonicalizeOpFoldResult(ArrayRef<OpFoldResult> in) {
 
 Value mlir::triton::getDimValue(OpBuilder &builder, Location loc, Value v,
                                 int64_t dim) {
-  ShapedType type = v.getType().cast<ShapedType>();
+  ShapedType type = cast<ShapedType>(v.getType());
   if (!type.isDynamicDim(dim)) {
     return builder.create<arith::ConstantIndexOp>(loc, type.getDimSize(dim));
   }
@@ -131,7 +131,7 @@ Value mlir::triton::getDimValue(OpBuilder &builder, Location loc, Value v,
 
 OpFoldResult mlir::triton::getDim(OpBuilder &builder, Location loc, Value v,
                                   int64_t dim) {
-  auto t = v.getType().cast<ShapedType>();
+  auto t = cast<ShapedType>(v.getType());
   if (t.isDynamicDim(dim)) {
     return getDimValue(builder, loc, v, dim);
   }
@@ -142,7 +142,7 @@ SmallVector<OpFoldResult>
 mlir::triton::getDims(OpBuilder &builder, Location loc, Value shapedTypeValue) {
   SmallVector<OpFoldResult> ret;
   for (auto i : llvm::seq<int64_t>(
-           0, shapedTypeValue.getType().cast<ShapedType>().getRank())) {
+           0, cast<ShapedType>(shapedTypeValue.getType()).getRank())) {
     ret.push_back(getDim(builder, loc, shapedTypeValue, i));
   }
   return ret;
@@ -152,7 +152,7 @@ SmallVector<Value> mlir::triton::getDimsValue(OpBuilder &builder, Location loc,
                                               Value shapedTypeValue) {
   SmallVector<Value> ret;
   for (auto i : llvm::seq<int64_t>(
-           0, shapedTypeValue.getType().cast<ShapedType>().getRank())) {
+           0, cast<ShapedType>(shapedTypeValue.getType()).getRank())) {
     ret.push_back(getDimValue(builder, loc, shapedTypeValue, i));
   }
   return ret;
@@ -161,7 +161,7 @@ SmallVector<Value> mlir::triton::getDimsValue(OpBuilder &builder, Location loc,
 SmallVector<Value> mlir::triton::getDynamicDimsValue(OpBuilder &builder,
                                                      Location loc, Value val) {
   SmallVector<Value> dynamicDims;
-  auto type = val.getType().cast<ShapedType>();
+  auto type = cast<ShapedType>(val.getType());
   for (auto dimIdx : llvm::seq<int64_t>(0, type.getRank())) {
     if (type.isDynamicDim(dimIdx)) {
       dynamicDims.push_back(getDimValue(builder, loc, val, dimIdx));
@@ -172,15 +172,15 @@ SmallVector<Value> mlir::triton::getDynamicDimsValue(OpBuilder &builder,
 
 Value mlir::triton::materializeOpFoldResult(OpBuilder &builder, Location loc,
                                             OpFoldResult opFoldResult) {
-  if (auto value = opFoldResult.dyn_cast<Value>())
+  if (auto value = dyn_cast<Value>(opFoldResult))
     return value;
-  auto attr = opFoldResult.get<Attribute>().cast<IntegerAttr>();
+  auto attr = cast<IntegerAttr>(opFoldResult.get<Attribute>());
   return builder.create<arith::ConstantIndexOp>(loc,
                                                 attr.getValue().getSExtValue());
 }
 
 Value mlir::triton::prependUnitDim(OpBuilder &b, Location loc, Value value) {
-  auto valTy = value.getType().cast<ShapedType>();
+  auto valTy = cast<ShapedType>(value.getType());
   int64_t rank = valTy.getRank();
   SmallVector<int64_t> shape(valTy.getShape());
   shape.insert(shape.begin(), 1);
@@ -206,7 +206,7 @@ Value mlir::triton::prependUnitDim(OpBuilder &b, Location loc, Value value) {
 }
 
 Value mlir::triton::dropUnitFirstDim(OpBuilder &b, Location loc, Value value) {
-  auto valTy = value.getType().cast<ShapedType>();
+  auto valTy = cast<ShapedType>(value.getType());
   int64_t rank = valTy.getRank();
   assert(rank > 0 && valTy.getShape().front() == 1);
 
@@ -227,7 +227,7 @@ Value mlir::triton::dropUnitFirstDim(OpBuilder &b, Location loc, Value value) {
 }
 
 Value mlir::triton::appendUnitDim(OpBuilder &b, Location loc, Value value) {
-  auto valTy = value.getType().cast<ShapedType>();
+  auto valTy = cast<ShapedType>(value.getType());
   int64_t rank = valTy.getRank();
   SmallVector<int64_t> shape(valTy.getShape());
   shape.push_back(1);
@@ -268,12 +268,12 @@ Value mlir::triton::collapseLastNDimsToOneDim(OpBuilder &b, Location loc,
   if (!value || n == 1)
     return value;
 
-  if (value.getType().isa<MemRefType>()) {
-    assert(DetermineLastNDContiguous(value.getType().cast<MemRefType>(), n,
+  if (isa<MemRefType>(value.getType())) {
+    assert(DetermineLastNDContiguous(cast<MemRefType>(value.getType()), n,
                                      exceptLastDim) &&
            "The dimensions that require collapse need to be continuous.");
   }
-  auto valueTy = value.getType().cast<ShapedType>();
+  auto valueTy = cast<ShapedType>(value.getType());
   auto rank = valueTy.getRank();
   if (exceptLastDim)
     rank -= 1;
@@ -300,5 +300,5 @@ Value mlir::triton::collapseLastNDimsToOneDim(OpBuilder &b, Location loc,
 }
 
 bool mlir::triton::isScalar(const Value val) {
-  return !val.getType().isa<ShapedType>();
+  return !isa<ShapedType>(val.getType());
 }

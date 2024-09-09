@@ -59,7 +59,7 @@ public:
       return failure();
 
     auto loc = op.getLoc();
-    auto resType = op.getType().cast<ShapedType>();
+    auto resType = cast<ShapedType>(op.getType());
     Value init = rewriter.create<tensor::EmptyOp>(loc, resType.getShape(),
                                                   resType.getElementType());
 
@@ -79,8 +79,8 @@ public:
     auto trueValue = op.getTrueValue();
     auto falseValue = op.getFalseValue();
 
-    if (!trueValue.getType().isa<ShapedType>() ||
-        !falseValue.getType().isa<ShapedType>())
+    if (!isa<ShapedType>(trueValue.getType()) ||
+        !isa<ShapedType>(falseValue.getType()))
       return failure();
 
     auto initDims = getDims(rewriter, loc, trueValue);
@@ -163,7 +163,7 @@ struct ArithToLinalgPass : public ArithToLinalgPassBase<ArithToLinalgPass> {
     target.addDynamicallyLegalDialect<arith::ArithDialect,
                                       arith_ext::ArithExtDialect>(
         [&](Operation *op) {
-          return !op->getResultTypes().front().isa<ShapedType>();
+          return !isa<ShapedType>(op->getResultTypes().front());
         });
     // Setup conversion patterns.
     RewritePatternSet patterns(&ctx);

@@ -146,7 +146,7 @@ LogicalResult PointerMetaInfoTracker::parseOp<triton::SplatOp>(
   this->offset = rewriter.create<triton::SplatOp>(
       loc,
       RankedTensorType::get(
-          op.getResult().getType().cast<ShapedType>().getShape(),
+          mlir::cast<ShapedType>(op.getResult().getType()).getShape(),
           this->offset.getType()),
       this->offset);
   return success();
@@ -171,7 +171,7 @@ LogicalResult PointerMetaInfoTracker::parseOp<triton::BroadcastOp>(
   this->offset = rewriter.create<triton::BroadcastOp>(
       loc,
       RankedTensorType::get(
-          op.getResult().getType().cast<ShapedType>().getShape(),
+          mlir::cast<ShapedType>(op.getResult().getType()).getShape(),
           getElementTypeOrSelf(this->offset.getType())),
       this->offset);
   return success();
@@ -205,14 +205,15 @@ template <>
 LogicalResult PointerMetaInfoTracker::parseOp<tensor::ExpandShapeOp>(
     tensor::ExpandShapeOp op, Location loc,
     ConversionPatternRewriter &rewriter) {
-  if (failed(parse(op.getOperand(), loc, rewriter)))
+  if (failed(parse(op.getSrc(), loc, rewriter)))
     return failure();
   this->offset = rewriter.create<tensor::ExpandShapeOp>(
       loc,
       RankedTensorType::get(
-          op.getResult().getType().cast<ShapedType>().getShape(),
+          mlir::cast<ShapedType>(op.getResult().getType()).getShape(),
           getElementTypeOrSelf(this->offset.getType())),
-      this->offset, op.getReassociation());
+      this->offset, op.getReassociation(), op.getOutputShape(),
+      op.getStaticOutputShape());
   return success();
 }
 
@@ -225,7 +226,7 @@ LogicalResult PointerMetaInfoTracker::parseOp<tensor::CollapseShapeOp>(
   this->offset = rewriter.create<tensor::CollapseShapeOp>(
       loc,
       RankedTensorType::get(
-          op.getResult().getType().cast<ShapedType>().getShape(),
+          mlir::cast<ShapedType>(op.getResult().getType()).getShape(),
           getElementTypeOrSelf(this->offset.getType())),
       this->offset, op.getReassociation());
   return success();
@@ -270,7 +271,7 @@ PointerMetaInfoTracker::parse(Value operand, Location loc,
     if (res.failed() && !isProcessedSuccessfully)
       return failure(); // res
   }
-  if (!operand.getType().isa<triton::PointerType>())
+  if (!mlir::isa<triton::PointerType>(operand.getType()))
     return rewriter.notifyMatchFailure(
         loc, "only support base ptr of triton scalar pointer");
   this->base = operand;

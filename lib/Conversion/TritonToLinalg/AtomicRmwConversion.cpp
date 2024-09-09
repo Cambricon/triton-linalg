@@ -99,7 +99,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     Type resultTy = op.getResult().getType();
     // FIXME: lower to llvm.atom directly.
-    if (resultTy.isa<RankedTensorType>())
+    if (isa<RankedTensorType>(resultTy))
       return failure();
 
     auto loc = op.getLoc();
@@ -110,7 +110,7 @@ public:
 
     auto zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     RankedTensorType originTensorTy =
-        originTensor.getType().cast<RankedTensorType>();
+        cast<RankedTensorType>(originTensor.getType());
 
     SmallVector<int64_t, 2> shape = {1, 1};
     auto val =
@@ -187,7 +187,7 @@ public:
   matchAndRewrite(triton::AtomicRMWOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     RankedTensorType resultTy =
-        op.getResult().getType().dyn_cast<RankedTensorType>();
+        dyn_cast<RankedTensorType>(op.getResult().getType());
     if (!resultTy)
       return failure();
 
@@ -220,7 +220,7 @@ public:
       return failure();
 
     Value input = op.getVal();
-    auto rank = atomicResultInit.getType().cast<ShapedType>().getRank();
+    auto rank = cast<ShapedType>(atomicResultInit.getType()).getRank();
     atomicResultInit = rewriter.create<tensor::ExtractSliceOp>(
         loc, atomicResultInit, ptrInfo->offsets, ptrInfo->sizes,
         SmallVector<OpFoldResult>(rank, rewriter.getIndexAttr(1)));
@@ -272,7 +272,7 @@ public:
   mlir::LogicalResult
   matchAndRewrite(triton::AtomicRMWOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto resultTy = op.getResult().getType().dyn_cast<RankedTensorType>();
+    auto resultTy = dyn_cast<RankedTensorType>(op.getResult().getType());
     if (!resultTy)
       return failure();
 

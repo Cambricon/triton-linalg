@@ -63,19 +63,19 @@ Value triton::selectByMask(Location loc, Value mask, Value trueVal,
                            Value falseVal,
                            ConversionPatternRewriter &rewriter) {
   assert(trueVal && "Get true value failed.");
-  auto trueType = trueVal.getType().dyn_cast<ShapedType>();
+  auto trueType = dyn_cast<ShapedType>(trueVal.getType());
   if (!mask || !falseVal || !trueType)
     return trueVal;
 
   auto falseType = falseVal.getType();
-  if (!falseType.isa<ShapedType>()) {
+  if (!isa<ShapedType>(falseType)) {
     Value falseValInit =
         rewriter.create<tensor::EmptyOp>(loc, trueType.getShape(), falseType);
     falseVal =
         rewriter.create<linalg::FillOp>(loc, falseVal, ValueRange{falseValInit})
             .getResult(0);
   }
-  auto resType = falseType.template cast<ShapedType>();
+  auto resType = cast<ShapedType>(falseType);
   auto initDims = triton::getDims(rewriter, loc, falseVal);
   Value initTensor =
       rewriter.create<tensor::EmptyOp>(loc, initDims, resType.getElementType());
@@ -94,7 +94,7 @@ Value triton::flattenValueToMatchGatherScatter(
   if (!value)
     return value;
 
-  auto valueTy = value.getType().cast<RankedTensorType>();
+  auto valueTy = cast<RankedTensorType>(value.getType());
   auto loc = value.getLoc();
   auto rank = valueTy.getRank();
 
@@ -132,10 +132,10 @@ Value triton::reshapeGatherScatterValueTo(Value value,
                                           RankedTensorType resultTy,
                                           ConversionPatternRewriter &rewriter) {
   assert(value);
-  auto valueTy = value.getType().cast<RankedTensorType>();
+  auto valueTy = cast<RankedTensorType>(value.getType());
   auto loc = value.getLoc();
   auto dstRank = resultTy.getRank();
-  auto srcRank = value.getType().cast<RankedTensorType>().getRank();
+  auto srcRank = cast<RankedTensorType>(value.getType()).getRank();
 
   if (dstRank == 0) {
     // Zero rank.
@@ -225,7 +225,7 @@ Value TritonPtrConversionBase::transformResultWithTransposeAndDimInfo(
     Value value, ArrayRef<int64_t> permutations, ArrayRef<DimInfo> dimInfos,
     ArrayRef<OpFoldResult> actualSizes,
     ConversionPatternRewriter &rewriter) const {
-  auto valueTy = value.getType().cast<ShapedType>();
+  auto valueTy = cast<ShapedType>(value.getType());
   auto loc = value.getLoc();
 
   // As the shape of value has been transposed before broadcasted by dimInfos,
@@ -286,7 +286,7 @@ Value TritonPtrConversionBase::transformResultWithTransposeAndDimInfo(
 Value TritonPtrConversionBase::transformInputWithTransposeAndDimInfo(
     Value value, ArrayRef<int64_t> permutations, ArrayRef<DimInfo> dimInfos,
     ArrayRef<OpFoldResult> offsets, ConversionPatternRewriter &rewriter) const {
-  auto valueTy = value.getType().cast<ShapedType>();
+  auto valueTy = cast<ShapedType>(value.getType());
   assert((!ShapedType::isDynamicShape(valueTy.getShape())) &&
          "value shape should be static");
   auto loc = value.getLoc();
@@ -308,7 +308,7 @@ Value TritonPtrConversionBase::transformInputWithTransposeAndDimInfo(
   if (!isConsecutive(permutations)) {
     Value init = rewriter.create<tensor::EmptyOp>(
         loc,
-        getValuesByPerms(ret.getType().cast<ShapedType>().getShape(),
+        getValuesByPerms(cast<ShapedType>(ret.getType()).getShape(),
                          permutations),
         valueTy.getElementType());
     ret = rewriter.create<linalg::TransposeOp>(loc, ret, init, permutations)
@@ -342,7 +342,7 @@ Value TritonPtrConversionBase::transformInputWithTransposeAndDimInfo(
   /// Deduce the type of the result to use for the canonicalized operation.
   RankedTensorType resultType =
       tensor::ExtractSliceOp::inferCanonicalRankReducedResultType(
-          desiredResultRank, ret.getType().cast<RankedTensorType>(),
+          desiredResultRank, cast<RankedTensorType>(ret.getType()),
           transposedOffsets, newSizes, strides);
   ret = rewriter
             .create<tensor::ExtractSliceOp>(

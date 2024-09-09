@@ -57,12 +57,12 @@ AxisInfoExt AxisInfoExt::overrideByHint(Operation *op) const {
 
 AxisInfoExt AxisInfoExt::getPessimisticValueState(Value value) {
   auto rank = 1;
-  if (TensorType ty = value.getType().dyn_cast<TensorType>())
+  if (TensorType ty = dyn_cast<TensorType>(value.getType()))
     rank = ty.getRank();
 
   AxisInfoExt ret(DimVectorT(rank, kInitValue), DimVectorT(rank, kInitValue),
                   DimVectorT(rank, kStrideValueInitValue));
-  BlockArgument blockArg = value.dyn_cast<BlockArgument>();
+  BlockArgument blockArg = dyn_cast<BlockArgument>(value);
   if (!blockArg || !blockArg.getOwner()->isEntryBlock()) {
     return ret;
   }
@@ -82,9 +82,9 @@ AxisInfoExt AxisInfoExt::getPessimisticValueState(Value value) {
   // Initialize attributes one by one.
   for (auto [vec, attrName] : retVecs) {
     Attribute attr = func.getArgAttr(blockArg.getArgNumber(), attrName);
-    if (auto intAttr = attr.dyn_cast_or_null<IntegerAttr>())
+    if (auto intAttr = dyn_cast_or_null<IntegerAttr>(attr))
       *vec = AxisInfoExt::DimVectorT(rank, intAttr.getValue().getZExtValue());
-    if (auto denseAttr = attr.dyn_cast_or_null<DenseElementsAttr>()) {
+    if (auto denseAttr = dyn_cast_or_null<DenseElementsAttr>(attr)) {
       auto vals = denseAttr.getValues<int>();
       *vec = AxisInfoExt::DimVectorT(vals.begin(), vals.end());
     }
@@ -162,18 +162,18 @@ triton::overrideAxisInfoByHint(Operation *op,
   AxisInfoExt::DimVectorT divisibility = knownDivisibility,
                           stride = knownStride, strideValue = knownStrideValue;
   if (Attribute attr = op->getAttr("tt.divisibility")) {
-    auto vals = attr.cast<DenseElementsAttr>().getValues<int>();
+    auto vals = cast<DenseElementsAttr>(attr).getValues<int>();
     divisibility = AxisInfoExt::DimVectorT(vals.begin(), vals.end());
   }
   if (Attribute attr = op->getAttr("tt.contiguity")) {
-    auto vals = attr.cast<DenseElementsAttr>().getValues<int>();
+    auto vals = cast<DenseElementsAttr>(attr).getValues<int>();
     stride = AxisInfoExt::DimVectorT(vals.begin(), vals.end());
     strideValue = AxisInfoExt::DimVectorT(vals.size(), 1);
   }
   if (Attribute attr = op->getAttr("tt.constancy")) {
     assert(!op->getAttr("tt.contiguity") &&
            "Get tt.constancy and tt.contiguity attribute at the same op");
-    auto vals = attr.cast<DenseElementsAttr>().getValues<int>();
+    auto vals = cast<DenseElementsAttr>(attr).getValues<int>();
     stride = AxisInfoExt::DimVectorT(vals.begin(), vals.end());
     strideValue = AxisInfoExt::DimVectorT(vals.size(), 0);
   }

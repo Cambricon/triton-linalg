@@ -72,7 +72,7 @@ static Value extractCondFromShapeMask(Value mask, PatternRewriter &rewriter) {
   if (!mask)
     return mask;
   auto loc = mask.getLoc();
-  if (auto maskValType = mask.getType().dyn_cast<ShapedType>()) {
+  if (auto maskValType = dyn_cast<ShapedType>(mask.getType())) {
     assert(isAllOneSizeType(maskValType) ||
            isa_and_nonnull<arith::ConstantOp>(mask.getDefiningOp()));
     Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
@@ -94,7 +94,7 @@ static Value getCondVal(Value mask, PatternRewriter &rewriter) {
   // For example:
   // - %mask : tensor<i1>
   // - %mask = tensor<1x1xi1>
-  if (auto maskTy = mask.getType().dyn_cast<ShapedType>()) {
+  if (auto maskTy = dyn_cast<ShapedType>(mask.getType())) {
     if (isAllOneSizeType(maskTy))
       return extractCondFromShapeMask(mask, rewriter);
   }
@@ -111,7 +111,7 @@ static Value getCondVal(Value mask, PatternRewriter &rewriter) {
         // %mask = tt.broadcast tensor<1x1xi1> -> <ax1xbx1xi1>
         .Case<triton::BroadcastOp>([&](triton::BroadcastOp broadcastOp) {
           Value src = broadcastOp.getSrc();
-          if (isAllOneSizeType(src.getType().cast<ShapedType>())) {
+          if (isAllOneSizeType(cast<ShapedType>(src.getType()))) {
             scalarMask = src;
           } else {
             scalarMask = getCondVal(src, rewriter);
@@ -119,7 +119,7 @@ static Value getCondVal(Value mask, PatternRewriter &rewriter) {
         })
         // %mask = arith.constant dense : tensor<axbxi1>
         .Case<arith::ConstantOp>([&](arith::ConstantOp constantOp) {
-          auto value = constantOp.getValue().dyn_cast<DenseElementsAttr>();
+          auto value = dyn_cast<DenseElementsAttr>(constantOp.getValue());
           if (value && value.isSplat())
             scalarMask = constantOp.getResult();
         });
@@ -372,8 +372,8 @@ public:
       return success();
     }
 
-    ShapedType inputShape = op.getSrc().getType().cast<ShapedType>();
-    ShapedType outputShape = op.getResult().getType().cast<ShapedType>();
+    ShapedType inputShape = cast<ShapedType>(op.getSrc().getType());
+    ShapedType outputShape = cast<ShapedType>(op.getResult().getType());
     // Meet case 3 described above, so do nothing but return.
     if (inputShape.getRank() == outputShape.getRank()) {
       return failure();
@@ -388,7 +388,7 @@ public:
       expanded =
           rewriter.create<triton::ExpandDimsOp>(op.getLoc(), expanded, 0);
     }
-    if (llvm::equal(expanded.getType().cast<ShapedType>().getShape(),
+    if (llvm::equal(cast<ShapedType>(expanded.getType()).getShape(),
                     outputShapeArr)) {
       rewriter.replaceOp(op, expanded);
     } else {
@@ -400,8 +400,8 @@ public:
 
 private:
   bool isScalarOr0dTensor(const Value &val) const {
-    return !val.getType().isa<ShapedType>() ||
-           val.getType().cast<ShapedType>().getRank() == 0;
+    return !isa<ShapedType>(val.getType()) ||
+           cast<ShapedType>(val.getType()).getRank() == 0;
   }
 
   /// Returns how many axes should be expanded to input
@@ -701,14 +701,14 @@ public:
     auto assertMessage =
         llvm::formatv("{0}:{1}: {2} Assertion `{3}` failed", op.getFile(),
                       op.getLine(), op.getFunc(), op.getMessage());
-    assert(valType.getElementType().isa<mlir::IntegerType>() &&
+    assert(isa<mlir::IntegerType>(valType.getElementType()) &&
            "Only support int tensor for assert");
     // If the AssertOp input shape dimension is 1 or 0 dimension and the 0th
     // dimension is 1, it is converted to ScalarAssertOp.
     if ((rank != 1 && rank != 0) || (rank > 0 && valType.getShape()[0] != 1)) {
       return failure();
     }
-    auto rankType = valType.cast<RankedTensorType>();
+    auto rankType = cast<RankedTensorType>(valType);
     auto elemType = rankType.getElementType();
     Value zeroIndex = rewriter.create<arith::ConstantIndexOp>(op.getLoc(), 0);
     Value cond;

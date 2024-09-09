@@ -106,7 +106,7 @@ static inline bool isOutputRankReduced(tensor::ExtractSliceOp op) {
 /// 2. ofr is a value and defined by tensor.dim, with the index `dim` and
 /// source `value`.
 static bool hasSameSizeWithDim(OpFoldResult ofr, Value value, int64_t dim) {
-  auto type = value.getType().dyn_cast<ShapedType>();
+  auto type = mlir::dyn_cast<ShapedType>(value.getType());
   assert(type && dim >= 0 && dim < type.getRank() &&
          "Expected value with ShapedType and dim is a valid axis index.");
 
@@ -117,7 +117,7 @@ static bool hasSameSizeWithDim(OpFoldResult ofr, Value value, int64_t dim) {
 
   // Check whether ofr is defined by an tensor.dim, with the index `dim` and
   // source `value`.
-  auto ofrValue = ofr.dyn_cast<Value>();
+  auto ofrValue = mlir::dyn_cast<Value>(ofr);
   auto dimOp = ofrValue ? ofrValue.getDefiningOp<tensor::DimOp>() : nullptr;
   if (!dimOp || dimOp.getSource() != value)
     return false;
@@ -125,7 +125,7 @@ static bool hasSameSizeWithDim(OpFoldResult ofr, Value value, int64_t dim) {
   Value index = dimOp.getIndex();
   auto constantOp = index.getDefiningOp<arith::ConstantOp>();
   return constantOp &&
-         constantOp.getValue().cast<mlir::IntegerAttr>().getInt() == dim;
+         mlir::cast<mlir::IntegerAttr>(constantOp.getValue()).getInt() == dim;
 }
 
 /// Reshape input to resultType by adding unit dims.
@@ -140,7 +140,7 @@ static bool hasSameSizeWithDim(OpFoldResult ofr, Value value, int64_t dim) {
 static Value expandShapeToResultTypeByAddUnitDims(OpBuilder &b, Location loc,
                                                   ShapedType resultType,
                                                   Value value) {
-  auto sourceType = value.getType().template cast<ShapedType>();
+  auto sourceType = mlir::cast<ShapedType>(value.getType());
   int64_t dstRank = resultType.getRank();
   int64_t srcRank = sourceType.getRank();
   int64_t rankDiff = dstRank - srcRank;
@@ -195,7 +195,7 @@ static Value expandShapeToResultTypeByAddUnitDims(OpBuilder &b, Location loc,
 static Value reshapeToResultTypeByDropUnitDims(OpBuilder &b, Location loc,
                                                ShapedType resultType,
                                                Value value) {
-  auto sourceType = value.getType().template cast<ShapedType>();
+  auto sourceType = mlir::cast<ShapedType>(value.getType());
   int64_t dstRank = resultType.getRank();
   int64_t srcRank = sourceType.getRank();
   int64_t rankDiff = srcRank - dstRank;
@@ -366,8 +366,8 @@ static OpBuilder::InsertPoint getInsertionPoint(ArrayRef<Value> values,
   opFoldResults.append(state.offsets);
   opFoldResults.append(state.sizes);
   opFoldResults.append(state.strides);
-  std::pair<ArrayAttr, SmallVector<Value>> attrOrVals =
-      decomposeMixedValues(rewriter, opFoldResults);
+  std::pair<SmallVector<int64_t>, SmallVector<Value>> attrOrVals =
+      decomposeMixedValues(opFoldResults);
   SmallVector<Value> dependentVals = attrOrVals.second;
   dependentVals.append(SmallVector<Value>(values));
 
@@ -416,7 +416,7 @@ static OpBuilder::InsertPoint getInsertionPoint(ArrayRef<Value> values,
   }
   // Otherwise, return one argument as the insertion point.
   return OpBuilder::InsertPoint(
-      innerBlock, llvm::cast<BlockArgument>(args.front()).getOwner()->begin());
+      innerBlock, mlir::cast<BlockArgument>(args.front()).getOwner()->begin());
 }
 
 static void getExtractedValueFrom(Value value, ExtractState &state,
@@ -562,7 +562,7 @@ void ExtractAnalysis::visitOperandFromOp(linalg::MapOp op, ExtractState &state,
 
     // Clone map body to generate extracted map result.
     for (auto &payload : body->getOperations()) {
-      if (!isa<linalg::YieldOp>(payload))
+      if (!mlir::isa<linalg::YieldOp>(payload))
         rewriter.clone(payload, bvm);
     }
     auto &yieldOp = body->getOperations().back();
@@ -594,7 +594,7 @@ void ExtractAnalysis::visitOperandFromOp(linalg::FillOp op, ExtractState &state,
   }
   Value output = rewriter.create<tensor::EmptyOp>(
       loc, state.sizes,
-      op.getResult(0).getType().template cast<ShapedType>().getElementType());
+      mlir::cast<ShapedType>(op.getResult(0).getType()).getElementType());
   state.extractedVal =
       rewriter.create<linalg::FillOp>(loc, op.getOperand(0), output)
           .getResult(0);
@@ -699,7 +699,7 @@ static void extractFromCollapseShapeOp(tensor::CollapseShapeOp op,
   if (resRank == 0) {
     Value c0 =
         rewriter.createOrFold<arith::ConstantOp>(loc, rewriter.getIndexAttr(0));
-    auto srcRank = collapseSrc.getType().cast<ShapedType>().getRank();
+    auto srcRank = mlir::cast<ShapedType>(collapseSrc.getType()).getRank();
     operandState.offsets.append(srcRank, c0);
   }
 
@@ -770,7 +770,7 @@ static void extractSliceFromCollapseShapeOp(tensor::CollapseShapeOp op,
     operandState.strides = SmallVector<OpFoldResult>(srcRank, indexAttrOne);
   }
 
-  auto srcTy = op.getResultType().cast<RankedTensorType>();
+  auto srcTy = mlir::cast<RankedTensorType>(op.getResultType());
   auto resultTy = tensor::ExtractSliceOp::inferResultType(
       srcTy, state.offsets, state.sizes, state.strides);
   ExtractAnalysis::visitOperand(collapseSrc, operandState, op, loc, rewriter);
@@ -843,7 +843,7 @@ static void extractSliceFromExpandShapeOp(tensor::ExpandShapeOp op,
   auto reassociationIndices = op.getReassociationIndices();
   ExtractState operandState;
   operandState.type = state.type;
-  auto dstType = expandDst.getType().cast<ShapedType>();
+  auto dstType = mlir::cast<ShapedType>(expandDst.getType());
   auto indexAttrZero = rewriter.getIndexAttr(0);
   auto indexAttrOne = rewriter.getIndexAttr(1);
   for (auto srcDimIdx : llvm::seq<int64_t>(0, srcRank)) {
@@ -894,7 +894,7 @@ static void extractSliceFromExpandShapeOp(tensor::ExpandShapeOp op,
     getExtractedValueFrom(expandDst, state, loc, rewriter);
     return;
   }
-  auto srcTy = op.getResultType().cast<RankedTensorType>();
+  auto srcTy = mlir::cast<RankedTensorType>(op.getResultType());
   auto resultTy = tensor::ExtractSliceOp::inferResultType(
       srcTy, state.offsets, state.sizes, state.strides);
   ExtractAnalysis::visitOperand(expandSrc, operandState, op, loc, rewriter);
@@ -919,9 +919,9 @@ void ExtractAnalysis::visitOperandFromOp(Operation *op, ExtractState &state,
                                          PatternRewriter &rewriter) {
   auto *dialect = op->getDialect();
   (void)dialect;
-  assert(
-      (isa<arith::ArithDialect>(dialect) || isa<math::MathDialect>(dialect)) &&
-      "unregister operations in extact analysis for now.");
+  assert((mlir::isa<arith::ArithDialect>(dialect) ||
+          mlir::isa<math::MathDialect>(dialect)) &&
+         "unregister operations in extact analysis for now.");
 
   SmallVector<ExtractState> operandStates;
   for (Value v : op->getOperands()) {
@@ -940,10 +940,10 @@ void ExtractAnalysis::visitOperandFromOp(Operation *op, ExtractState &state,
   // Since `arith.constant` uses attribute to represent value, we can not
   // use operation identifier to update it directly. Here, we utilize the
   // fold methods of extract-like operations to eliminate constant operations.
-  if (isa<arith::ConstantOp>(op))
+  if (mlir::isa<arith::ConstantOp>(op))
     return getExtractedValueFrom(op->getResult(0), state, loc, rewriter);
 
-  auto resultTy = op->getResult(0).getType().template cast<RankedTensorType>();
+  auto resultTy = mlir::cast<RankedTensorType>(op->getResult(0).getType());
   Type newResTy =
       (state.type == ExtractType::EXTRACT)
           ? resultTy.getElementType()
@@ -965,8 +965,8 @@ void ExtractAnalysis::visitOperand(Value operand, ExtractState &state,
     return getExtractedValueFrom(operand, state, loc, rewriter);
 
   auto *dialect = opInst->getDialect();
-  if (isa<mlir::arith::ArithDialect>(dialect) ||
-      isa<mlir::math::MathDialect>(dialect)) {
+  if (mlir::isa<mlir::arith::ArithDialect>(dialect) ||
+      mlir::isa<mlir::math::MathDialect>(dialect)) {
     return visitOperandFromOp(opInst, state, loc, rewriter);
   }
 
@@ -1032,7 +1032,7 @@ static void eliminateDeadExpressionsFrom(Value value,
     auto val = candidates.front();
     candidates.pop();
 
-    if (val.isa<BlockArgument>())
+    if (mlir::isa<BlockArgument>(val))
       continue;
 
     auto *defOp = val.getDefiningOp();
@@ -1095,7 +1095,8 @@ static LogicalResult extractIterArgPrecondition(scf::ForOp forOp,
                                                 unsigned iterIndex,
                                                 PatternRewriter &rewriter) {
   // Move loop invariant code ahead.
-  auto loopLikeOpInterface = cast<LoopLikeOpInterface>(forOp.getOperation());
+  auto loopLikeOpInterface =
+      mlir::cast<LoopLikeOpInterface>(forOp.getOperation());
   moveLoopInvariantCode(loopLikeOpInterface);
 
   Block *loopBody = &forOp.getRegion().front();
@@ -1133,7 +1134,7 @@ static LogicalResult extractIterArgPrecondition(scf::ForOp forOp,
   SetVector<Operation *> forwardSlice;
   ForwardSliceOptions forwardSliceOptions;
   forwardSliceOptions.filter = [&forOp](Operation *op) {
-    return !isa<OpTy>(op) && !isa<scf::YieldOp>(op) &&
+    return !mlir::isa<OpTy>(op) && !mlir::isa<scf::YieldOp>(op) &&
            op->getParentOp() == forOp.getOperation() &&
            forOp->isProperAncestor(op);
   };
@@ -1160,7 +1161,7 @@ static LogicalResult extractIterArgPrecondition(scf::ForOp forOp,
   SmallVector<ExtractState> states;
   states.reserve(extractNum);
   for (size_t index = 0; index < extractNum; ++index) {
-    auto extractLikeOp = cast<OpTy>(extractCandidates[index]);
+    auto extractLikeOp = mlir::cast<OpTy>(extractCandidates[index]);
     auto operand = yieldOp->getOperand(iterIndex);
     ExtractState state{extractLikeOp};
     state.extractedVal = nullptr;
@@ -1181,15 +1182,16 @@ static LogicalResult extractIterArgPrecondition(scf::ForOp forOp,
       if (loopLikeOpInterface.isDefinedOutsideOfLoop(currVal))
         continue;
 
-      if (currVal.isa<BlockArgument>() &&
-          currVal.dyn_cast<BlockArgument>().getOwner()->getParentOp() == forOp)
+      if (mlir::isa<BlockArgument>(currVal) &&
+          mlir::dyn_cast<BlockArgument>(currVal).getOwner()->getParentOp() ==
+              forOp)
         return failure();
 
       auto *op = currVal.getDefiningOp();
-      if (isa<OpTy>(op)) {
+      if (mlir::isa<OpTy>(op)) {
         if (op->getOperand(0) != loopBody->getArgument(
                                      iterIndex + forOp.getNumInductionVars()) ||
-            !states[index].isSameExceptVal(cast<OpTy>(op))) {
+            !states[index].isSameExceptVal(mlir::cast<OpTy>(op))) {
           // Remove new inserted operations.
           eliminateDeadExpressionsFrom(states[index].extractedVal, rewriter);
           return failure();
@@ -1232,7 +1234,7 @@ static LogicalResult tryExtractIterArgPrecondition(scf::ForOp op,
   rewriter.setInsertionPoint(op);
   auto exeOp = rewriter.create<scf::ExecuteRegionOp>(op->getLoc(), TypeRange{});
   rewriter.setInsertionPointToStart(&exeOp.getRegion().emplaceBlock());
-  auto forOp = cast<scf::ForOp>(rewriter.clone(*op));
+  auto forOp = mlir::cast<scf::ForOp>(rewriter.clone(*op));
   auto ret = extractIterArgPrecondition<OpTy>(forOp, iterIndex, rewriter);
   rewriter.eraseOp(exeOp);
   return ret;
@@ -1413,7 +1415,7 @@ struct SCFRearrangementPattern : public OpRewritePattern<scf::ForOp> {
       // Clone operations from old loop body to the new one.
       llvm::MapVector<Operation *, Operation *> oldAndNewOpMap;
       for (auto &op : *oldLoopBody) {
-        if (extractLikeOpsToMove.contains(&op) || isa<scf::YieldOp>(&op))
+        if (extractLikeOpsToMove.contains(&op) || mlir::isa<scf::YieldOp>(&op))
           continue;
         auto *newOp = rewriter.clone(op, bvm);
         oldAndNewOpMap[&op] = newOp;
@@ -1454,12 +1456,12 @@ struct SCFRearrangementPattern : public OpRewritePattern<scf::ForOp> {
            loopBody
                ->getArgument(iterOperandNumber + newForOp.getNumInductionVars())
                .getUsers()) {
-        if (!isa<OpTy>(op))
+        if (!mlir::isa<OpTy>(op))
           continue;
         Value substitute;
-        ExtractState targetState{cast<OpTy>(op)};
+        ExtractState targetState{mlir::cast<OpTy>(op)};
         for (const auto &en : llvm::enumerate(extractLikeOpsToMove)) {
-          if (!targetState.isSameExceptVal(cast<OpTy>(en.value())))
+          if (!targetState.isSameExceptVal(mlir::cast<OpTy>(en.value())))
             continue;
           substitute =
               loopBody->getArgument(en.index() + loopBody->getNumArguments() -
@@ -1475,7 +1477,8 @@ struct SCFRearrangementPattern : public OpRewritePattern<scf::ForOp> {
 
       for (auto p : replacePairs) {
         rewriter.setInsertionPointToStart(loopBody);
-        if (auto extractSliceOp = dyn_cast<tensor::ExtractSliceOp>(p.first)) {
+        if (auto extractSliceOp =
+                mlir::dyn_cast<tensor::ExtractSliceOp>(p.first)) {
           auto resultType = extractSliceOp.getResultType();
           p.second = expandShapeToResultTypeByAddUnitDims(
               rewriter, forOp.getLoc(), resultType, p.second);
@@ -1506,14 +1509,35 @@ struct ExtractLikeMoveBackwardPass
 
   void runOnOperation() override {
     auto *context = &getContext();
-    RewritePatternSet patterns(context);
-    patterns.add<ExtractRearrangementPattern<tensor::ExtractOp>,
-                 ExtractRearrangementPattern<tensor::ExtractSliceOp>,
-                 SCFRearrangementPattern<tensor::ExtractOp>,
-                 SCFRearrangementPattern<tensor::ExtractSliceOp>>(context);
-    func::FuncOp func = getOperation();
-    if (failed(applyPatternsAndFoldGreedily(func, std::move(patterns))))
-      return signalPassFailure();
+    GreedyRewriteConfig config;
+    bool changed = false;
+
+    // FIXME: Starting from LLVM19, during conversion, if the ParentOp of
+    // an Op is also in the same conversion pattern, accessing the ParentOp from
+    // within the Op may be an invalid behavior.
+    do {
+      RewritePatternSet extractPatterns(context);
+      extractPatterns.add<ExtractRearrangementPattern<tensor::ExtractOp>,
+                          ExtractRearrangementPattern<tensor::ExtractSliceOp>>(
+          context);
+
+      RewritePatternSet scfPatterns(context);
+      scfPatterns.add<SCFRearrangementPattern<tensor::ExtractOp>,
+                      SCFRearrangementPattern<tensor::ExtractSliceOp>>(context);
+
+      bool extractChanged = false;
+      if (failed(applyPatternsAndFoldGreedily(getOperation(),
+                                              std::move(extractPatterns),
+                                              config, &extractChanged)))
+        return signalPassFailure();
+
+      bool scfChanged = false;
+      if (failed(applyPatternsAndFoldGreedily(
+              getOperation(), std::move(scfPatterns), config, &scfChanged)))
+        return signalPassFailure();
+
+      changed = extractChanged && scfChanged;
+    } while (changed);
   }
 };
 } // anonymous namespace

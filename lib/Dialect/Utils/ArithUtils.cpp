@@ -75,10 +75,10 @@ FailureOr<Value> mlir::triton::getSplatValue(OpBuilder &builder,
     return op.getResult();
   }
   Type retType = op.getType();
-  auto tensorType = retType.dyn_cast_or_null<RankedTensorType>();
+  auto tensorType = dyn_cast_or_null<RankedTensorType>(retType);
   if (!tensorType)
     return failure();
-  auto value = op.getValue().dyn_cast<DenseElementsAttr>();
+  auto value = dyn_cast<DenseElementsAttr>(op.getValue());
   if (!value || !value.isSplat())
     return failure();
 

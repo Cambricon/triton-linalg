@@ -47,8 +47,8 @@ def StoreResourceOp : Aux_Op<"store"> {
   }];
 
   let arguments = (ins
-    AnyType:$to,
-    AnyType:$from
+    Arg<AnyType, "", [MemWrite]>:$to,
+    Arg<AnyType, "", [MemRead]>:$from
   );
 
   let results = (outs);
@@ -61,14 +61,14 @@ def StoreResourceOp : Aux_Op<"store"> {
 
   let extraClassDeclaration = [{
     bool isScalar(const Value& value) {
-      return !value.getType().isa<ShapedType>();
+      return !isa<ShapedType>(value.getType());
     }
 
     bool hasPureBufferSemantics() {
       return ::llvm::all_of(getOperands(),
         [&](const Value& opOperand) {
           return isScalar(opOperand) ||
-                 opOperand.getType().isa<::mlir::MemRefType>();
+                 isa<::mlir::MemRefType>(opOperand.getType());
         });
     }
 
@@ -76,7 +76,7 @@ def StoreResourceOp : Aux_Op<"store"> {
       return ::llvm::all_of(getOperands(),
         [&](const Value& opOperand) {
           return isScalar(opOperand) ||
-                 opOperand.getType().isa<::mlir::TensorType>();
+                 isa<::mlir::TensorType>(opOperand.getType());
         });
     }
 
@@ -190,7 +190,7 @@ def ViewOp :
     }
 
     // The result of the op is always a ranked memref.
-    MemRefType getType() { return getResult().getType().cast<MemRefType>(); }
+    MemRefType getType() { return cast<MemRefType>(getResult().getType()); }
     Value getViewSource() { return getPtr(); }
     Value getOffset() {
       return getOffsets().empty() ? nullptr : getOffsets()[0];
@@ -199,7 +199,7 @@ def ViewOp :
     /// Return the expected rank of each of the`static_offsets`, `static_sizes`
     /// and `static_strides` attributes.
     std::array<unsigned, 3> getArrayAttrMaxRanks() {
-      unsigned resultRank = getResult().getType().cast<ShapedType>().getRank();
+      unsigned resultRank = cast<ShapedType>(getResult().getType()).getRank();
       return {1, resultRank, resultRank};
     }
 
@@ -265,12 +265,12 @@ def PrintOp : Aux_Op<"print", [DeclareOpInterfaceMethods<MemoryEffectsOpInterfac
     bool hasPureBufferSemantics() {
       return ::llvm::all_of(getOperands(),
         [&](const Value& opOperand) {
-          return opOperand.getType().isa<::mlir::MemRefType>();
+          return isa<::mlir::MemRefType>(opOperand.getType());
         });
     }
     
     ShapedType getInitType() {
-      return getOperands()[0].getType().cast<ShapedType>();;
+      return cast<ShapedType>(getOperands()[0].getType());;
     }
 
     MutableOperandRange getDpsInitsMutable() { return getValuesMutable(); }

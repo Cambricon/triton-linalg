@@ -61,7 +61,7 @@ struct MathToLinalgPass : public MathToLinalgPassBase<MathToLinalgPass> {
     target.addDynamicallyLegalDialect<math::MathDialect,
                                       math_ext::MathExtDialect>(
         [&](Operation *op) {
-          return !op->getResultTypes().front().isa<ShapedType>();
+          return !isa<ShapedType>(op->getResultTypes().front());
         });
     // Setup conversion patterns.
     RewritePatternSet patterns(&ctx);
