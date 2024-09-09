@@ -139,7 +139,8 @@ void mlir::triton::populateArithToLinalgPatterns(RewritePatternSet &patterns) {
       GenericOpPattern<arith::MulFOp>, GenericOpPattern<arith::DivFOp>,
       GenericOpPattern<arith::RemFOp>,
       // Cast ops.
-      GenericOpPattern<arith::IndexCastOp>, GenericOpPattern<arith::ExtUIOp>,
+      GenericOpPattern<arith::IndexCastOp>,
+      GenericOpPattern<arith::IndexCastUIOp>, GenericOpPattern<arith::ExtUIOp>,
       GenericOpPattern<arith::ExtSIOp>, GenericOpPattern<arith::ExtFOp>,
       GenericOpPattern<arith::TruncIOp>, GenericOpPattern<arith::TruncFOp>,
       GenericOpPattern<arith::UIToFPOp>, GenericOpPattern<arith::SIToFPOp>,
