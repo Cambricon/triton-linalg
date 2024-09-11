@@ -297,18 +297,6 @@ public:
     if (op.getMask()) {
       auto atomicMask = triton::flattenValueToMatchGatherScatter(
           rewriter, op.getMask(), false);
-      Value maskInit = rewriter.create<tensor::EmptyOp>(
-          loc, atomicMask.getType().cast<RankedTensorType>().getShape(),
-          rewriter.getI8Type());
-      atomicMask = rewriter
-                       .create<linalg::MapOp>(
-                           loc, ValueRange{atomicMask}, maskInit,
-                           [](OpBuilder &b, Location loc, ValueRange args) {
-                             Value ret = b.create<arith::ExtSIOp>(
-                                 loc, b.getI8Type(), args[0]);
-                             b.create<linalg::YieldOp>(loc, ret);
-                           })
-                       .getResult()[0];
       atomicInputs.push_back(atomicMask);
     }
 
