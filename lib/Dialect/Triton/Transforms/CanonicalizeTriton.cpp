@@ -542,18 +542,17 @@ public:
 /// Example 1:
 ///
 /// ``` mlir
-///   %other = arith.constant dense<0.000000e+00> : tensor<1x1024xf32>
 ///   %mask0 = tt.splat %bool : i1 -> tensor<1x1024xi1>
 ///   %mask1 = ...
 ///   %mask = arith.andi %mask0, %mask1
-///   %res = tt.load %ptr, %mask, %other : tensor<1x1024x!tt.ptr<f32>>
+///   %res = tt.load %ptr, %mask : tensor<1x1024x!tt.ptr<f32>>
 ///   tt.return %res : tensor<1x1024xf32>
 /// ```
 /// is converted to:
 /// ``` mlir
 ///   %constant = arith.constant dense<0.000000e+00> : tensor<1x1024xf32>
 ///   %res = scf.if (%bool) -> tensor<1x1024xf32> {
-///     %load = tt.load %ptr, %mask1, %other : tensor<1x1024x!tt.ptr<f32>>
+///     %load = tt.load %ptr, %mask1 : tensor<1x1024x!tt.ptr<f32>>
 ///     scf.yield %load : tensor<1x1024xf32>
 ///   } else {
 ///     scf.yield %constant : tensor<1x1024xf32>
@@ -562,6 +561,28 @@ public:
 /// ```
 ///
 /// Example 2:
+///
+/// ``` mlir
+///   %other = arith.constant dense<1.000000e+00> : tensor<1x1024xf32>
+///   %mask0 = tt.splat %bool : i1 -> tensor<1x1024xi1>
+///   %mask1 = ...
+///   %mask = arith.andi %mask0, %mask1
+///   %res = tt.load %ptr, %mask, %other : tensor<1x1024x!tt.ptr<f32>>
+///   tt.return %res : tensor<1x1024xf32>
+/// ```
+/// is converted to:
+/// ``` mlir
+///   %other = arith.constant dense<1.000000e+00> : tensor<1x1024xf32>
+///   %res = scf.if (%bool) -> tensor<1x1024xf32> {
+///     %load = tt.load %ptr, %mask1, %other : tensor<1x1024x!tt.ptr<f32>>
+///     scf.yield %load : tensor<1x1024xf32>
+///   } else {
+///     scf.yield %other : tensor<1x1024xf32>
+///   }
+///   tt.return %res : tensor<1x1024xf32>
+/// ```
+///
+/// Example 3:
 ///
 /// ``` mlir
 ///   %mask = tt.splat %bool : i1 -> tensor<1x1024xi1>
@@ -574,7 +595,7 @@ public:
 ///   }
 /// ```
 ///
-/// Example 3:
+/// Example 4:
 ///
 /// ``` mlir
 ///   %mask = tt.splat %bool : i1 -> tensor<64x64xi1>
@@ -642,16 +663,24 @@ class CanonicalizeTtMaskAccessPattern : public OpRewritePattern<OpTy> {
     } else {
       rewriter.create<scf::YieldOp>(loc, newOp->getResults());
       // If else region is empty, it will be fold in canonicalize.
-      // Else region: constant(0) + yield if logical type is AND.
+      // Else region: constant(0 or other value) + yield if logical type is AND.
       if (maskInfo.logicalType == MaskInfo::LogicalType::AND) {
         rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
       } else {
         rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
       }
       // If the processed op has results, it will has only one result.
-      Value zeroVal = rewriter.create<arith::ConstantOp>(
-          loc, resTypes.front(), rewriter.getZeroAttr(resTypes.front()));
-      rewriter.create<scf::YieldOp>(loc, zeroVal);
+      Value yieldVal = nullptr;
+      // If load has other arg set, use other value
+      auto loadOp = llvm::dyn_cast<triton::LoadOp>(op.getOperation());
+      if (loadOp && loadOp.getOther()) {
+        yieldVal = loadOp.getOther();
+      } else {
+        yieldVal = rewriter.create<arith::ConstantOp>(
+            loc, resTypes.front(), rewriter.getZeroAttr(resTypes.front()));
+      }
+
+      rewriter.create<scf::YieldOp>(loc, yieldVal);
       rewriter.replaceOp(op, ifOp);
     }
 

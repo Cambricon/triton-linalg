@@ -162,7 +162,7 @@ public:
     // Yield 0 if mask is false, align with GPU behaviour.
     rewriter.setInsertionPointToStart(ifOp.elseBlock());
     Value zeroConst = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIntegerAttr(op.getResult().getType(), 0));
+        loc, rewriter.getZeroAttr(op.getResult().getType()));
     rewriter.create<scf::YieldOp>(loc, ValueRange(zeroConst));
     rewriter.replaceOp(op, ifOp.getResult(0));
     return success();
