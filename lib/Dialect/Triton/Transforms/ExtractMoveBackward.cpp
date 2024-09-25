@@ -1054,6 +1054,7 @@ static SetVector<Operation *> getCandidateExtractLikeOps(scf::ForOp forOp,
   Block *loopBody = &forOp.getRegion().front();
   auto arg = loopBody->getArgument(forOp.getNumInductionVars() + iterIndex);
   auto loopLikeOpInterface = cast<LoopLikeOpInterface>(forOp.getOperation());
+  moveLoopInvariantCode(loopLikeOpInterface);
 
   SetVector<Operation *> candidates;
   for (auto *op : arg.getUsers()) {
@@ -1466,7 +1467,9 @@ struct SCFRearrangementPattern : public OpRewritePattern<scf::ForOp> {
           break;
         }
 
-        assert(substitute && "Fail to find new iter argument.");
+        if (!substitute)
+          return rewriter.notifyMatchFailure(forOp->getLoc(),
+                                             "Fail to find new iter argument.");
         replacePairs.push_back({op, substitute});
       }
 
