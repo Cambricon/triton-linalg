@@ -1086,20 +1086,28 @@ public:
     if (!tensorType)
       return failure();
 
-    Value init = rewriter.create<tensor::EmptyOp>(loc, tracker.getSizes(),
-                                                  tensorType.getElementType());
-    Value trueVal =
-        rewriter.create<arith::ConstantOp>(loc, rewriter.getBoolAttr(true));
-    Value one =
-        rewriter.create<linalg::FillOp>(loc, trueVal, init).getResult(0);
-
+    auto hasZeroSize = llvm::any_of(tracker.getSizes(), [](const auto &size) {
+      return isConstantIntValue(size, 0);
+    });
+    Value value;
     Value falseVal =
         rewriter.create<arith::ConstantOp>(loc, rewriter.getBoolAttr(false));
-
-    SmallVector<OpFoldResult> offsets = llvm::to_vector(tracker.getStarts());
-    // Replace with pad op.
-    auto value = getPadOrInsertOpWithOther(
-        loc, falseVal, tensorType, one, offsets, tracker.getSizes(), rewriter);
+    if (!hasZeroSize) {
+      Value init = rewriter.create<tensor::EmptyOp>(
+          loc, tracker.getSizes(), tensorType.getElementType());
+      Value trueVal =
+          rewriter.create<arith::ConstantOp>(loc, rewriter.getBoolAttr(true));
+      Value one =
+          rewriter.create<linalg::FillOp>(loc, trueVal, init).getResult(0);
+      SmallVector<OpFoldResult> offsets = llvm::to_vector(tracker.getStarts());
+      // Replace with pad op.
+      value = getPadOrInsertOpWithOther(loc, falseVal, tensorType, one, offsets,
+                                        tracker.getSizes(), rewriter);
+    } else {
+      Value init = rewriter.create<tensor::EmptyOp>(
+          loc, tensorType.getShape(), tensorType.getElementType());
+      value = rewriter.create<linalg::FillOp>(loc, falseVal, init).getResult(0);
+    }
     rewriter.replaceOp(op, value);
     return success();
   }

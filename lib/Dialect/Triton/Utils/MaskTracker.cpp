@@ -296,12 +296,18 @@ private:
         case arith::CmpIPredicate::sle: {
           auto openedUpperBound =
               addOFRs(rhs.scalar, rewriter.getIndexAttr(1), loc, rewriter);
+          // The value of `rhs.scalar` might be exactly `INT64_MAX`.
+          // We need to prevent overflow after adding one.
+          openedUpperBound =
+              maxOFRs(openedUpperBound, rhs.scalar, loc, rewriter);
           newDim = cmpSlt(ret, lhs, openedUpperBound, i);
           break;
         }
         case arith::CmpIPredicate::sgt: {
           auto closedLowerBound =
               addOFRs(rhs.scalar, rewriter.getIndexAttr(1), loc, rewriter);
+          closedLowerBound =
+              maxOFRs(closedLowerBound, rhs.scalar, loc, rewriter);
           newDim = cmpSgt(ret, lhs, closedLowerBound, i);
           break;
         }
