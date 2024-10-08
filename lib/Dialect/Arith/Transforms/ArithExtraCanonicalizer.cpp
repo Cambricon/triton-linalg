@@ -70,6 +70,11 @@ struct ScalarDivToMul final : public OpRewritePattern<arith::DivFOp> {
     auto divisor = op.getRhs();
     auto loc = op.getLoc();
 
+    // If allow-reciprocal flag is not set, we can not convert div to recip.
+    arith::FastMathFlags fmf = op.getFastmathAttr().getValue();
+    if (!arith::bitEnumContainsAll(fmf, arith::FastMathFlags::arcp))
+      return failure();
+
     // Case1: 'rhs' is a scalar.
     FloatAttr divisorAttr;
     if (matchPattern(divisor, m_Constant(&divisorAttr))) {
