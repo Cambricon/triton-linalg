@@ -32,6 +32,8 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include "triton/Dialect/Triton/IR/Types.h"
+
 #include "triton-linalg/Dialect/Triton/Interfaces/InferAxisInfoInterface.cpp.inc"
 
 using namespace mlir;
@@ -59,6 +61,10 @@ AxisInfoExt AxisInfoExt::getPessimisticValueState(Value value) {
   auto rank = 1;
   if (TensorType ty = dyn_cast<TensorType>(value.getType()))
     rank = ty.getRank();
+
+  if (triton::PointerType ty = dyn_cast<triton::PointerType>(value.getType()))
+    if (TensorType elemTy = dyn_cast<TensorType>(ty.getPointeeType()))
+      rank = elemTy.getRank();
 
   AxisInfoExt ret(DimVectorT(rank, kInitValue), DimVectorT(rank, kInitValue),
                   DimVectorT(rank, kStrideValueInitValue));
