@@ -8,7 +8,6 @@
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
 #include "triton-linalg/Conversion/Passes.h"
-#include "triton-linalg/Dialect/Arith/Transforms/Passes.h"
 #include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
 
 inline void registerTritonLinalgDialects(mlir::DialectRegistry &registry) {
@@ -26,7 +25,6 @@ inline void registerTritonLinalgDialects(mlir::DialectRegistry &registry) {
 }
 
 inline void registerTritonLinalgPasses() {
-  ::mlir::triton::arith_ext::registerArithExtPasses();
   ::mlir::triton::registerTritonLinalgConversionPasses();
   ::mlir::triton::registerTritonTransformsExtendPasses();
 }

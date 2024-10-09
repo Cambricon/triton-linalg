@@ -64,7 +64,6 @@
 #include "triton-linalg/Conversion/TritonToLinalg/TritonToLinalg.h"
 #include "triton-linalg/Conversion/TritonToLinalg/TypeConverter.h"
 #include "triton-linalg/Conversion/TritonToLinalg/Utils.h"
-#include "triton-linalg/Dialect/ArithExt/IR/ArithExt.h" // IWYU pragma: keep
 #include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h"
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
 #include "triton-linalg/Dialect/LinalgExt/Utils/Utils.h"
@@ -1690,7 +1689,6 @@ void triton::TritonToLinalgPass::getDependentDialects(
   registry.insert<bufferization::BufferizationDialect>();
   registry.insert<func::FuncDialect>();
   registry.insert<math_ext::MathExtDialect>();
-  registry.insert<arith_ext::ArithExtDialect>();
 }
 
 void triton::TritonToLinalgPass::runOnOperation() {
@@ -1730,7 +1728,6 @@ void triton::TritonToLinalgPass::runOnOperation() {
       triton::linalg_ext::LinalgExtDialect, scf::SCFDialect>(
       [&](Operation *op) { return converter.isLegal(op); });
   target.addDynamicallyLegalDialect<arith::ArithDialect, math::MathDialect,
-                                    arith_ext::ArithExtDialect,
                                     math_ext::MathExtDialect>(
       [&](Operation *op) {
         return !isa<ShapedType>(op->getResultTypes().front());

@@ -6,5 +6,4 @@ add_triton_library(DialectUtils
 
   LINK_LIBS PUBLIC
   MLIRIR
-  ArithExtDialect
 )
