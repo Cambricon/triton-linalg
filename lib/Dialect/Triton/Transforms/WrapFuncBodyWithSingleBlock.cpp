@@ -58,7 +58,7 @@ static void encapsulateMultiBlock(FunctionOpInterface funcOp) {
 
   // Add scf.execute_region to the entry block.
   builder.setInsertionPointToStart(newBlock);
-  FunctionType funcType = funcOp.getFunctionType().cast<FunctionType>();
+  FunctionType funcType = cast<FunctionType>(funcOp.getFunctionType());
   auto containerOp =
       builder.create<scf::ExecuteRegionOp>(loc, funcType.getResults());
   auto &containerRegion = containerOp.getRegion();

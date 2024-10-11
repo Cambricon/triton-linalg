@@ -67,10 +67,11 @@
 #include "triton-linalg/Dialect/Auxiliary/IR/AuxiliaryDialect.h"
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
 #include "triton-linalg/Dialect/LinalgExt/Utils/Utils.h"
-#include "triton-linalg/Dialect/MathExt/IR/Math.h" // IWYU pragma: keep
+#include "triton-linalg/Dialect/MathExt/IR/MathExt.h" // IWYU pragma: keep
 #include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
 #include "triton-linalg/Dialect/Utils/ArithUtils.h"
 #include "triton-linalg/Dialect/Utils/Conventions.h"
+#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "triton-linalg/Utils/Utils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
@@ -127,7 +128,7 @@ getBroadcastDimensions(ArrayRef<int64_t> srcShape, ArrayRef<int64_t> dstShape) {
 
 static Value sliceFirst(ConversionPatternRewriter &rewriter, Location loc,
                         Value input, int64_t dim, bool reverse = false) {
-  ShapedType inputType = input.getType().cast<ShapedType>();
+  ShapedType inputType = cast<ShapedType>(input.getType());
   auto sizes =
       llvm::to_vector(llvm::map_range(inputType.getShape(), [&](int64_t t) {
         return OpFoldResult(rewriter.getI64IntegerAttr(t));
@@ -148,7 +149,7 @@ static Value sliceFirst(ConversionPatternRewriter &rewriter, Location loc,
 
 static Value sliceRemaining(ConversionPatternRewriter &rewriter, Location loc,
                             Value input, int64_t dim, bool reverse = false) {
-  ShapedType inputType = input.getType().cast<ShapedType>();
+  ShapedType inputType = cast<ShapedType>(input.getType());
   auto sizes =
       llvm::to_vector(llvm::map_range(inputType.getShape(), [&](int64_t t) {
         return OpFoldResult(rewriter.getI64IntegerAttr(t));
@@ -167,12 +168,40 @@ static Value sliceRemaining(ConversionPatternRewriter &rewriter, Location loc,
                                                  strides);
 }
 
+static Value getInitConstValue(ReductionMode mode, ShapedType type,
+                               Location &loc, PatternRewriter &rewriter) {
+  auto elementType = type.getElementType();
+  switch (mode) {
+  case ReductionMode::ARGMAX:
+    if (isa<FloatType>(elementType)) {
+      return arith::getIdentityValue(arith::AtomicRMWKind::maximumf,
+                                     elementType, rewriter, loc);
+    } else if (elementType.isIntOrIndex()) {
+      return rewriter.create<arith::ConstantOp>(
+          loc, elementType, rewriter.getIntegerAttr(elementType, -1));
+    }
+    break;
+  case ReductionMode::ARGMIN:
+    if (isa<FloatType>(elementType)) {
+      return arith::getIdentityValue(arith::AtomicRMWKind::minimumf,
+                                     elementType, rewriter, loc);
+    } else if (elementType.isIntOrIndex()) {
+      return rewriter.create<arith::ConstantOp>(
+          loc, elementType, rewriter.getIntegerAttr(elementType, -1));
+    }
+    break;
+  default:
+    break;
+  }
+  return nullptr;
+}
+
 /// Create PrefixAttr for PrintOp.
 FailureOr<StringAttr> createPrefixAttr(StringAttr prefixAttr, Value operand,
                                        bool hex, triton::PrintOp op,
                                        PatternRewriter &rewriter) {
   auto oriOperandType = getElementTypeOrSelf(operand.getType());
-  if (oriOperandType.isa<triton::PointerType>()) {
+  if (isa<triton::PointerType>(oriOperandType)) {
     return rewriter.getStringAttr(prefixAttr.getValue() + Twine("%p"));
   }
 
@@ -234,16 +263,16 @@ struct TritonBroadcastPattern
     if (!type)
       return failure();
 
-    auto resultTy = type.cast<RankedTensorType>();
+    auto resultTy = cast<RankedTensorType>(type);
     auto loc = op.getLoc();
 
     // tt.broadcast with input of scalar has been converted to tt.splat,
     // no need to deal with scalar case here, just return.
-    if (!op.getSrc().getType().isa<ShapedType>()) {
+    if (!isa<ShapedType>(op.getSrc().getType())) {
       return failure();
     }
 
-    ShapedType operandTy = op.getSrc().getType().cast<ShapedType>();
+    ShapedType operandTy = cast<ShapedType>(op.getSrc().getType());
     assert(operandTy.getRank() == resultTy.getRank() &&
            "rank of source and destination should match");
 
@@ -282,7 +311,7 @@ struct TritonSplatPattern : public OpConversionPattern<triton::SplatOp> {
     auto type = typeConverter->convertType(op.getResult().getType());
     if (!type)
       return failure();
-    auto resultTy = type.cast<RankedTensorType>();
+    auto resultTy = cast<RankedTensorType>(type);
 
     auto initOp = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), resultTy.getShape(), resultTy.getElementType());
@@ -302,9 +331,9 @@ struct TritonExpandDimPattern
     auto type = typeConverter->convertType(op.getResult().getType());
     if (!type)
       return failure();
-    auto resultTy = type.cast<RankedTensorType>();
+    auto resultTy = cast<RankedTensorType>(type);
 
-    ShapedType operandTy = op.getSrc().getType().cast<ShapedType>();
+    ShapedType operandTy = cast<ShapedType>(op.getSrc().getType());
 
     SmallVector<ReassociationExprs, 4> reassociationMap;
     if (!createReassociationMaps(rewriter, resultTy.getShape(),
@@ -327,9 +356,9 @@ struct TritonViewPattern : public OpConversionPattern<triton::ReshapeOp> {
   matchAndRewrite(triton::ReshapeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     auto operand = adaptor.getOperands()[0];
-    auto operandType = operand.getType().cast<ShapedType>();
+    auto operandType = cast<ShapedType>(operand.getType());
     auto resultType =
-        typeConverter->convertType(op.getType()).cast<ShapedType>();
+        cast<ShapedType>(typeConverter->convertType(op.getType()));
 
     // Special case where the result is a 0-d tensor.
     if (resultType.getRank() == 0) {
@@ -459,7 +488,7 @@ struct TritonAddPtrPattern : public OpConversionPattern<triton::AddPtrOp> {
     };
 
     Location loc = op.getLoc();
-    auto resultTy = type.dyn_cast<RankedTensorType>();
+    auto resultTy = dyn_cast<RankedTensorType>(type);
     if (!resultTy) {
       // Handle addptr for scalar.
       auto ret = createAdd(adaptor.getPtr(), adaptor.getOffset(), loc, type);
@@ -493,7 +522,7 @@ struct TritonMakeRangePattern
     auto type = typeConverter->convertType(op.getResult().getType());
     if (!type)
       return failure();
-    auto resultTy = type.cast<RankedTensorType>();
+    auto resultTy = cast<RankedTensorType>(type);
 
     auto initOp = rewriter.create<tensor::EmptyOp>(loc, resultTy.getShape(),
                                                    resultTy.getElementType());
@@ -542,7 +571,7 @@ struct TritonBitcastPattern : public OpConversionPattern<triton::BitcastOp> {
     auto type = typeConverter->convertType(op.getResult().getType());
     if (!type)
       return failure();
-    auto resultTy = type.dyn_cast<RankedTensorType>();
+    auto resultTy = dyn_cast<RankedTensorType>(type);
     // Scalar case.
     if (!resultTy) {
       rewriter.replaceOpWithNewOp<arith::BitcastOp>(op, type, adaptor.getSrc());
@@ -577,14 +606,14 @@ struct TritonReducePattern : public OpConversionPattern<triton::ReduceOp> {
     // types.
     auto convertedInputTensorTypes =
         llvm::map_range(adaptor.getOperands().getTypes(),
-                        [](Type t) { return t.cast<TensorType>(); });
+                        [](Type t) { return cast<TensorType>(t); });
     assert(llvm::all_equal(llvm::map_range(
         convertedInputTensorTypes, [](TensorType t) { return t.getShape(); })));
     static_cast<void>(convertedInputTensorTypes);
 
     auto originalResultTensorTypes =
         llvm::map_range(op.getResultTypes(), [](Type t) -> TensorType {
-          if (auto tensorType = t.dyn_cast<TensorType>())
+          if (auto tensorType = dyn_cast<TensorType>(t))
             return tensorType;
           return RankedTensorType::get({}, t);
         });
@@ -599,31 +628,59 @@ struct TritonReducePattern : public OpConversionPattern<triton::ReduceOp> {
 
     llvm::SmallVector<Value> initVals;
     // As we need to analysis the body of reduce op to get the init value,
-    // currently we only support single paylod op. Otherwise, We use a portion
-    // of the input as the initial value for the output.
+    // currently we only support single paylod op and argmax/min op.
+    // Otherwise, We use a portion of the input as the initial value for
+    // the output.
+    auto mode = reducePatternRecognition(op);
     do {
-      if (op.getNumResults() == 1) {
-        Operation *payloadOp =
-            triton::linalg_ext::findPayloadOp(&op.getCombineOp().front());
-        if (!payloadOp)
-          break;
-        std::optional<TypedAttr> fillValAttr =
-            arith::getNeutralElement(payloadOp);
-        // When the requirements are not met, go to the later general
-        // implementation.
-        if (!fillValAttr.has_value())
-          break;
-        Value fillVal =
-            rewriter.create<arith::ConstantOp>(loc, fillValAttr.value());
-        // Create empty vectors as init values.
-        for (TensorType t : convertedResultTensorTypes) {
-          auto initOp = rewriter.create<tensor::EmptyOp>(loc, t.getShape(),
-                                                         t.getElementType());
-          auto fillOp =
-              rewriter.create<linalg::FillOp>(loc, fillVal, initOp.getResult());
-          initVals.push_back(fillOp.getResult(0));
+      if (mode.has_value()) {
+        // Deal single payload.
+        if (op.getNumResults() == 1) {
+          Operation *payloadOp =
+              triton::linalg_ext::findPayloadOp(&op.getCombineOp().front());
+          if (!payloadOp)
+            break;
+          std::optional<TypedAttr> fillValAttr =
+              arith::getNeutralElement(payloadOp);
+          // When the requirements are not met, go to the later general
+          // implementation.
+          if (!fillValAttr.has_value())
+            break;
+          Value initVal =
+              rewriter.create<arith::ConstantOp>(loc, fillValAttr.value());
+          // Create empty vectors as init values.
+          for (TensorType t : convertedResultTensorTypes) {
+            auto initOp = rewriter.create<tensor::EmptyOp>(loc, t.getShape(),
+                                                           t.getElementType());
+            Value fillInitValue =
+                rewriter
+                    .create<linalg::FillOp>(loc, initVal, initOp.getResult())
+                    .getResult(0);
+            initVals.push_back(fillInitValue);
+          }
+        } else if (mode == ReductionMode::ARGMAX ||
+                   mode == ReductionMode::ARGMIN) {
+          // Deal argmax/min op.
+          bool canGetInit = true;
+          for (auto initTy : convertedResultTensorTypes) {
+            auto initVal = getInitConstValue(*mode, initTy, loc, rewriter);
+            if (!initVal) {
+              canGetInit = false;
+              break;
+            }
+            auto initOp = rewriter.create<tensor::EmptyOp>(
+                loc, initTy.getShape(), initTy.getElementType());
+            Value fillInitVal =
+                rewriter
+                    .create<linalg::FillOp>(loc, initVal, initOp.getResult())
+                    .getResult(0);
+            initVals.push_back(fillInitVal);
+          }
+          if (!canGetInit) {
+            initVals.clear();
+            break;
+          }
         }
-
         // Create a linalg.reduce on the same input and move the combine region
         // there. (ReduceReturnOpConversion will take care of the terminator.)
         auto reduceOp = rewriter.create<linalg::ReduceOp>(
@@ -642,14 +699,12 @@ struct TritonReducePattern : public OpConversionPattern<triton::ReduceOp> {
         // Otherwise, the result has to be a scalar, so we need to extract the
         // scalar from the 0-ranked result tensor.
         SmallVector<Value> results;
-        Value scalar = rewriter.create<tensor::ExtractOp>(
-            loc,
-            SmallVector<Type>(convertedResultTensorTypes)
-                .begin()
-                ->dyn_cast<RankedTensorType>()
-                .getElementType(),
-            reduceOp->getResults()[0], /*indices=*/ValueRange{});
-        results.push_back(scalar);
+        for (auto [tensor, type] :
+             llvm::zip(reduceOp->getResults(), convertedResultTensorTypes)) {
+          Value scalar = rewriter.create<tensor::ExtractOp>(
+              loc, type.getElementType(), tensor, /*indices=*/ValueRange{});
+          results.push_back(scalar);
+        }
         rewriter.replaceOp(op, results);
 
         return success();
@@ -667,7 +722,7 @@ struct TritonReducePattern : public OpConversionPattern<triton::ReduceOp> {
            "tt.reduce requires the same input number and init number");
     for (auto [inputVal, initTy] :
          llvm::zip(adaptor.getOperands(), convertedResultTensorTypes)) {
-      ShapedType inputTy = inputVal.getType().cast<ShapedType>();
+      ShapedType inputTy = cast<ShapedType>(inputVal.getType());
       ArrayRef<int64_t> inputShape = inputTy.getShape();
 
       // If the size of reduce axis is 1, we will replace init operands by input
@@ -690,7 +745,7 @@ struct TritonReducePattern : public OpConversionPattern<triton::ReduceOp> {
       //    operands' init value.
       {
         Value slice = sliceFirst(rewriter, loc, inputVal, op.getAxis());
-        auto sliceShape = slice.getType().cast<ShapedType>().getShape();
+        auto sliceShape = cast<ShapedType>(slice.getType()).getShape();
 
         // Resize slice value's shape by init operand.
         SmallVector<ReassociationExprs, 4> reassociationMap;
@@ -767,7 +822,7 @@ struct TritonPureExternElementwisePattern
                   ConversionPatternRewriter &rewriter) const override {
     assert(op.getPure());
     Location loc = op.getLoc();
-    if (auto resultTy = op.getType().dyn_cast<RankedTensorType>()) {
+    if (auto resultTy = dyn_cast<RankedTensorType>(op.getType())) {
       auto initOp = rewriter.create<tensor::EmptyOp>(loc, resultTy.getShape(),
                                                      resultTy.getElementType());
       rewriter.replaceOpWithNewOp<triton::linalg_ext::LibdeviceCallOp>(
@@ -833,6 +888,78 @@ public:
   }
 };
 
+class PtrExtractOpPattern : public OpConversionPattern<tensor::ExtractOp> {
+  using OpConversionPattern<tensor::ExtractOp>::OpConversionPattern;
+
+public:
+  PtrExtractOpPattern(triton::TritonLinalgTypeConverter &converter,
+                      MLIRContext *context)
+      : OpConversionPattern<tensor::ExtractOp>(converter, context) {}
+
+  LogicalResult
+  matchAndRewrite(tensor::ExtractOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<tensor::ExtractOp>(op, adaptor.getTensor(),
+                                                   op.getIndices());
+    return success();
+  }
+};
+
+class PtrExtractSliceOpPattern
+    : public OpConversionPattern<tensor::ExtractSliceOp> {
+  using OpConversionPattern<tensor::ExtractSliceOp>::OpConversionPattern;
+
+public:
+  PtrExtractSliceOpPattern(triton::TritonLinalgTypeConverter &converter,
+                           MLIRContext *context)
+      : OpConversionPattern<tensor::ExtractSliceOp>(converter, context) {}
+
+  LogicalResult
+  matchAndRewrite(tensor::ExtractSliceOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<tensor::ExtractSliceOp>(
+        op, adaptor.getSource(), op.getMixedOffsets(), op.getMixedSizes(),
+        op.getMixedStrides());
+    return success();
+  }
+};
+
+class PtrExpandShapeOpPattern
+    : public OpConversionPattern<tensor::ExpandShapeOp> {
+  using OpConversionPattern<tensor::ExpandShapeOp>::OpConversionPattern;
+
+public:
+  PtrExpandShapeOpPattern(triton::TritonLinalgTypeConverter &converter,
+                          MLIRContext *context)
+      : OpConversionPattern<tensor::ExpandShapeOp>(converter, context) {}
+
+  LogicalResult
+  matchAndRewrite(tensor::ExpandShapeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<tensor::ExpandShapeOp>(
+        op, op.getType(), adaptor.getSrc(), op.getReassociationIndices());
+    return success();
+  }
+};
+
+class PtrCollapseShapeOpPattern
+    : public OpConversionPattern<tensor::CollapseShapeOp> {
+  using OpConversionPattern<tensor::CollapseShapeOp>::OpConversionPattern;
+
+public:
+  PtrCollapseShapeOpPattern(triton::TritonLinalgTypeConverter &converter,
+                            MLIRContext *context)
+      : OpConversionPattern<tensor::CollapseShapeOp>(converter, context) {}
+
+  LogicalResult
+  matchAndRewrite(tensor::CollapseShapeOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    rewriter.replaceOpWithNewOp<tensor::CollapseShapeOp>(
+        op, adaptor.getSrc(), op.getReassociationIndices());
+    return success();
+  }
+};
+
 struct GPUBarrierOpPattern : public OpConversionPattern<gpu::BarrierOp> {
   using OpConversionPattern<gpu::BarrierOp>::OpConversionPattern;
 
@@ -851,19 +978,16 @@ struct TritonTransPattern : public OpConversionPattern<triton::TransOp> {
   matchAndRewrite(triton::TransOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
-    RankedTensorType srcTy =
-        adaptor.getSrc().getType().cast<RankedTensorType>();
-    auto rank = srcTy.getRank();
+    RankedTensorType resTy = cast<RankedTensorType>(op.getResult().getType());
+    auto rank = resTy.getRank();
     if (rank <= 1) {
       rewriter.replaceOp(op, adaptor.getSrc());
       return success();
     }
 
     SmallVector<int64_t> permutation(op.getOrder());
-    SmallVector<int64_t> retShape(srcTy.getShape().rbegin(),
-                                  srcTy.getShape().rend());
-    auto initOp =
-        rewriter.create<tensor::EmptyOp>(loc, retShape, srcTy.getElementType());
+    auto initOp = rewriter.create<tensor::EmptyOp>(loc, resTy.getShape(),
+                                                   resTy.getElementType());
     rewriter.replaceOpWithNewOp<linalg::TransposeOp>(op, adaptor.getSrc(),
                                                      initOp, permutation);
 
@@ -917,7 +1041,7 @@ public:
   LogicalResult
   matchAndRewrite(triton::FuncOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    FunctionType type = op.getFunctionType().cast<FunctionType>();
+    FunctionType type = cast<FunctionType>(op.getFunctionType());
     auto *converter = getTypeConverter();
     // Convert the original function types.
     TypeConverter::SignatureConversion result(type.getNumInputs());
@@ -957,24 +1081,32 @@ public:
       return failure();
 
     auto tensorType =
-        op.getResult().getType().dyn_cast_or_null<RankedTensorType>();
+        dyn_cast_or_null<RankedTensorType>(op.getResult().getType());
     if (!tensorType)
       return failure();
 
-    Value init = rewriter.create<tensor::EmptyOp>(loc, tracker.getSizes(),
-                                                  tensorType.getElementType());
-    Value trueVal =
-        rewriter.create<arith::ConstantOp>(loc, rewriter.getBoolAttr(true));
-    Value one =
-        rewriter.create<linalg::FillOp>(loc, trueVal, init).getResult(0);
-
+    auto hasZeroSize = llvm::any_of(tracker.getSizes(), [](const auto &size) {
+      return isConstantIntValue(size, 0);
+    });
+    Value value;
     Value falseVal =
         rewriter.create<arith::ConstantOp>(loc, rewriter.getBoolAttr(false));
-
-    SmallVector<OpFoldResult> offsets = llvm::to_vector(tracker.getStarts());
-    // Replace with pad op.
-    auto value = getPadOrInsertOpWithOther(
-        loc, falseVal, tensorType, one, offsets, tracker.getSizes(), rewriter);
+    if (!hasZeroSize) {
+      Value init = rewriter.create<tensor::EmptyOp>(
+          loc, tracker.getSizes(), tensorType.getElementType());
+      Value trueVal =
+          rewriter.create<arith::ConstantOp>(loc, rewriter.getBoolAttr(true));
+      Value one =
+          rewriter.create<linalg::FillOp>(loc, trueVal, init).getResult(0);
+      SmallVector<OpFoldResult> offsets = llvm::to_vector(tracker.getStarts());
+      // Replace with pad op.
+      value = getPadOrInsertOpWithOther(loc, falseVal, tensorType, one, offsets,
+                                        tracker.getSizes(), rewriter);
+    } else {
+      Value init = rewriter.create<tensor::EmptyOp>(
+          loc, tensorType.getShape(), tensorType.getElementType());
+      value = rewriter.create<linalg::FillOp>(loc, falseVal, init).getResult(0);
+    }
     rewriter.replaceOp(op, value);
     return success();
   }
@@ -994,7 +1126,7 @@ public:
     auto cond = op.getCondition();
     Value trueValue = op.getTrueValue();
     Value falseValue = op.getFalseValue();
-    if (!cond.getType().dyn_cast_or_null<ShapedType>())
+    if (!dyn_cast_or_null<ShapedType>(cond.getType()))
       return failure();
 
     triton::MaskTracker tracker;
@@ -1017,7 +1149,7 @@ public:
       tracker = operandTracker;
     }
 
-    auto srcType = trueValue.getType().dyn_cast_or_null<RankedTensorType>();
+    auto srcType = dyn_cast_or_null<RankedTensorType>(trueValue.getType());
     if (!srcType)
       return failure();
     auto rank = srcType.getRank();
@@ -1091,7 +1223,7 @@ public:
       if (!operandType)
         return failure();
 
-      auto resultTy = operandType.dyn_cast<RankedTensorType>();
+      auto resultTy = dyn_cast<RankedTensorType>(operandType);
       if (!resultTy) {
         rewriter.create<triton::aux::ScalarPrintOp>(loc, operand, *prefixAttr);
       } else {
@@ -1124,15 +1256,13 @@ public:
     auto assertMessage =
         llvm::formatv("{0}:{1}: {2} Assertion `{3}` failed", op.getFile(),
                       op.getLine(), op.getFunc(), op.getMessage());
-    auto resultTy = valType.cast<RankedTensorType>();
+    auto rankType = cast<RankedTensorType>(valType);
 
     // Only supports int type.
-    // follow:
-    // http://gitlab.software.cambricon.com/neuware/triton/-/blob/main-llvm-17/lib/Conversion/TritonGPUToLLVM/TritonGPUToLLVM.cpp#L268
-    assert(resultTy.getElementType().isa<mlir::IntegerType>() &&
+    assert(isa<mlir::IntegerType>(rankType.getElementType()) &&
            "Only support int tensor for assert");
 
-    rewriter.create<triton::linalg_ext::AssertOp>(op.getLoc(), resultTy,
+    rewriter.create<triton::linalg_ext::AssertOp>(op.getLoc(), rankType,
                                                   condVal, assertMessage.str());
 
     rewriter.eraseOp(op);
@@ -1150,9 +1280,7 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
 
     // If the the size of scan axis is 1, we just replace op by
     // input operands.
-    if (adaptor.getOperands()[0]
-            .getType()
-            .cast<ShapedType>()
+    if (cast<ShapedType>(adaptor.getOperands()[0].getType())
             .getShape()[op.getAxis()] <= 1) {
       rewriter.replaceOp(op, adaptor.getOperands());
       return success();
@@ -1160,7 +1288,7 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
 
     auto convertedInputTensorTypes =
         llvm::map_range(adaptor.getOperands().getTypes(),
-                        [](Type t) { return t.cast<TensorType>(); });
+                        [](Type t) { return cast<TensorType>(t); });
     assert(llvm::all_equal(llvm::map_range(
         convertedInputTensorTypes, [](TensorType t) { return t.getShape(); })));
     static_cast<void>(convertedInputTensorTypes);
@@ -1172,7 +1300,7 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
     assert(adaptor.getOperands().size() == 1 &&
            "tt.scan only support single input now");
     for (auto inputVal : adaptor.getOperands()) {
-      RankedTensorType inputTy = inputVal.getType().cast<RankedTensorType>();
+      RankedTensorType inputTy = cast<RankedTensorType>(inputVal.getType());
       int64_t rank = inputTy.getRank();
 
       // 1. Slice the remaining elements of input operands.
@@ -1180,7 +1308,7 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
         Value slice = sliceRemaining(rewriter, loc, inputVal, op.getAxis(),
                                      op.getReverse());
         // Create output tensor
-        auto sliceShape = slice.getType().cast<ShapedType>().getShape();
+        auto sliceShape = cast<ShapedType>(slice.getType()).getShape();
         Value empty = rewriter.create<tensor::EmptyOp>(
             loc, sliceShape, inputTy.getElementType());
         inputVals.push_back(slice);
@@ -1193,7 +1321,7 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
         Value slice =
             sliceFirst(rewriter, loc, inputVal, op.getAxis(), op.getReverse());
         SmallVector<int64_t> collapseDstShape;
-        ShapedType sliceTy = slice.getType().cast<ShapedType>();
+        ShapedType sliceTy = cast<ShapedType>(slice.getType());
         for (int64_t i = 0; i < rank; ++i) {
           if (i != op.getAxis()) {
             collapseDstShape.push_back(sliceTy.getShape()[i]);
@@ -1212,7 +1340,7 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
     // Create a linalg_ext.scan on the same input and move the combine region
     // there. (ScanReturnOpConversion will take care of the terminator.)
     auto resultTypes = llvm::map_range(
-        initVals, [](Value t) { return t.getType().cast<RankedTensorType>(); });
+        initVals, [](Value t) { return cast<RankedTensorType>(t.getType()); });
 
     auto scanOp = rewriter.create<triton::linalg_ext::ScanOp>(
         loc, /*resultTypes=*/SmallVector<Type>(resultTypes),
@@ -1227,7 +1355,7 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
 
     // Insert linalg_ext.scan result into input operand.
     // Retrieve insert sizes of result tensor.
-    RankedTensorType initType = initVals[0].getType().cast<RankedTensorType>();
+    RankedTensorType initType = cast<RankedTensorType>(initVals[0].getType());
     ArrayRef<int64_t> initShape = initType.getShape();
     int64_t rank = initType.getRank();
     auto insertSizes =
@@ -1269,6 +1397,72 @@ struct TritonScanReturnPattern
   }
 };
 
+/// Convert an `tt.cat` operation to `tensor.insert_slice`
+/// operation.
+///
+/// Concatenate two tensors along the highest dimension.
+/// The two input tensors must have the same shape.
+///
+/// ```mlir
+///   %0 = tt.cat %arg0, %arg1 : tensor<32xf32> -> tensor<64xf32>
+/// ```
+///
+/// converts to:
+///
+/// ```mlir
+/// %0 = tensor.empty() : tensor<64xf32>
+/// %1 = tensor.insert_slice %arg0 into %0[0] [32] [1] : tensor<32xf32> into
+///  tensor<64xf32>
+/// %c32_0 = arith.constant 32 : index
+/// %2 = tensor.insert_slice %arg1 into %inserted_slice[%c32_0] [32] [1] :
+///  tensor<32xf32> into tensor<64xf32>
+/// ```
+struct TritonCatPattern : public OpConversionPattern<triton::CatOp> {
+  using OpConversionPattern<triton::CatOp>::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(triton::CatOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto type = typeConverter->convertType(op.getResult().getType());
+    if (!type)
+      return failure();
+
+    auto resultTy = cast<RankedTensorType>(type);
+
+    Location loc = op.getLoc();
+    Value init = rewriter.create<tensor::EmptyOp>(loc, resultTy.getShape(),
+                                                  resultTy.getElementType());
+
+    auto rank = resultTy.getRank();
+    // Insert slice params.
+    auto zero = rewriter.getIndexAttr(0);
+    auto one = rewriter.getIndexAttr(1);
+    SmallVector<OpFoldResult> offsets(rank, zero);
+    SmallVector<OpFoldResult> strides(rank, one);
+    SmallVector<OpFoldResult> sizes;
+
+    Value lhs = op.getOperand(0);
+    Value rhs = op.getOperand(1);
+    // Consider 0-rank tensor as tensor with one element.
+    if (cast<RankedTensorType>(lhs.getType()).getRank() == 0) {
+      sizes = {one};
+    } else {
+      sizes = getDims(rewriter, loc, lhs);
+    }
+
+    auto firstInsert = rewriter.createOrFold<tensor::InsertSliceOp>(
+        loc, lhs, init, offsets, sizes, strides);
+    // The tt.cat op always concatenate two tensors along the highest dimension.
+    offsets[0] = rewriter.createOrFold<arith::AddIOp>(
+        loc, materializeOpFoldResult(rewriter, loc, offsets[0]),
+        materializeOpFoldResult(rewriter, loc, sizes[0]));
+    auto secondInsert = rewriter.createOrFold<tensor::InsertSliceOp>(
+        loc, rhs, firstInsert, offsets, sizes, strides);
+    rewriter.replaceOp(op, secondInsert);
+    return success();
+  }
+};
+
 /// Convert an `tt.join` operation to `tensor.insert_slice`
 /// operation.
 ///
@@ -1284,8 +1478,9 @@ struct TritonScanReturnPattern
 /// ```mlir
 ///   %0 = tensor.empty() : tensor<2xf32>
 ///   %1 = tensor.insert_slice %arg0 into %0[0] [1] [1] : tensor<f32> into
-///   tensor<2xf32> %2 = tensor.insert_slice %arg1 into %1[1] [1] [1] :
-///   tensor<f32> into tensor<2xf32>
+///   tensor<2xf32>
+///   %2 = tensor.insert_slice %arg1 into %1[1] [1] [1] : tensor<f32> into
+///   tensor<2xf32>
 /// ```
 struct TritonJoinPattern : public OpConversionPattern<triton::JoinOp> {
   using OpConversionPattern<triton::JoinOp>::OpConversionPattern;
@@ -1295,9 +1490,9 @@ struct TritonJoinPattern : public OpConversionPattern<triton::JoinOp> {
     Value lhs = op.getOperand(0);
     Value rhs = op.getOperand(1);
 
-    auto lhsType = lhs.getType().cast<RankedTensorType>();
+    auto lhsType = cast<RankedTensorType>(lhs.getType());
     auto shape = lhsType.getShape();
-    auto resultType = op.getResult().getType().cast<RankedTensorType>();
+    auto resultType = cast<RankedTensorType>(op.getResult().getType());
     Value emptyOp = rewriter.create<tensor::EmptyOp>(
         op.getLoc(), resultType.getShape(), lhsType.getElementType());
 
@@ -1343,9 +1538,9 @@ struct TritonSplitPattern : public OpConversionPattern<triton::SplitOp> {
   matchAndRewrite(triton::SplitOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     Value inputs = op.getSrc();
-    auto inputType = inputs.getType().cast<RankedTensorType>();
+    auto inputType = cast<RankedTensorType>(inputs.getType());
     auto outLhs = op.getOutLHS();
-    auto outLhsType = outLhs.getType().cast<RankedTensorType>();
+    auto outLhsType = cast<RankedTensorType>(outLhs.getType());
 
     int64_t rank = inputType.getRank();
     SmallVector<OpFoldResult> offsets(rank, rewriter.getIndexAttr(0));
@@ -1427,54 +1622,6 @@ struct TritonMulhiuiPattern : public OpConversionPattern<triton::MulhiUIOp> {
   }
 };
 
-/// Convert an `tt.histogram` operation to `arith.subi`, `arith.cmpi`,
-/// `arith.andi`, `scf.for`, `scf.if` operation.
-///
-/// Compute a histogram based on the input tensor with num_bins bins.
-/// The process consists of the following steps:
-/// 1. Set the minimum value (min_val) to 0 and the maximum value (max_val) to
-/// num_bins - 1.
-/// 2. Create a zero tensor of length num_bins to store the count for each bin.
-/// 3. Compute the histogram:
-///    1) Iterate through each value in the input tensor.
-///    2) If the value is between min_val and max_val (inclusive),
-///       calculate its corresponding bin index and increment the count for that
-///       bin.
-///
-/// ```mlir
-///   %1 = tt.histogram %0 : tensor<8xi32> -> tensor<2xi32>
-/// ```
-///
-/// converts to:
-///
-/// ```mlir
-///   %c0_i32 = arith.constant 0 : i32
-///   %c1_i32 = arith.constant 1 : i32
-///   %c2_i32 = arith.constant 2 : i32
-///   %0 = arith.subi %c2_i32, %c1_i32 : i32
-///   %1 = tensor.empty() : tensor<2xi32>
-///   %c0_i32_0 = arith.constant 0 : i32
-///   %2 = linalg.fill ins(%c0_i32_0 : i32)
-///                    outs(%1 : tensor<2xi32>) -> tensor<2xi32>
-///   %3 = scf.for ... {
-///     %extracted = tensor.extract %arg0[%arg1] : tensor<8xi32>
-///     %4 = arith.cmpi sle, %c0_i32, %extracted : i32
-///     %5 = arith.cmpi sge, %0, %extracted : i32
-///     %6 = arith.andi %4, %5 : i1
-///     %7 = scf.if %6 -> (tensor<2xi32>) {
-///       %8 = arith.subi %extracted, %c0_i32 : i32
-///       %9 = arith.index_cast %8 : i32 to index
-///       %extracted_1 = tensor.extract %arg2[%9] : tensor<2xi32>
-///       %c1_i32_2 = arith.constant 1 : i32
-///       %10 = arith.addi %extracted_1, %c1_i32_2 : i32
-///       %inserted = tensor.insert %10 into %arg2[%9] : tensor<2xi32>
-///       scf.yield %inserted : tensor<2xi32>
-///     } else {
-///       scf.yield %arg2 : tensor<2xi32>
-///     }
-///     scf.yield %7 : tensor<2xi32>
-///   }
-/// ```
 struct TritonHistogramPattern
     : public OpConversionPattern<triton::HistogramOp> {
   using OpConversionPattern<triton::HistogramOp>::OpConversionPattern;
@@ -1484,108 +1631,30 @@ struct TritonHistogramPattern
                   ConversionPatternRewriter &rewriter) const override {
     Location loc = op.getLoc();
     Value input = adaptor.getSrc();
+    Value result = op.getResult();
 
-    auto inputTy = input.getType().cast<ShapedType>();
-    auto resultTy = op.getResult().getType().dyn_cast<RankedTensorType>();
-    if (!resultTy || !inputTy)
+    auto resultTy = dyn_cast<RankedTensorType>(result.getType());
+    if (!resultTy)
       return failure();
-    auto inputEleTy = inputTy.getElementType();
-    assert(inputEleTy.isa<IntegerType>() && "expected integer type");
-
-    // Get the number of bins from the first dimension size of the result
-    // tensor.
     assert(!resultTy.isDynamicDim(0) && "expected static dim");
-    int numBins = resultTy.getDimSize(0);
 
-    // Create a constant operation representing the minimum value (0).
-    Value minVal = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getZeroAttr(inputEleTy));
+    auto initOp = rewriter.create<tensor::EmptyOp>(loc, resultTy.getShape(),
+                                                   resultTy.getElementType());
+    rewriter.replaceOpWithNewOp<triton::linalg_ext::HistogramOp>(
+        op, TypeRange{result.getType()}, ValueRange{input}, initOp);
 
-    // Compute the maximum value (numBins - 1).
-    Value one = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIntegerAttr(inputEleTy, 1));
-    Value numBinsConstant = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getIntegerAttr(inputEleTy, numBins));
-    Value maxVal = rewriter.create<arith::SubIOp>(loc, numBinsConstant, one);
-
-    // Initialize the histogram tensor with zeros.
-    auto histoInit = rewriter.create<tensor::EmptyOp>(
-        loc, resultTy.getShape(), resultTy.getElementType());
-    auto zeroElem = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getZeroAttr(resultTy.getElementType()));
-    Value histo = rewriter
-                      .create<linalg::FillOp>(loc, ValueRange{zeroElem},
-                                              ValueRange{histoInit})
-                      .result();
-
-    // Create a loop to iterate over each element in the input tensor.
-    auto inputSize =
-        rewriter.create<arith::ConstantIndexOp>(loc, inputTy.getShape()[0]);
-    auto zeroIndex = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    auto oneIndex = rewriter.create<arith::ConstantIndexOp>(loc, 1);
-    auto loop =
-        rewriter
-            .create<scf::ForOp>(
-                loc, zeroIndex, inputSize, oneIndex, ValueRange{histo},
-                [&](OpBuilder &b, Location nestedLoc, Value iv,
-                    ValueRange iterArgs) {
-                  // Extract the current value from the input tensor at the loop
-                  // index.
-                  Value currentIndexValue =
-                      b.create<tensor::ExtractOp>(nestedLoc, input, iv);
-
-                  // Compare the current value with the min and max values.
-                  Value cmpMin = b.create<arith::CmpIOp>(
-                      nestedLoc, arith::CmpIPredicate::sle, minVal,
-                      currentIndexValue);
-                  Value cmpMax = b.create<arith::CmpIOp>(
-                      nestedLoc, arith::CmpIPredicate::sge, maxVal,
-                      currentIndexValue);
-                  // Check if the current value is within the range [minVal,
-                  // maxVal].
-                  Value cond =
-                      b.create<arith::AndIOp>(nestedLoc, cmpMin, cmpMax);
-
-                  // Create an if-else block to update the histogram if the
-                  // condition is met.
-                  auto ifOp = rewriter.create<scf::IfOp>(
-                      loc, cond,
-                      [&](OpBuilder &builder, Location ifLoc) {
-                        // Calculate the histogram bin index for the current
-                        // value.
-                        Value idx = builder.create<arith::SubIOp>(
-                            ifLoc, currentIndexValue, minVal);
-                        idx = b.create<arith::IndexCastOp>(
-                            ifLoc, b.getIndexType(), idx);
-                        // Extract the current histogram value at the calculated
-                        // index.
-                        Value histoValue = builder.create<tensor::ExtractOp>(
-                            ifLoc, iterArgs[0], idx);
-                        // Increment the histogram value by 1.
-                        Value one = rewriter.create<arith::ConstantOp>(
-                            ifLoc, rewriter.getIntegerAttr(
-                                       resultTy.getElementType(), 1));
-                        Value updateHistVal = builder.create<arith::AddIOp>(
-                            ifLoc, histoValue, one);
-                        // Insert the updated value back into the histogram
-                        // tensor.
-                        Value updatedHisto = builder.create<tensor::InsertOp>(
-                            ifLoc, updateHistVal, iterArgs[0], idx);
-                        builder.create<scf::YieldOp>(ifLoc, updatedHisto);
-                      },
-                      [&](OpBuilder &builder, Location elseLoc) {
-                        builder.create<scf::YieldOp>(elseLoc, iterArgs[0]);
-                      });
-                  b.create<scf::YieldOp>(nestedLoc, ifOp.getResults());
-                })
-            .getResult(0);
-
-    rewriter.replaceOp(op, loop);
     return success();
   }
 };
 
 } // namespace
+
+static void
+populateTritonFuncToFuncPatterns(RewritePatternSet &patterns,
+                                 triton::TritonLinalgTypeConverter &converter) {
+  MLIRContext *context = patterns.getContext();
+  patterns.add<TritonFuncOpPattern>(converter, context);
+}
 
 static void
 populateTritonToLinalgPatterns(RewritePatternSet &patterns,
@@ -1597,9 +1666,9 @@ populateTritonToLinalgPatterns(RewritePatternSet &patterns,
       TritonBitcastPattern, TritonReducePattern, TritonReduceReturnPattern,
       TritonPureExternElementwisePattern, TritonPtrToIntPattern,
       TritonIntToPtrPattern, TritonTransPattern, TritonReturnOpConversion,
-      TritonCallOpPattern, TritonFuncOpPattern, TritonViewPattern,
-      TritonPrintPattern, TritonAssertOpPattern, TritonScanPattern,
-      TritonScanReturnPattern, TritonJoinPattern, TritonMulhiuiPattern,
+      TritonCallOpPattern, TritonViewPattern, TritonPrintPattern,
+      TritonAssertOpPattern, TritonScanPattern, TritonScanReturnPattern,
+      TritonCatPattern, TritonJoinPattern, TritonMulhiuiPattern,
       TritonSplitPattern, TritonClampFOpPattern, TritonPreciseSqrtOpPattern,
       TritonPreciseDivFOpPattern, TritonHistogramPattern>(converter, context);
 }
@@ -1626,6 +1695,23 @@ void triton::TritonToLinalgPass::runOnOperation() {
   MLIRContext *context = &getContext();
   triton::TritonLinalgTypeConverter converter;
 
+  // Step1: convert tt.func to func.func
+  // FIXME: Starting from LLVM19, during conversion, if the ParentOp of
+  // an Op is also in the same conversion pattern, accessing the ParentOp from
+  // within the Op may be an invalid behavior. Since `tt.func` internally
+  // nests other `tt` dialect ops, it is necessary to separate
+  // the conversion of `tt.func` from that of other ops.
+  // We need to find a way to merge the two conversions.
+  ConversionTarget funcTarget(*context);
+  RewritePatternSet funcPatterns(context);
+  funcTarget.addIllegalOp<triton::FuncOp>();
+  funcTarget.addLegalDialect<BuiltinDialect, func::FuncDialect>();
+  populateTritonFuncToFuncPatterns(funcPatterns, converter);
+  if (failed(applyPartialConversion(getOperation(), funcTarget,
+                                    std::move(funcPatterns))))
+    return signalPassFailure();
+
+  // Step2: convert other ttir to linalgir
   ConversionTarget target(*context);
   target.addLegalDialect<BuiltinDialect, func::FuncDialect>();
   target.addIllegalDialect<triton::TritonDialect, gpu::GPUDialect>();
@@ -1644,13 +1730,13 @@ void triton::TritonToLinalgPass::runOnOperation() {
   target.addDynamicallyLegalDialect<arith::ArithDialect, math::MathDialect,
                                     math_ext::MathExtDialect>(
       [&](Operation *op) {
-        return !op->getResultTypes().front().isa<ShapedType>();
+        return !isa<ShapedType>(op->getResultTypes().front());
       });
   target.addDynamicallyLegalOp<triton::aux::OptimizationBarrierOp>(
       [&](Operation *op) { return converter.isLegal(op); });
   target.addDynamicallyLegalOp<arith::SelectOp>([&](Operation *op) {
     auto resType = op->getResultTypes().front();
-    return !resType.isa<ShapedType>() && converter.isLegal(op);
+    return !isa<ShapedType>(resType) && converter.isLegal(op);
   });
   target.addLegalOp<triton::GetProgramIdOp, triton::GetNumProgramsOp>();
 
@@ -1678,6 +1764,10 @@ void triton::TritonToLinalgPass::populatePatterns(
   patterns.add<OptimizationBarrierOpPattern, GPUBarrierOpPattern>(converter,
                                                                   context);
   patterns.add<PtrSelectOpPattern>(converter, context, 0);
+  patterns.add<PtrExtractOpPattern>(converter, context, 0);
+  patterns.add<PtrExtractSliceOpPattern>(converter, context, 0);
+  patterns.add<PtrExpandShapeOpPattern>(converter, context, 0);
+  patterns.add<PtrCollapseShapeOpPattern>(converter, context, 0);
   populateTritonToLinalgPatterns(patterns, converter);
   populateArithToLinalgPatterns(patterns);
   populateArithConversionPatterns(patterns);

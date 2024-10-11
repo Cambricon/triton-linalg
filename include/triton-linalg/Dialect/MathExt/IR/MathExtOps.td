@@ -1,15 +1,15 @@
-//===- MathOps.td - Math op definitions --------------------*- tablegen -*-===//
+//===- MathExtOps.td - MathExt op definitions --------------*- tablegen -*-===//
 //
 // Copyright (C) [2022-2025] by Cambricon.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TRITON_LINALG_DIALECT_MATHEXT_IR_MATHOPS_TD
-#define TRITON_LINALG_DIALECT_MATHEXT_IR_MATHOPS_TD
+#ifndef TRITON_LINALG_DIALECT_MATHEXT_IR_MATHEXTOPS_TD
+#define TRITON_LINALG_DIALECT_MATHEXT_IR_MATHEXTOPS_TD
 
 include "mlir/Dialect/Arith/IR/ArithBase.td"
 include "mlir/Dialect/Arith/IR/ArithOpsInterfaces.td"
-include "triton-linalg/Dialect/MathExt/IR/MathBase.td"
+include "triton-linalg/Dialect/MathExt/IR/MathExtBase.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/VectorInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
@@ -42,4 +42,4 @@ def MathExt_MulhiUIOp : MathExt_IntegerBinaryOp<"mulhiui"> {
   }];
 }
 
-#endif // TRITON_LINALG_DIALECT_MATHEXT_IR_MATHOPS_TD
+#endif // TRITON_LINALG_DIALECT_MATHEXT_IR_MATHEXTOPS_TD

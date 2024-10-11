@@ -34,12 +34,12 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     // Remain unchanged if one of operands is scalar.
     if (!llvm::all_of(adaptor.getOperands(),
-                      [&](Value v) { return v.getType().isa<ShapedType>(); })) {
+                      [&](Value v) { return isa<ShapedType>(v.getType()); })) {
       return failure();
     }
     // Apply only if all operands are not scalar.
     auto loc = op.getLoc();
-    auto resType = op.getType().template cast<ShapedType>();
+    auto resType = cast<ShapedType>(op.getType());
     auto initDims = getDims(rewriter, loc, op->getOperand(0));
     Value initTensor = rewriter.create<tensor::EmptyOp>(
         loc, initDims, resType.getElementType());

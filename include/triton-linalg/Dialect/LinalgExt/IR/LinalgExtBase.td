@@ -9,7 +9,6 @@
 
 include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtEnums.td"
 include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtInterface.td"
-include "triton-linalg/Interfaces/InferResultTypeOpInterface.td"
 include "mlir/Dialect/Linalg/IR/LinalgBase.td"
 include "mlir/Dialect/Linalg/IR/LinalgInterfaces.td"
 include "mlir/Interfaces/DestinationStyleOpInterface.td"

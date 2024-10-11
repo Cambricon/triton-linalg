@@ -3,9 +3,10 @@ import sys
 import os
 import argparse
 
+
 def file_guard(guard_status_file, guard_log_file):
     # where stores the last position that pointer pointed to.
-    where= 0
+    where = 0
     while True:
         file = open(guard_log_file, "r")
         file.seek(where)
@@ -28,11 +29,18 @@ def file_guard(guard_status_file, guard_log_file):
             exit(-1)
         # sleep for a while
         time.sleep(2)
+
+
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Monitor a log file and echo lines, check status to stop.")
-    parser.add_argument('guard_status_file', type=str, help='The path to the status file.')
-    parser.add_argument('guard_log_file', type=str, help='The path to the log file.')
+    parser = argparse.ArgumentParser(
+        description="Monitor a log file and echo lines, check status to stop.")
+    parser.add_argument('guard_status_file',
+                        type=str,
+                        help='The path to the status file.')
+    parser.add_argument('guard_log_file',
+                        type=str,
+                        help='The path to the log file.')
 
     args = parser.parse_args()
-    
+
     file_guard(args.guard_status_file, args.guard_log_file)

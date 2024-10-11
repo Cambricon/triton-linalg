@@ -55,7 +55,7 @@ public:
   matchAndRewrite(triton::AtomicCASOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     RankedTensorType resultTy =
-        op.getResult().getType().dyn_cast<RankedTensorType>();
+        mlir::dyn_cast<RankedTensorType>(op.getResult().getType());
     if (resultTy)
       return failure();
 
@@ -67,7 +67,7 @@ public:
 
     auto zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     RankedTensorType originTensorTy =
-        originTensor.getType().cast<RankedTensorType>();
+        mlir::cast<RankedTensorType>(originTensor.getType());
 
     auto cmpInit = rewriter.create<tensor::EmptyOp>(
         loc, originTensorTy.getShape(), op.getCmp().getType());
@@ -116,7 +116,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     // If atomic_cas on scalar type.
     RankedTensorType resultTy =
-        op.getResult().getType().dyn_cast<RankedTensorType>();
+        mlir::dyn_cast<RankedTensorType>(op.getResult().getType());
     if (!resultTy)
       return failure();
 
@@ -169,7 +169,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     // If atomic_cas on scalar type.
     RankedTensorType resultTy =
-        op.getResult().getType().dyn_cast<RankedTensorType>();
+        mlir::dyn_cast<RankedTensorType>(op.getResult().getType());
     if (!resultTy) {
       return failure();
     }

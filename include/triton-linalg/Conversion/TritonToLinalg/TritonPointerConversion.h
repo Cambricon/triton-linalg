@@ -152,7 +152,9 @@ public:
   int64_t getContigSize() const { return contigSize; }
   int64_t getBroadcastSize() const { return broadcastSize; }
   int64_t getDimSize() const { return dimSize; }
-  bool isBroadcastDim() const { return getContigSize() == 1; }
+  bool isBroadcastDim() const {
+    return getContigSize() == 1 && getDimSize() != 1;
+  }
 
 private:
   int64_t contigSize = -1;
@@ -331,13 +333,46 @@ protected:
 class TritonTensorPtrLoadStoreOpConversionBase
     : public TritonPtrConversionBase {
 protected:
-  /// Get the actual size of each dim needed to be load, if boundaryCheck is
-  /// true, return min(tensorShape[dim], dimSize[dim] - offset[dim]).
-  SmallVector<OpFoldResult>
-  getActualSizes(Location loc, std::optional<ArrayRef<int>> boundaryCheck,
-                 ArrayRef<int64_t> tensorShape,
-                 const TensorPointerMetaInfoTracker &tracker,
-                 ConversionPatternRewriter &rewriter) const;
+  /// Actual offsets, padLeftSizes and sizes.
+  ///
+  /// For example, in a certain dimension, there are several quantities to
+  /// describe the actual data range. [0, `shape`) represents the valid data
+  /// range, `offset` represents the offset value, and `blockShape` represents
+  /// the size of the data block being retrieved.
+  ///
+  /// There are 3 cases for the position of `offset`.
+  ///
+  /// Case1: 0 <= offset < shape
+  /// offset = offset
+  /// padLeftSize = 0
+  /// size = min(shape - offset, blockShape)
+  ///
+  /// Case2: offset < 0
+  /// offset = 0
+  /// padLeftSize = min(-offset, blockShape)
+  /// size = min(shape, blockShape - padLeftSize)
+  ///
+  /// Case3: offset >= shape
+  /// offset = offset
+  /// padLeftSize = shape
+  /// size = min(0, blockShape) = 0
+  ///
+  /// These cases can be summarized by the following formula.
+  /// originOffset = offset
+  /// offset = max(offset, 0)
+  /// padLeftSize = min(offset - originOffset, blockShape)
+  /// size = min(max(shape - offset, 0), blockShape - padLeftSize)
+  struct PtrInfo {
+    SmallVector<OpFoldResult> offsets;
+    SmallVector<OpFoldResult> padLeftSizes;
+    SmallVector<OpFoldResult> sizes;
+  };
+
+  /// Get the actual ptrinfo of each dim needed to be load.
+  PtrInfo getPtrInfo(Location loc, std::optional<ArrayRef<int>> boundaryCheck,
+                     ArrayRef<int64_t> tensorShape,
+                     const TensorPointerMetaInfoTracker &tracker,
+                     ConversionPatternRewriter &rewriter) const;
 
   SmallVector<DimInfo> getDimInfos(ArrayRef<OpFoldResult> strides,
                                    ArrayRef<int64_t> tensorShape) const;

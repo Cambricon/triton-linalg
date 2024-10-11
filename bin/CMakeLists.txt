@@ -5,7 +5,6 @@ add_llvm_executable(triton-linalg-opt triton-linalg-opt.cpp PARTIAL_SOURCES_INTE
 
 llvm_update_compile_flags(triton-linalg-opt)
 target_link_libraries(triton-linalg-opt PRIVATE
-  ArithTransforms
   AuxiliaryTransforms
   LinalgExtTransforms
   TritonLinalgAnalysis

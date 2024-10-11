@@ -77,7 +77,7 @@ static Value getSimpliedSlice(OpBuilder &b, Location loc, Value source,
 static Value addBroadcast(OpBuilder &builder, Location loc, Value input,
                           ArrayRef<OpFoldResult> shapeOperands,
                           ArrayRef<int64_t> broadcastDim) {
-  ShapedType shapeTy = input.getType().cast<ShapedType>();
+  ShapedType shapeTy = cast<ShapedType>(input.getType());
   Value init = builder.create<tensor::EmptyOp>(loc, shapeOperands,
                                                shapeTy.getElementType());
   return builder.create<linalg::BroadcastOp>(loc, input, init, broadcastDim)
@@ -89,7 +89,7 @@ using RegionFn = function_ref<void(OpBuilder &, Location, ValueRange)>;
 static Value addMap(OpBuilder &builder, Location loc, Value lhs, Value rhs,
                     RegionFn regionFn) {
   auto shapeOperands = getDims(builder, loc, lhs);
-  ShapedType shapeTy = lhs.getType().cast<ShapedType>();
+  ShapedType shapeTy = cast<ShapedType>(lhs.getType());
   Value init = builder.create<tensor::EmptyOp>(loc, shapeOperands,
                                                shapeTy.getElementType());
   return builder
@@ -100,7 +100,7 @@ static Value addMap(OpBuilder &builder, Location loc, Value lhs, Value rhs,
 /// Padded tiled indice to the paddedLength.
 static Value padTiledIndice(OpBuilder &builder, Location loc, Value input,
                             int64_t paddedLength) {
-  ShapedType inputTy = input.getType().cast<ShapedType>();
+  ShapedType inputTy = cast<ShapedType>(input.getType());
   Type eleTy = inputTy.getElementType();
   Value zero = builder.create<arith::ConstantOp>(
       loc, eleTy, builder.getIntegerAttr(eleTy, 0));
@@ -183,13 +183,13 @@ tileByWindowSlice(OpBuilder &b, Location loc, Value data, Value window,
   auto oneAttr = b.getI64IntegerAttr(1);
 
   // Slice of init.
-  auto windowRank = window.getType().cast<ShapedType>().getRank();
+  auto windowRank = cast<ShapedType>(window.getType()).getRank();
   SmallVector<OpFoldResult> windowStrides(windowRank, oneAttr);
   Value tiledWindow = getSimpliedSlice(b, loc, window, windowOffsets,
                                        windowSizes, windowStrides);
   assert(tiledWindow && "failed to get slice of window");
   // Slice of indices.
-  auto indicesTy = indices.getType().cast<ShapedType>();
+  auto indicesTy = cast<ShapedType>(indices.getType());
   auto indicesRank = indicesTy.getRank();
   SmallVector<OpFoldResult> indicesOffsets(indicesRank, zeroAttr);
   SmallVector<OpFoldResult> indicesSizes(indicesRank);
@@ -217,7 +217,7 @@ tileByWindowSlice(OpBuilder &b, Location loc, Value data, Value window,
     assert(tiledMask && "failed to get slice of mask");
   }
   // Update indice value using update tiling offset.
-  auto dataRank = data.getType().cast<ShapedType>().getRank();
+  auto dataRank = cast<ShapedType>(data.getType()).getRank();
   ArrayRef<OpFoldResult> curOffsetArray(windowOffsets.begin() + batchNum,
                                         windowOffsets.end());
   bool hasNonZeroVal = llvm::any_of(curOffsetArray, [](OpFoldResult val) {
@@ -722,10 +722,10 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::AtomicCASOp>
 
     Value currVal = genericOp.getCurrentValue();
     Value cmp;
-    if (cmpVal.getType().isa<IntegerType>()) {
+    if (isa<IntegerType>(cmpVal.getType())) {
       cmp = bodyBuilder.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
                                               currVal, cmpVal);
-    } else if (cmpVal.getType().isa<FloatType>()) {
+    } else if (isa<FloatType>(cmpVal.getType())) {
       cmp = bodyBuilder.create<mlir::arith::CmpFOp>(
           loc, arith::CmpFPredicate::OEQ, currVal, cmpVal);
     } else {
@@ -853,10 +853,10 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::GatherAtomicCASOp>
 
     Value currVal = genericOp.getCurrentValue();
     Value cmp;
-    if (cmpVal.getType().isa<IntegerType>()) {
+    if (isa<IntegerType>(cmpVal.getType())) {
       cmp = bodyBuilder.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
                                               currVal, cmpVal);
-    } else if (cmpVal.getType().isa<FloatType>()) {
+    } else if (isa<FloatType>(cmpVal.getType())) {
       cmp = bodyBuilder.create<mlir::arith::CmpFOp>(
           loc, arith::CmpFPredicate::OEQ, currVal, cmpVal);
     } else {
@@ -926,7 +926,7 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::AtomicRMWOp>
     tiledInits.push_back(atomicRMWOp.src());
     // Slice input and dst.
     Value input = atomicRMWOp.input();
-    auto inputRank = input.getType().cast<ShapedType>().getRank();
+    auto inputRank = cast<ShapedType>(input.getType()).getRank();
     SmallVector<OpFoldResult> inputStrides(inputRank, oneAttr);
     Value tiledInput =
         getSimpliedSlice(b, loc, input, offsets, sizes, inputStrides);
@@ -957,8 +957,21 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::AtomicRMWOp>
     triton::linalg_ext::AtomicRMWOp atomicRMWOp =
         cast<triton::linalg_ext::AtomicRMWOp>(op);
     // Result 0 is src, we keep it unchanged.
+
     if (resultNumber == 0) {
-      return failure();
+      auto zeroAttr = b.getI64IntegerAttr(0);
+      auto initRank = atomicRMWOp.getSrcType().getRank();
+      auto initShape = atomicRMWOp.getSrcType().getShape();
+      for (unsigned r = 0; r < initRank; ++r) {
+        if (!isNoTile(sizes[r], offsets[r], initShape, r)) {
+          return failure();
+        }
+      }
+      resultOffsets.clear();
+      resultOffsets.append(offsets.begin(), offsets.end());
+      resultSizes.clear();
+      resultSizes.append(sizes.begin(), sizes.end());
+      return success();
     }
     resultOffsets.assign(offsets.begin(), offsets.end());
     resultSizes.assign(sizes.begin(), sizes.end());
@@ -1065,7 +1078,7 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::GatherAtomicRMWOp>
     tiledInits.push_back(atomicRMWOp.src());
     // Slice input and window batch.
     Value input = atomicRMWOp.input();
-    auto inputRank = input.getType().cast<ShapedType>().getRank();
+    auto inputRank = cast<ShapedType>(input.getType()).getRank();
     SmallVector<OpFoldResult> inputStrides(inputRank, oneAttr);
     Value tiledInput =
         getSimpliedSlice(b, loc, input, offsets, sizes, inputStrides);
@@ -1078,7 +1091,7 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::GatherAtomicRMWOp>
     tiledInits.push_back(tiledWindow);
     // Slice indice.
     auto indice = atomicRMWOp.indice();
-    auto indiceRank = indice.getType().cast<ShapedType>().getRank();
+    auto indiceRank = cast<ShapedType>(indice.getType()).getRank();
     SmallVector<OpFoldResult> indiceOffsets(indiceRank, zeroAttr);
     SmallVector<OpFoldResult> indiceSizes(indiceRank);
     SmallVector<OpFoldResult> indiceStrides(indiceRank, oneAttr);
@@ -1398,6 +1411,19 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::PadOp>
         highs.push_back(getAsOpFoldResult(originHighIndex));
         continue;
       }
+
+      // If the tiled dimension has no pad, the 'low' and 'high' should be
+      // constant zero, the 'offset' and the 'size' of src should be the same
+      // with the dst.
+      if (matchPattern(originLowIndex, m_Zero()) &&
+          matchPattern(originHighIndex, m_Zero())) {
+        inputOffsets.push_back(initOffsets[r]);
+        inputSizes.push_back(initSizes[r]);
+        lows.push_back(b.getIndexAttr(0));
+        highs.push_back(b.getIndexAttr(0));
+        continue;
+      }
+
       Value inputDimSize = getDimValue(b, loc, input, r);
       Value srcStart = originLowIndex;
       Value srcEnd = b.create<arith::AddIOp>(loc, srcStart, inputDimSize);
@@ -1479,27 +1505,42 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::PadOp>
       curSrcSize = b.create<arith::MinSIOp>(loc, curSrcSize, tileSize);
       inputSizes.push_back(getAsOpFoldResult(curSrcSize));
 
-      Value low1 = b.create<arith::SubIOp>(loc, srcStart, curDstStart);
-      // This is case 2, 3: (curDstStart < srcStart) && (curDstEnd >= srcStart).
-      Value cond = b.create<arith::AndIOp>(loc, curDstStartBeforeSrc,
-                                           curDstEndGESrcStart);
-      // curLow = case2-3? srcStart - curDstStart : 0.
-      curLow = b.create<arith::SelectOp>(loc, cond, low1, zeroIndex);
-      lows.push_back(getAsOpFoldResult(curLow));
+      if (matchPattern(originLowIndex, m_Zero())) {
+        lows.push_back(b.getIndexAttr(0));
+      } else {
+        Value low1 = b.create<arith::SubIOp>(loc, srcStart, curDstStart);
+        // This is case 2, 3: (curDstStart < srcStart) && (curDstEnd >=
+        // srcStart).
+        Value cond = b.create<arith::AndIOp>(loc, curDstStartBeforeSrc,
+                                             curDstEndGESrcStart);
+        // curLow = case2-3? srcStart - curDstStart : 0.
+        curLow = b.create<arith::SelectOp>(loc, cond, low1, zeroIndex);
+        // curLow = min (curLow, originLowIndex).
+        curLow = b.create<arith::MinSIOp>(loc, curLow, originLowIndex);
+        lows.push_back(getAsOpFoldResult(curLow));
+      }
 
-      Value high1 = b.create<arith::SubIOp>(loc, curDstEnd, srcEnd);
-      // curHigh = case1 ? size : 0.
-      curHigh =
-          b.create<arith::SelectOp>(loc, curDstBeforeSrc, tileSize, zeroIndex);
-      // curHigh = case2 ? curDstEnd - srcEnd : curHigh.
-      curHigh = b.create<arith::SelectOp>(loc, srcInCurDst, high1, curHigh);
-      // curHigh = case4 ? size : curHigh.
-      curHigh = b.create<arith::SelectOp>(loc, curDstStartAfterSrc, tileSize,
-                                          curHigh);
-      // curHigh = case6 ? curDstEnd - srcEnd : curHigh.
-      curHigh = b.create<arith::SelectOp>(
-          loc, curDstStartInSrcAndcurDstEndAfterSrc, high1, curHigh);
-      highs.push_back(getAsOpFoldResult(curHigh));
+      if (matchPattern(originHighIndex, m_Zero())) {
+        highs.push_back(b.getIndexAttr(0));
+      } else {
+        Value high1 = b.create<arith::SubIOp>(loc, curDstEnd, srcEnd);
+        // curHigh = case1 ? size : 0.
+        curHigh = b.create<arith::SelectOp>(loc, curDstBeforeSrc, tileSize,
+                                            zeroIndex);
+        // curHigh = case2 ? curDstEnd - srcEnd : curHigh.
+        curHigh = b.create<arith::SelectOp>(loc, srcInCurDst, high1, curHigh);
+        // curHigh = case4 ? size : curHigh.
+        curHigh = b.create<arith::SelectOp>(loc, curDstStartAfterSrc, tileSize,
+                                            curHigh);
+        // curHigh = case6 ? curDstEnd - srcEnd : curHigh.
+        curHigh = b.create<arith::SelectOp>(
+            loc, curDstStartInSrcAndcurDstEndAfterSrc, high1, curHigh);
+        Value maxPad =
+            b.create<arith::MaxSIOp>(loc, originHighIndex, originLowIndex);
+        // curHigh = min (curHigh, maxPad).
+        curHigh = b.create<arith::MinSIOp>(loc, curHigh, maxPad);
+        highs.push_back(getAsOpFoldResult(curHigh));
+      }
     }
     Value tiledInput =
         getSlice(b, loc, input, inputOffsets, inputSizes, inputStrides);
@@ -1699,7 +1740,7 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::LibdeviceCallOp>
     SmallVector<OpFoldResult> strides(rank, oneAttr);
     SmallVector<Value> inputsSlice;
     for (auto input : libdeviceCallOp.inputs()) {
-      if (input.getType().isa<ShapedType>()) {
+      if (isa<ShapedType>(input.getType())) {
         auto inputSlice = b.create<tensor::ExtractSliceOp>(
             loc, input, inputOffsets, inputSizes, strides);
         inputsSlice.push_back(inputSlice);
@@ -1901,7 +1942,6 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::ScanOp>
       if (i != scanDim)
         accIndices.push_back(indices[i]);
     }
-
     scanBlkArgs.push_back(
         b.create<memref::LoadOp>(loc, concreteOp.inputs()[0], indices));
     scanBlkArgs.push_back(
@@ -1926,6 +1966,18 @@ struct LinalgExtOpTilingInterface<triton::linalg_ext::ScanOp>
   }
 };
 
+template <>
+struct LinalgExtOpTilingInterface<triton::linalg_ext::HistogramOp>
+    : public TilingInterface::ExternalModel<
+          LinalgExtOpTilingInterface<triton::linalg_ext::HistogramOp>,
+          triton::linalg_ext::HistogramOp> {
+
+  SmallVector<Value> getDestinationOperands(Operation *op,
+                                            OpBuilder &builder) const {
+    return llvm::cast<DestinationStyleOpInterface>(op).getDpsInits();
+  }
+};
+
 } // namespace
 
 template <typename OpType> static void registerOne(MLIRContext *ctx) {
@@ -1946,5 +1998,6 @@ void mlir::triton::linalg_ext::registerExtOpTilingInterfaceExternalModels(
         registerOne<triton::linalg_ext::AssertOp>(ctx);
         registerOne<triton::linalg_ext::ScanOp>(ctx);
         registerOne<triton::linalg_ext::LibdeviceCallOp>(ctx);
+        registerOne<triton::linalg_ext::HistogramOp>(ctx);
       });
 }

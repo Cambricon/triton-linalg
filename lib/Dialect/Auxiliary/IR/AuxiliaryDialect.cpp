@@ -131,7 +131,7 @@ LogicalResult StoreResourceOp::verify() {
   }
   auto from = getFrom();
   auto to = getTo();
-  if (isScalar(from) || from.getType().isa<::mlir::TensorType>()) {
+  if (isScalar(from) || isa<::mlir::TensorType>(from.getType())) {
     if (from.getType() != to.getType()) {
       return emitOpError()
              << "failed to verify that all of {from, to} have same type";
@@ -171,7 +171,7 @@ void ViewOp::build(OpBuilder &b, OperationState &result, MemRefType resultType,
   dispatchIndexOpFoldResults(offset, dynamicOffsets, staticOffsets);
   dispatchIndexOpFoldResults(sizes, dynamicSizes, staticSizes);
   dispatchIndexOpFoldResults(strides, dynamicStrides, staticStrides);
-  auto sourceType = source.getType().cast<LLVM::LLVMPointerType>();
+  auto sourceType = cast<LLVM::LLVMPointerType>(source.getType());
   if (!resultType) {
     resultType = MemRefType::get(
         staticSizes, elementType,

@@ -79,7 +79,7 @@ public:
       return failure();
 
     RankedTensorType resultTy =
-        op.getResult().getType().dyn_cast<RankedTensorType>();
+        dyn_cast<RankedTensorType>(op.getResult().getType());
     if (!resultTy)
       return failure();
 
@@ -96,7 +96,7 @@ public:
 
     Value sliceTensor = rewriter.create<bufferization::ToTensorOp>(
         loc, ptrInfo->memref, true, true);
-    auto tensorType = sliceTensor.getType().cast<RankedTensorType>();
+    auto tensorType = cast<RankedTensorType>(sliceTensor.getType());
     Value emptyTensor = rewriter.create<tensor::EmptyOp>(
         loc, tensorType.getShape(), tensorType.getElementType(),
         getDynamicDimsValue(rewriter, loc, sliceTensor));
@@ -143,7 +143,7 @@ public:
       return failure();
 
     RankedTensorType valueTy =
-        op.getValue().getType().dyn_cast<RankedTensorType>();
+        dyn_cast<RankedTensorType>(op.getValue().getType());
 
     if (!valueTy)
       return failure();
@@ -161,7 +161,7 @@ public:
                                                   ptrInfo->dimInfos,
                                                   defaultOffsets, rewriter);
     if (op.getMask()) {
-      auto rank = value.getType().cast<ShapedType>().getRank();
+      auto rank = cast<ShapedType>(value.getType()).getRank();
       value = rewriter.create<tensor::ExtractSliceOp>(
           loc, value,
           permutateAndRemoveBroadcastDims<OpFoldResult>(
@@ -193,7 +193,7 @@ public:
   LogicalResult
   matchAndRewrite(triton::LoadOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (op.getResult().getType().dyn_cast<RankedTensorType>())
+    if (dyn_cast<RankedTensorType>(op.getResult().getType()))
       return failure();
 
     auto loc = op.getLoc();
@@ -242,7 +242,7 @@ public:
   LogicalResult
   matchAndRewrite(triton::StoreOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    if (op.getValue().getType().dyn_cast<RankedTensorType>())
+    if (dyn_cast<RankedTensorType>(op.getValue().getType()))
       return failure();
 
     auto loc = op.getLoc();
@@ -273,7 +273,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     if (triton::isTensorPointerType(op.getPtr().getType()))
       return failure();
-    auto resultTy = op.getResult().getType().dyn_cast<RankedTensorType>();
+    auto resultTy = dyn_cast<RankedTensorType>(op.getResult().getType());
     if (!resultTy)
       return failure();
 
@@ -341,7 +341,7 @@ public:
     if (triton::isTensorPointerType(op.getPtr().getType()))
       return failure();
 
-    auto valueTy = op.getValue().getType().dyn_cast<RankedTensorType>();
+    auto valueTy = dyn_cast<RankedTensorType>(op.getValue().getType());
     if (!valueTy)
       return failure();
 
@@ -435,7 +435,7 @@ public:
     if (!triton::isTensorPointerType(op.getPtr().getType()))
       return failure();
     RankedTensorType resultTy =
-        op.getResult().getType().cast<RankedTensorType>();
+        cast<RankedTensorType>(op.getResult().getType());
     auto loc = op.getLoc();
     if (op.getMask() || op.getOther())
       return rewriter.notifyMatchFailure(
@@ -447,17 +447,17 @@ public:
     SmallVector<int64_t> permutations =
         getPermutationFromOrder(tracker.getOrder());
     auto dimInfos = getDimInfos(tracker.getStrides(), resultTy.getShape());
-    auto sizes = getActualSizes(loc, op.getBoundaryCheck(), resultTy.getShape(),
-                                tracker, rewriter);
+    auto ptrInfo = getPtrInfo(loc, op.getBoundaryCheck(), resultTy.getShape(),
+                              tracker, rewriter);
     auto originalMemRef =
-        getMemRef(rewriter.getRemappedValue(tracker.getBase()),
-                  tracker.getOffsets(), sizes, tracker.getStrides(),
-                  permutations, dimInfos, resultTy.getElementType(), rewriter,
+        getMemRef(rewriter.getRemappedValue(tracker.getBase()), ptrInfo.offsets,
+                  ptrInfo.sizes, tracker.getStrides(), permutations, dimInfos,
+                  resultTy.getElementType(), rewriter,
                   getCacheModeAttr(op.getContext(), op.getCache()));
 
     Value sliceTensor = rewriter.create<bufferization::ToTensorOp>(
         loc, originalMemRef, true, true);
-    auto tensorType = sliceTensor.getType().cast<RankedTensorType>();
+    auto tensorType = cast<RankedTensorType>(sliceTensor.getType());
     Value emptyTensor = rewriter.create<tensor::EmptyOp>(
         loc, tensorType.getShape(), tensorType.getElementType(),
         getDynamicDimsValue(rewriter, loc, sliceTensor));
@@ -466,7 +466,7 @@ public:
 
     if (op.getBoundaryCheck().empty()) {
       sliceTensor = transformResultWithTransposeAndDimInfo(
-          sliceTensor, permutations, dimInfos, sizes, rewriter);
+          sliceTensor, permutations, dimInfos, ptrInfo.sizes, rewriter);
       rewriter.replaceOp(op, sliceTensor);
       return success();
     }
@@ -478,25 +478,24 @@ public:
       // Set zero padding value.
       TypedAttr attr =
           elementType.isIntOrIndex()
-              ? rewriter.getIntegerAttr(elementType, 0).cast<TypedAttr>()
-              : rewriter.getFloatAttr(elementType, 0).cast<TypedAttr>();
+              ? cast<TypedAttr>(rewriter.getIntegerAttr(elementType, 0))
+              : cast<TypedAttr>(rewriter.getFloatAttr(elementType, 0));
 
       // Float NaN padding case.
       if (op.getPadding().value() == triton::PaddingOption::PAD_NAN) {
         assert(!elementType.isIntOrIndex());
         auto apNaN = llvm::APFloat::getNaN(
-            attr.cast<FloatAttr>().getValue().getSemantics());
+            cast<FloatAttr>(attr).getValue().getSemantics());
         attr = rewriter.getFloatAttr(elementType, apNaN);
       }
       other = rewriter.create<arith::ConstantOp>(loc, attr);
     }
 
     auto value = transformResultWithTransposeAndDimInfo(
-        sliceTensor, permutations, dimInfos, sizes, rewriter);
-    value = getPadOrInsertOpWithOther(
-        loc, other, resultTy, value,
-        SmallVector<OpFoldResult>(resultTy.getRank(), rewriter.getIndexAttr(0)),
-        sizes, rewriter);
+        sliceTensor, permutations, dimInfos, ptrInfo.sizes, rewriter);
+    value = getPadOrInsertOpWithOther(loc, other, resultTy, value,
+                                      ptrInfo.padLeftSizes, ptrInfo.sizes,
+                                      rewriter);
     rewriter.replaceOp(op, value);
     return success();
   }
@@ -513,7 +512,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     if (!triton::isTensorPointerType(op.getPtr().getType()))
       return failure();
-    RankedTensorType valueTy = op.getValue().getType().cast<RankedTensorType>();
+    RankedTensorType valueTy = cast<RankedTensorType>(op.getValue().getType());
     auto loc = op.getLoc();
     if (op.getMask())
       return rewriter.notifyMatchFailure(
@@ -526,12 +525,12 @@ public:
     SmallVector<int64_t> permutations =
         getPermutationFromOrder(tracker.getOrder());
     auto dimInfos = getDimInfos(tracker.getStrides(), valueTy.getShape());
-    auto sizes = getActualSizes(loc, op.getBoundaryCheck(), valueTy.getShape(),
-                                tracker, rewriter);
+    auto ptrInfo = getPtrInfo(loc, op.getBoundaryCheck(), valueTy.getShape(),
+                              tracker, rewriter);
     auto originalMemRef =
-        getMemRef(rewriter.getRemappedValue(tracker.getBase()),
-                  tracker.getOffsets(), sizes, tracker.getStrides(),
-                  permutations, dimInfos, valueTy.getElementType(), rewriter,
+        getMemRef(rewriter.getRemappedValue(tracker.getBase()), ptrInfo.offsets,
+                  ptrInfo.sizes, tracker.getStrides(), permutations, dimInfos,
+                  valueTy.getElementType(), rewriter,
                   getCacheModeAttr(op.getContext(), op.getCache()));
     auto value = op.getValue();
     auto zeroAttr = rewriter.getIndexAttr(0);
@@ -539,11 +538,13 @@ public:
     value = transformInputWithTransposeAndDimInfo(value, permutations, dimInfos,
                                                   defaultOffsets, rewriter);
     if (!op.getBoundaryCheck().empty()) {
-      auto rank = value.getType().cast<ShapedType>().getRank();
+      auto rank = cast<ShapedType>(value.getType()).getRank();
       value = rewriter.create<tensor::ExtractSliceOp>(
-          loc, value, SmallVector<OpFoldResult>(rank, rewriter.getIndexAttr(0)),
-          permutateAndRemoveBroadcastDims<OpFoldResult>(sizes, permutations,
-                                                        dimInfos),
+          loc, value,
+          permutateAndRemoveBroadcastDims<OpFoldResult>(ptrInfo.padLeftSizes,
+                                                        permutations, dimInfos),
+          permutateAndRemoveBroadcastDims<OpFoldResult>(ptrInfo.sizes,
+                                                        permutations, dimInfos),
           SmallVector<OpFoldResult>(rank, rewriter.getIndexAttr(1)));
     }
     auto materializeOp =
