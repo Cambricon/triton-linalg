@@ -63,19 +63,19 @@ Value triton::selectByMask(Location loc, Value mask, Value trueVal,
                            Value falseVal,
                            ConversionPatternRewriter &rewriter) {
   assert(trueVal && "Get true value failed.");
-  auto trueType = trueVal.getType().dyn_cast<ShapedType>();
+  auto trueType = dyn_cast<ShapedType>(trueVal.getType());
   if (!mask || !falseVal || !trueType)
     return trueVal;
 
   auto falseType = falseVal.getType();
-  if (!falseType.isa<ShapedType>()) {
+  if (!isa<ShapedType>(falseType)) {
     Value falseValInit =
         rewriter.create<tensor::EmptyOp>(loc, trueType.getShape(), falseType);
     falseVal =
         rewriter.create<linalg::FillOp>(loc, falseVal, ValueRange{falseValInit})
             .getResult(0);
   }
-  auto resType = falseType.template cast<ShapedType>();
+  auto resType = cast<ShapedType>(falseType);
   auto initDims = triton::getDims(rewriter, loc, falseVal);
   Value initTensor =
       rewriter.create<tensor::EmptyOp>(loc, initDims, resType.getElementType());
@@ -94,7 +94,7 @@ Value triton::flattenValueToMatchGatherScatter(
   if (!value)
     return value;
 
-  auto valueTy = value.getType().cast<RankedTensorType>();
+  auto valueTy = cast<RankedTensorType>(value.getType());
   auto loc = value.getLoc();
   auto rank = valueTy.getRank();
 
@@ -132,10 +132,10 @@ Value triton::reshapeGatherScatterValueTo(Value value,
                                           RankedTensorType resultTy,
                                           ConversionPatternRewriter &rewriter) {
   assert(value);
-  auto valueTy = value.getType().cast<RankedTensorType>();
+  auto valueTy = cast<RankedTensorType>(value.getType());
   auto loc = value.getLoc();
   auto dstRank = resultTy.getRank();
-  auto srcRank = value.getType().cast<RankedTensorType>().getRank();
+  auto srcRank = cast<RankedTensorType>(value.getType()).getRank();
 
   if (dstRank == 0) {
     // Zero rank.
@@ -225,7 +225,7 @@ Value TritonPtrConversionBase::transformResultWithTransposeAndDimInfo(
     Value value, ArrayRef<int64_t> permutations, ArrayRef<DimInfo> dimInfos,
     ArrayRef<OpFoldResult> actualSizes,
     ConversionPatternRewriter &rewriter) const {
-  auto valueTy = value.getType().cast<ShapedType>();
+  auto valueTy = cast<ShapedType>(value.getType());
   auto loc = value.getLoc();
 
   // As the shape of value has been transposed before broadcasted by dimInfos,
@@ -286,7 +286,7 @@ Value TritonPtrConversionBase::transformResultWithTransposeAndDimInfo(
 Value TritonPtrConversionBase::transformInputWithTransposeAndDimInfo(
     Value value, ArrayRef<int64_t> permutations, ArrayRef<DimInfo> dimInfos,
     ArrayRef<OpFoldResult> offsets, ConversionPatternRewriter &rewriter) const {
-  auto valueTy = value.getType().cast<ShapedType>();
+  auto valueTy = cast<ShapedType>(value.getType());
   assert((!ShapedType::isDynamicShape(valueTy.getShape())) &&
          "value shape should be static");
   auto loc = value.getLoc();
@@ -308,7 +308,7 @@ Value TritonPtrConversionBase::transformInputWithTransposeAndDimInfo(
   if (!isConsecutive(permutations)) {
     Value init = rewriter.create<tensor::EmptyOp>(
         loc,
-        getValuesByPerms(ret.getType().cast<ShapedType>().getShape(),
+        getValuesByPerms(cast<ShapedType>(ret.getType()).getShape(),
                          permutations),
         valueTy.getElementType());
     ret = rewriter.create<linalg::TransposeOp>(loc, ret, init, permutations)
@@ -342,7 +342,7 @@ Value TritonPtrConversionBase::transformInputWithTransposeAndDimInfo(
   /// Deduce the type of the result to use for the canonicalized operation.
   RankedTensorType resultType =
       tensor::ExtractSliceOp::inferCanonicalRankReducedResultType(
-          desiredResultRank, ret.getType().cast<RankedTensorType>(),
+          desiredResultRank, cast<RankedTensorType>(ret.getType()),
           transposedOffsets, newSizes, strides);
   ret = rewriter
             .create<tensor::ExtractSliceOp>(
@@ -381,9 +381,9 @@ SmallVector<DimInfo> TritonPtrLoadStoreOpConversionBase::getDimInfos(
   SmallVector<DimInfo> dimInfos;
   dimInfos.reserve(tensorShape.size());
   for (const auto &dim : llvm::enumerate(tensorShape)) {
-    if (axisInfo->isConstantDim(tensorShape, dim.index())) {
+    if (axisInfo->isFullConstantDim(tensorShape, dim.index())) {
       dimInfos.push_back({1, dim.value(), DimInfo::Kind::BROADCAST});
-    } else if (axisInfo->isStrideDim(tensorShape, dim.index())) {
+    } else if (axisInfo->isFullStrideDim(tensorShape, dim.index())) {
       dimInfos.push_back({dim.value(), 1, DimInfo::Kind::CONTIG});
     } else {
       dimInfos.push_back({dim.value()});
@@ -401,8 +401,8 @@ SmallVector<int64_t> TritonPtrLoadStoreOpConversionBase::getPermutations(
       llvm::to_vector<2>(llvm::seq<int64_t>(0, rank));
 
   for (int64_t i = rank - 2; i >= 0; i--) {
-    if (!axisInfo->isContiguousDim(tensorShape, rank - 1) &&
-        axisInfo->isContiguousDim(tensorShape, i) && tensorShape[i] != 1) {
+    if (!axisInfo->isFullContiguousDim(tensorShape, rank - 1) &&
+        axisInfo->isFullContiguousDim(tensorShape, i) && tensorShape[i] != 1) {
       std::swap(permutations[i], permutations[rank - 1]);
       break;
     }
@@ -590,8 +590,8 @@ Value TritonPtrScatterConversionBase::getDynamicMemRef(
 //===----------------------------------------------------------------------===//
 // TritonTensorPtrLoadStoreOpConversionBase
 //===----------------------------------------------------------------------===//
-SmallVector<OpFoldResult>
-TritonTensorPtrLoadStoreOpConversionBase::getActualSizes(
+TritonTensorPtrLoadStoreOpConversionBase::PtrInfo
+TritonTensorPtrLoadStoreOpConversionBase::getPtrInfo(
     Location loc, std::optional<ArrayRef<int>> boundaryCheck,
     ArrayRef<int64_t> tensorShape, const TensorPointerMetaInfoTracker &tracker,
     ConversionPatternRewriter &rewriter) const {
@@ -599,14 +599,27 @@ TritonTensorPtrLoadStoreOpConversionBase::getActualSizes(
       llvm::map_range(tensorShape, [&rewriter](int64_t dim) -> OpFoldResult {
         return rewriter.getIndexAttr(dim);
       }));
+  SmallVector<OpFoldResult> offsets(tracker.getOffsets().begin(),
+                                    tracker.getOffsets().end());
+  SmallVector<OpFoldResult> padLeftSizes(tensorShape.size(),
+                                         rewriter.getIndexAttr(0));
   if (boundaryCheck) {
     for (auto i : boundaryCheck.value()) {
-      OpFoldResult remainSize = subOFRs(tracker.getSizes()[i],
-                                        tracker.getOffsets()[i], loc, rewriter);
-      blockSizes[i] = minOFRs(remainSize, blockSizes[i], loc, rewriter);
+      auto originOffset = tracker.getOffsets()[i];
+      offsets[i] =
+          maxOFRs(originOffset, rewriter.getIndexAttr(0), loc, rewriter);
+      padLeftSizes[i] =
+          minOFRs(subOFRs(offsets[i], originOffset, loc, rewriter),
+                  blockSizes[i], loc, rewriter);
+      OpFoldResult remainSize =
+          subOFRs(tracker.getSizes()[i], offsets[i], loc, rewriter);
+      remainSize = maxOFRs(remainSize, rewriter.getIndexAttr(0), loc, rewriter);
+      blockSizes[i] = minOFRs(
+          remainSize, subOFRs(blockSizes[i], padLeftSizes[i], loc, rewriter),
+          loc, rewriter);
     }
   }
-  return blockSizes;
+  return {offsets, padLeftSizes, blockSizes};
 }
 
 SmallVector<DimInfo> TritonTensorPtrLoadStoreOpConversionBase::getDimInfos(

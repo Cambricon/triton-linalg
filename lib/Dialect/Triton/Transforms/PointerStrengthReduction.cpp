@@ -35,6 +35,7 @@
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "triton-linalg/Dialect/Triton/Transforms/PassDetail.h" // IWYU pragma: keep
 #include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
+#include "triton-linalg/Dialect/Triton/Utils/PointerInfo.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -60,51 +61,6 @@ class MLIRContext;
 } // namespace mlir
 
 namespace {
-
-/// Structure info representation for pointer in triton.
-class PtrInfo {
-public:
-  PtrInfo() = delete;
-  PtrInfo(Value ptr, ArrayRef<Value> offsets)
-      : pointer(ptr), tensorPtrOffsets(offsets) {}
-
-  PtrInfo(Value ptr, ArrayRef<Value> sizes, ArrayRef<Value> strides,
-          ArrayRef<Value> offsets, ArrayRef<int32_t> order)
-      : pointer(ptr), tensorPtrSizes(sizes), tensorPtrStrides(strides),
-        tensorPtrOffsets(offsets), tensorPtrOrder(order) {}
-
-  PtrInfo(Value ptr, Value offset) : pointer(ptr) {
-    tensorPtrOffsets.push_back(offset);
-    isRawPtrInfo = true;
-  }
-
-  Value ptr() const { return pointer; }
-
-  ArrayRef<Value> offsets() const { return tensorPtrOffsets; }
-  Value offset(unsigned idx) const { return tensorPtrOffsets[idx]; }
-  Value offset() const { return tensorPtrOffsets[0]; }
-  void setOffsets(ValueRange vals) {
-    for (unsigned i = 0; i < vals.size(); i++) {
-      tensorPtrOffsets[i] = vals[i];
-    }
-  }
-  unsigned offsetSize() { return tensorPtrOffsets.size(); }
-
-  bool isBlockPtr() const { return !isRawPtrInfo; }
-
-  ArrayRef<Value> sizes() const { return tensorPtrSizes; }
-  ArrayRef<Value> strides() const { return tensorPtrStrides; }
-  ArrayRef<int32_t> order() const { return tensorPtrOrder; }
-
-private:
-  bool isRawPtrInfo{false};
-  Value pointer;
-  // Basic info for reconstruction of MakeTensorPtrOp.
-  SmallVector<Value> tensorPtrSizes;
-  SmallVector<Value> tensorPtrStrides;
-  SmallVector<Value> tensorPtrOffsets;
-  SmallVector<int32_t> tensorPtrOrder;
-};
 
 /// Check if there are repeat arguments in block inputs and terminatorOp.
 static bool verifyArgsMatchTerminatorInputsInBlock(Block *block,
@@ -334,17 +290,9 @@ private:
       return failure();
     }
     IRRewriter rewriter(ptr.getContext());
-    SmallVector<Value> sizes;
-    SmallVector<Value> strides;
-    SmallVector<Value> offsets;
-    SmallVector<int32_t> orders;
-    for (int i = 0; i < makeTensorPtrOp.getOffsets().size(); ++i) {
-      sizes.push_back(makeTensorPtrOp.getShape()[i]);
-      strides.push_back(makeTensorPtrOp.getStrides()[i]);
-      offsets.push_back(makeTensorPtrOp.getOffsets()[i]);
-      orders.push_back(makeTensorPtrOp.getOrder()[i]);
-    }
-    return PtrInfo(makeTensorPtrOp.getBase(), sizes, strides, offsets, orders);
+    return PtrInfo(makeTensorPtrOp.getBase(), makeTensorPtrOp.getShape(),
+                   makeTensorPtrOp.getStrides(), makeTensorPtrOp.getOffsets(),
+                   makeTensorPtrOp.getOrder());
   }
 
   template <typename OperationT>
@@ -444,7 +392,7 @@ LogicalResult PtrStrengthReductionPattern<triton::BroadcastOp>::matchAndRewrite(
   auto newOffset = rewriter.create<triton::BroadcastOp>(
       loc,
       RankedTensorType::get(
-          op.getResult().getType().cast<ShapedType>().getShape(),
+          cast<ShapedType>(op.getResult().getType()).getShape(),
           getElementTypeOrSelf(info->offset().getType())),
       info->offset());
   auto newPtr = rewriter.create<triton::BroadcastOp>(
@@ -465,7 +413,7 @@ LogicalResult PtrStrengthReductionPattern<triton::ReshapeOp>::matchAndRewrite(
   auto newOffset = rewriter.create<triton::ReshapeOp>(
       loc,
       RankedTensorType::get(
-          op.getResult().getType().cast<ShapedType>().getShape(),
+          cast<ShapedType>(op.getResult().getType()).getShape(),
           getElementTypeOrSelf(info->offset().getType())),
       info->offset(), false);
   auto newPtr = rewriter.create<triton::ReshapeOp>(
@@ -486,7 +434,7 @@ LogicalResult PtrStrengthReductionPattern<triton::TransOp>::matchAndRewrite(
   auto newOffset = rewriter.create<triton::TransOp>(
       loc,
       RankedTensorType::get(
-          op.getResult().getType().cast<ShapedType>().getShape(),
+          cast<ShapedType>(op.getResult().getType()).getShape(),
           getElementTypeOrSelf(info->offset().getType())),
       info->offset(), op.getOrder());
   auto newPtr = rewriter.create<triton::TransOp>(loc, op.getResult().getType(),
@@ -578,11 +526,11 @@ public:
 
 private:
   bool isTritonPtrWithTensor(Type type) const {
-    if (auto ptrType = type.dyn_cast<triton::PointerType>()) {
-      return triton::getPointeeType(type).isa<TensorType>();
+    if (auto ptrType = dyn_cast<triton::PointerType>(type)) {
+      return isa<TensorType>(triton::getPointeeType(type));
     }
-    if (auto tensorTy = type.dyn_cast<TensorType>()) {
-      return tensorTy.getElementType().isa<triton::PointerType>();
+    if (auto tensorTy = dyn_cast<TensorType>(type)) {
+      return isa<triton::PointerType>(tensorTy.getElementType());
     }
     return false;
   }
@@ -600,7 +548,7 @@ private:
       rewriter.setInsertionPointAfter(splatOp);
       Type offsetType = rewriter.getIntegerType(32);
       assert(isTritonPtrWithTensor(splatOp.getResult().getType()));
-      if (auto type = splatOp.getResult().getType().dyn_cast<ShapedType>()) {
+      if (auto type = dyn_cast<ShapedType>(splatOp.getResult().getType())) {
         offsetType =
             RankedTensorType::get(type.getShape(), rewriter.getIntegerType(32));
       }
@@ -610,18 +558,9 @@ private:
     }
     // Get previous ptr of tensor and infos.
     if (auto makeTensorPtrOp = ptr.getDefiningOp<triton::MakeTensorPtrOp>()) {
-      SmallVector<Value> sizes;
-      SmallVector<Value> strides;
-      SmallVector<Value> offsets;
-      SmallVector<int32_t> orders;
-      for (int i = 0; i < makeTensorPtrOp.getOffsets().size(); ++i) {
-        sizes.push_back(makeTensorPtrOp.getShape()[i]);
-        strides.push_back(makeTensorPtrOp.getStrides()[i]);
-        offsets.push_back(makeTensorPtrOp.getOffsets()[i]);
-        orders.push_back(makeTensorPtrOp.getOrder()[i]);
-      }
-      return PtrInfo(makeTensorPtrOp.getBase(), sizes, strides, offsets,
-                     orders);
+      return PtrInfo(makeTensorPtrOp.getBase(), makeTensorPtrOp.getShape(),
+                     makeTensorPtrOp.getStrides(), makeTensorPtrOp.getOffsets(),
+                     makeTensorPtrOp.getOrder());
     }
     return failure();
   }
@@ -678,7 +617,7 @@ private:
       auto offset = info.offset();
       if (isIntType(offset, 32)) {
         Type targetOffsetType = rewriter.getIntegerType(64);
-        if (auto type = offset.getType().dyn_cast<ShapedType>()) {
+        if (auto type = dyn_cast<ShapedType>(offset.getType())) {
           targetOffsetType = RankedTensorType::get(type.getShape(),
                                                    rewriter.getIntegerType(64));
         }

@@ -146,7 +146,7 @@ LogicalResult PointerMetaInfoTracker::parseOp<triton::SplatOp>(
   this->offset = rewriter.create<triton::SplatOp>(
       loc,
       RankedTensorType::get(
-          op.getResult().getType().cast<ShapedType>().getShape(),
+          mlir::cast<ShapedType>(op.getResult().getType()).getShape(),
           this->offset.getType()),
       this->offset);
   return success();
@@ -171,9 +171,64 @@ LogicalResult PointerMetaInfoTracker::parseOp<triton::BroadcastOp>(
   this->offset = rewriter.create<triton::BroadcastOp>(
       loc,
       RankedTensorType::get(
-          op.getResult().getType().cast<ShapedType>().getShape(),
+          mlir::cast<ShapedType>(op.getResult().getType()).getShape(),
           getElementTypeOrSelf(this->offset.getType())),
       this->offset);
+  return success();
+}
+
+template <>
+LogicalResult PointerMetaInfoTracker::parseOp<tensor::ExtractOp>(
+    tensor::ExtractOp op, Location loc, ConversionPatternRewriter &rewriter) {
+  if (failed(parse(op.getTensor(), loc, rewriter)))
+    return failure();
+  this->offset =
+      rewriter.create<tensor::ExtractOp>(loc, this->offset, op.getIndices());
+  return success();
+}
+
+template <>
+LogicalResult PointerMetaInfoTracker::parseOp<tensor::ExtractSliceOp>(
+    tensor::ExtractSliceOp op, Location loc,
+    ConversionPatternRewriter &rewriter) {
+  if (failed(parse(op.getSource(), loc, rewriter)))
+    return failure();
+  SmallVector<OpFoldResult> offsets = op.getMixedOffsets();
+  SmallVector<OpFoldResult> sizes = op.getMixedSizes();
+  SmallVector<OpFoldResult> strides = op.getMixedStrides();
+  this->offset = rewriter.create<tensor::ExtractSliceOp>(
+      loc, this->offset, offsets, sizes, strides);
+  return success();
+}
+
+template <>
+LogicalResult PointerMetaInfoTracker::parseOp<tensor::ExpandShapeOp>(
+    tensor::ExpandShapeOp op, Location loc,
+    ConversionPatternRewriter &rewriter) {
+  if (failed(parse(op.getSrc(), loc, rewriter)))
+    return failure();
+  this->offset = rewriter.create<tensor::ExpandShapeOp>(
+      loc,
+      RankedTensorType::get(
+          mlir::cast<ShapedType>(op.getResult().getType()).getShape(),
+          getElementTypeOrSelf(this->offset.getType())),
+      this->offset, op.getReassociation(), op.getOutputShape(),
+      op.getStaticOutputShape());
+  return success();
+}
+
+template <>
+LogicalResult PointerMetaInfoTracker::parseOp<tensor::CollapseShapeOp>(
+    tensor::CollapseShapeOp op, Location loc,
+    ConversionPatternRewriter &rewriter) {
+  if (failed(parse(op.getOperand(), loc, rewriter)))
+    return failure();
+  this->offset = rewriter.create<tensor::CollapseShapeOp>(
+      loc,
+      RankedTensorType::get(
+          mlir::cast<ShapedType>(op.getResult().getType()).getShape(),
+          getElementTypeOrSelf(this->offset.getType())),
+      this->offset, op.getReassociation());
   return success();
 }
 
@@ -203,7 +258,9 @@ PointerMetaInfoTracker::parse(Value operand, Location loc,
     auto res =
         llvm::TypeSwitch<Operation *, LogicalResult>(defOp)
             .Case<triton::AddPtrOp, triton::BitcastOp, triton::SplatOp,
-                  triton::BroadcastOp, triton::ExpandDimsOp>([&](auto op) {
+                  triton::BroadcastOp, triton::ExpandDimsOp,
+                  tensor::ExpandShapeOp, tensor::CollapseShapeOp,
+                  tensor::ExtractOp, tensor::ExtractSliceOp>([&](auto op) {
               auto ret = parseOp(op, loc, rewriter);
               isProcessedSuccessfully = ret.succeeded();
               return ret;
@@ -214,7 +271,7 @@ PointerMetaInfoTracker::parse(Value operand, Location loc,
     if (res.failed() && !isProcessedSuccessfully)
       return failure(); // res
   }
-  if (!operand.getType().isa<triton::PointerType>())
+  if (!mlir::isa<triton::PointerType>(operand.getType()))
     return rewriter.notifyMatchFailure(
         loc, "only support base ptr of triton scalar pointer");
   this->base = operand;

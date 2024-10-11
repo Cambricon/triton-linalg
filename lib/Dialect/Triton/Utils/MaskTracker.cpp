@@ -136,6 +136,10 @@ inline raw_ostream &operator<<(raw_ostream &os, const Mask &s) {
 }
 
 using Result = std::variant<Scalar, SimpleRange, Mask>;
+inline raw_ostream &operator<<(raw_ostream &os, const Result &s) {
+  std::visit([&os](const auto &val) { os << val; }, s);
+  return os;
+}
 
 /// A visitor(std::visit functor) used to wrapper calculations between different
 /// of results.
@@ -235,15 +239,44 @@ struct CmpVisitor : public VisitorBase {
       : VisitorBase(loc, rewriter), cmpTy(cmpTy) {}
   template <typename T1, typename T2>
   FailureOr<Result> operator()(const T1 &lhs, const T2 &rhs) {
+    // Compare range and scalar.
     if constexpr (std::is_same_v<SimpleRange, T1> &&
                   std::is_same_v<Scalar, T2>) {
       return compareSimpleRange(lhs, rhs, cmpTy);
+    }
+    // Compare scalar and range.
+    if constexpr (std::is_same_v<Scalar, T1> &&
+                  std::is_same_v<SimpleRange, T2>) {
+      // The function compareSimpleRange handles comparisons between
+      // a range and a scalar. When the input is in the form
+      // of (scalar, range), it is necessary to swap the order of the
+      // arguments and map the comparison operation to its equivalent operation.
+      return compareSimpleRange(rhs, lhs, reversePredicate(cmpTy));
     }
     return rewriter.notifyMatchFailure(loc, "Unsupported cmpi scenario");
   }
 
 private:
   arith::CmpIPredicate cmpTy;
+
+  arith::CmpIPredicate reversePredicate(mlir::arith::CmpIPredicate cmpTy) {
+    /*
+     *  (range < scalar) <=> (scalar > range)
+     *  (range > scalar) <=> (scalar < range)
+     *  (range <= scale) <=> (scalar >= range)
+     *  (range >= scalar) <=> (scalar <= range)
+     */
+    static const llvm::DenseMap<arith::CmpIPredicate, arith::CmpIPredicate>
+        map = {
+            {arith::CmpIPredicate::slt, arith::CmpIPredicate::sgt},
+            {arith::CmpIPredicate::sgt, arith::CmpIPredicate::slt},
+            {arith::CmpIPredicate::sle, arith::CmpIPredicate::sge},
+            {arith::CmpIPredicate::sge, arith::CmpIPredicate::sle},
+        };
+    auto it = map.find(cmpTy);
+    assert(it != map.end());
+    return it->second;
+  }
   FailureOr<Result> compareSimpleRange(const SimpleRange &lhs,
                                        const Scalar &rhs,
                                        mlir::arith::CmpIPredicate cmpTy) {
@@ -263,12 +296,18 @@ private:
         case arith::CmpIPredicate::sle: {
           auto openedUpperBound =
               addOFRs(rhs.scalar, rewriter.getIndexAttr(1), loc, rewriter);
+          // The value of `rhs.scalar` might be exactly `INT64_MAX`.
+          // We need to prevent overflow after adding one.
+          openedUpperBound =
+              maxOFRs(openedUpperBound, rhs.scalar, loc, rewriter);
           newDim = cmpSlt(ret, lhs, openedUpperBound, i);
           break;
         }
         case arith::CmpIPredicate::sgt: {
           auto closedLowerBound =
               addOFRs(rhs.scalar, rewriter.getIndexAttr(1), loc, rewriter);
+          closedLowerBound =
+              maxOFRs(closedLowerBound, rhs.scalar, loc, rewriter);
           newDim = cmpSgt(ret, lhs, closedLowerBound, i);
           break;
         }
@@ -520,9 +559,9 @@ public:
   /// Get the value of the constant and assign it to scalar.
   FailureOr<Result> parseOp(arith::ConstantOp constOp) {
     // Scalar constant will be processed in func parseIntScalar.
-    auto attr = constOp.getValue().cast<DenseElementsAttr>();
+    auto attr = cast<DenseElementsAttr>(constOp.getValue());
 
-    if (!attr.isSplat() || !attr.getElementType().isa<IntegerType>()) {
+    if (!attr.isSplat() || !isa<IntegerType>(attr.getElementType())) {
       return rewriter.notifyMatchFailure(
           loc, "All elements must share a single integer constant value");
     }
@@ -619,7 +658,7 @@ public:
   /// Operand is the result of make_range.
   /// Set start and end accordingly; step size must be 1.
   FailureOr<Result> parseOp(triton::MakeRangeOp rangeOp) {
-    auto shape = rangeOp.getType().cast<ShapedType>().getShape();
+    auto shape = cast<ShapedType>(rangeOp.getType()).getShape();
     auto start = rangeOp.getStart();
     auto end = rangeOp.getEnd();
     assert(((end - start + shape[0] - 1) / shape[0] == 1) &&
@@ -642,8 +681,8 @@ public:
     auto dst = broadcastOp.getResult();
     // We canonicalize tt.broadcast in triton canonicalization pass,
     // so no scalar case here.
-    auto dstShape = dst.getType().cast<ShapedType>().getShape();
-    auto srcShape = src.getType().cast<ShapedType>().getShape();
+    auto dstShape = cast<ShapedType>(dst.getType()).getShape();
+    auto srcShape = cast<ShapedType>(src.getType()).getShape();
     assert(srcShape.size() == dstShape.size() &&
            "rank of source and destination should match");
 
@@ -664,7 +703,7 @@ public:
   FailureOr<Result> parseOp(triton::SplatOp splatOp) {
     auto src = splatOp.getSrc();
     auto dst = splatOp.getResult();
-    auto dstShape = dst.getType().cast<ShapedType>().getShape();
+    auto dstShape = cast<ShapedType>(dst.getType()).getShape();
 
     auto ret = parse(src);
     if (failed(ret))
@@ -685,11 +724,10 @@ public:
       return failure();
 
     auto axis = expandDimsOp.getAxis();
-    assert(expandDimsOp.getResult()
-                   .getType()
-                   .cast<ShapedType>()
-                   .getShape()[axis] == 1 &&
-           "expect changed dimension to be 1 in expand_dims");
+    assert(
+        cast<ShapedType>(expandDimsOp.getResult().getType()).getShape()[axis] ==
+            1 &&
+        "expect changed dimension to be 1 in expand_dims");
 
     if (failed(std::visit(ExpandDimVisitor(loc, rewriter, axis), *ret)))
       return failure();
@@ -717,12 +755,12 @@ public:
   }
 
   FailureOr<Result> parseUnknownValue(Value operand) {
-    auto type = operand.getType().dyn_cast<ShapedType>();
+    auto type = dyn_cast<ShapedType>(operand.getType());
     if (!type)
       return rewriter.notifyMatchFailure(
           loc, "only support track shaped type value");
 
-    assert((type.getElementType().isa<IndexType, IntegerType, FloatType>() &&
+    assert((isa<IndexType, IntegerType, FloatType>(type.getElementType()) &&
             "unsupport unknown value type"));
 
     Result ret;
@@ -736,7 +774,7 @@ public:
   }
 
   FailureOr<Result> parse(Value operand) {
-    if (operand.getType().isa<IntegerType>()) {
+    if (isa<IntegerType>(operand.getType())) {
       return parseIntScalar(operand);
     }
 
@@ -761,7 +799,7 @@ private:
 } // namespace
 
 void MaskTracker::parse(Value operand, Location loc, RewriterBase &rewriter) {
-  auto shapeTy = operand.getType().dyn_cast<ShapedType>();
+  auto shapeTy = dyn_cast<ShapedType>(operand.getType());
   if (!shapeTy)
     return;
   int64_t rank = shapeTy.getRank();

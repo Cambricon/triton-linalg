@@ -37,6 +37,8 @@ LogicalResult triton::detail::verifyLinalgExtOpInterface(Operation *op) {
 
 LogicalResult LinalgExtOp::reifyResultShapes(
     OpBuilder &b, ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
-  return llvm::cast<LinalgOp>(getOperation())
-      .reifyResultShapes(b, reifiedReturnShapes);
+  if (auto linalgOp = dyn_cast<LinalgOp>(getOperation())) {
+    return linalgOp.reifyResultShapes(b, reifiedReturnShapes);
+  }
+  return failure();
 }

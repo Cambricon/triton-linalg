@@ -8,7 +8,7 @@ cnpipe {
         }
         container {
             networkPolicy "cncl-no-internnet-access"
-            image 'yellow.hub.cambricon.com/genesis/devel/x86_64/triton_linalg:1.0.0-x86_64-ubuntu2004-prebuild-thirdparty-py_3_10'
+            image 'yellow.hub.cambricon.com/genesis/devel/x86_64/genesis:0.7.13-x86_64-ubuntu2004-prebuild-thirdparty-py_3_10'
             runArgs "--network=host --privileged -v /usr/bin/cnmon:/usr/bin/cnmon --device=/dev/cambricon_dev0:/dev/cambricon_dev0 --device=/dev/cambricon_ctl"
         }
         resReq {
@@ -25,8 +25,8 @@ cnpipe {
             cd triton-linalg
             git fetch origin pull/${pr_id}/head:local_test
             git config --global url."http://gitmirror.cambricon.com/git_repos/".insteadOf https://
-            git submodule update --init --recursive
             git checkout local_test
+            git submodule update --init --recursive
             git log -1
             cd ..
         '''
@@ -41,7 +41,7 @@ cnpipe {
         }
         container {
             networkPolicy "cncl-no-internnet-access"
-            image 'yellow.hub.cambricon.com/genesis/devel/x86_64/triton_linalg:1.0.0-x86_64-ubuntu2004-prebuild-thirdparty-py_3_10'
+            image 'yellow.hub.cambricon.com/genesis/devel/x86_64/genesis:0.7.13-x86_64-ubuntu2004-prebuild-thirdparty-py_3_10'
             runArgs "--network=host --privileged -v /usr/bin/cnmon:/usr/bin/cnmon --device=/dev/cambricon_dev0:/dev/cambricon_dev0 --device=/dev/cambricon_ctl"
         }
         resReq {
@@ -64,7 +64,7 @@ cnpipe {
         stash 'logs', 'task_logs'
         archiveLog 'logs/', false
     }
-    task('build') {
+    task('build_and_unittest') {
         stage 'build'
         node {
             labelSelector "cambricon.com/mm-daily":true
@@ -72,7 +72,7 @@ cnpipe {
         }
         container {
             networkPolicy "cncl-no-internnet-access"
-            image 'yellow.hub.cambricon.com/genesis/devel/x86_64/triton_linalg:1.0.0-x86_64-ubuntu2004-prebuild-thirdparty-py_3_10'
+            image 'yellow.hub.cambricon.com/genesis/devel/x86_64/genesis:0.7.13-x86_64-ubuntu2004-prebuild-thirdparty-py_3_10'
             runArgs "--network=host --privileged -v /usr/bin/cnmon:/usr/bin/cnmon --device=/dev/cambricon_dev0:/dev/cambricon_dev0 --device=/dev/cambricon_ctl"
         }
         resReq {
@@ -80,50 +80,29 @@ cnpipe {
             lmtMlus 1
             reqCpu 30
             lmtCpu 30
-            reqMemory '40Gi'
-            lmtMemory '40Gi'
+            reqMemory '60Gi'
+            lmtMemory '60Gi'
         }
         unstash 'triton-linalg-pr'
         script '''
             mkdir logs
             set -e
             export TRITON_PLUGIN_DIRS=${CI_WORK_DIR}/triton-linalg
+            export TRITON_BUILD_PROTON=OFF
             cd triton-linalg/triton
+            sed -i '435,482d' python/setup.py
+            sed -i 's/https:\\/\\/oaitriton.blob.core.windows.net\\/public\\/llvm-builds/http:\\/\\/daily.software.cambricon.com\\/download\\/genesis/g' python/setup.py
+            sed -i '/packages += \\["triton\\/profiler"\\]/d' python/setup.py
             set -o pipefail
-            TRITON_BUILD_WITH_CLANG_LLD=true TRITON_BUILD_WITH_CCACHE=true pip3 install -e python --no-build-isolation -vvv | tee ${CI_WORK_DIR}/logs/build_log || exit 1
-        '''
-        stash 'triton-linalg', 'triton-linalg-build'
-        stash 'logs', 'task_logs'
-        archiveLog 'logs/', false
-    }
-    task('test') {
-        stage 'test'
-        node {
-            labelSelector "cambricon.com/mm-daily":true
-            cardType 'MLU370'
-        }
-        container {
-            networkPolicy "cncl-no-internnet-access"
-            image 'yellow.hub.cambricon.com/genesis/devel/x86_64/triton_linalg:1.0.0-x86_64-ubuntu2004-prebuild-thirdparty-py_3_10'
-            runArgs "--network=host --privileged -v /usr/bin/cnmon:/usr/bin/cnmon --device=/dev/cambricon_dev0:/dev/cambricon_dev0 --device=/dev/cambricon_ctl"
-        }
-        resReq {
-            reqMlus 1
-            lmtMlus 1
-            reqCpu 30
-            lmtCpu 30
-            reqMemory '40Gi'
-            lmtMemory '40Gi'
-        }
-        unstash 'triton-linalg-build'
-        script '''
+            pip install wheel
+            export MAX_JOBS=32
+            pip3 install -e python --no-build-isolation -vvv | tee ${CI_WORK_DIR}/logs/build_log || exit 1
+            
             mkdir logs
-            set -e
-            cd triton-linalg
-            set -o pipefail
+            cd ..
             bash tools/scripts/test_triton-linalg.sh test_linalg_unittest | tee ${CI_WORK_DIR}/logs/test_log || exit 1
         '''
-        stash 'triton-linalg', 'triton-linalg-test'
+        stash 'triton-linalg', 'triton-linalg-build'
         stash 'logs', 'task_logs'
         archiveLog 'logs/', false
     }

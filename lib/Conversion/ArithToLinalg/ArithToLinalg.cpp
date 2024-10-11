@@ -58,7 +58,7 @@ public:
       return failure();
 
     auto loc = op.getLoc();
-    auto resType = op.getType().cast<ShapedType>();
+    auto resType = cast<ShapedType>(op.getType());
     Value init = rewriter.create<tensor::EmptyOp>(loc, resType.getShape(),
                                                   resType.getElementType());
 
@@ -78,8 +78,8 @@ public:
     auto trueValue = op.getTrueValue();
     auto falseValue = op.getFalseValue();
 
-    if (!trueValue.getType().isa<ShapedType>() ||
-        !falseValue.getType().isa<ShapedType>())
+    if (!isa<ShapedType>(trueValue.getType()) ||
+        !isa<ShapedType>(falseValue.getType()))
       return failure();
 
     auto initDims = getDims(rewriter, loc, trueValue);
@@ -136,7 +136,8 @@ void mlir::triton::populateArithToLinalgPatterns(RewritePatternSet &patterns) {
       GenericOpPattern<arith::MulFOp>, GenericOpPattern<arith::DivFOp>,
       GenericOpPattern<arith::RemFOp>,
       // Cast ops.
-      GenericOpPattern<arith::IndexCastOp>, GenericOpPattern<arith::ExtUIOp>,
+      GenericOpPattern<arith::IndexCastOp>,
+      GenericOpPattern<arith::IndexCastUIOp>, GenericOpPattern<arith::ExtUIOp>,
       GenericOpPattern<arith::ExtSIOp>, GenericOpPattern<arith::ExtFOp>,
       GenericOpPattern<arith::TruncIOp>, GenericOpPattern<arith::TruncFOp>,
       GenericOpPattern<arith::UIToFPOp>, GenericOpPattern<arith::SIToFPOp>,
@@ -151,14 +152,13 @@ void mlir::triton::populateArithToLinalgPatterns(RewritePatternSet &patterns) {
 namespace {
 struct ArithToLinalgPass : public ArithToLinalgPassBase<ArithToLinalgPass> {
   ArithToLinalgPass() = default;
-
   void runOnOperation() override {
     MLIRContext &ctx = getContext();
     ConversionTarget target(ctx);
     target.addLegalDialect<linalg::LinalgDialect, linalg_ext::LinalgExtDialect,
                            tensor::TensorDialect>();
     target.addDynamicallyLegalDialect<arith::ArithDialect>([&](Operation *op) {
-      return !op->getResultTypes().front().isa<ShapedType>();
+      return !isa<ShapedType>(op->getResultTypes().front());
     });
     // Setup conversion patterns.
     RewritePatternSet patterns(&ctx);

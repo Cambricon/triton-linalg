@@ -2,7 +2,7 @@ add_triton_library(LinalgExtInterface
   LinalgExtInterface.cpp
 
   DEPENDS
-  TritonLinalgInterfacesTableGen
+  LinalgExtTableGen
 
   LINK_LIBS PUBLIC
   MLIRIR
@@ -14,7 +14,6 @@ add_triton_library(LinalgExtDialect
 
   DEPENDS
   LinalgExtTableGen
-  TritonLinalgInterfacesTableGen
 
   LINK_LIBS PUBLIC
   DialectUtils
