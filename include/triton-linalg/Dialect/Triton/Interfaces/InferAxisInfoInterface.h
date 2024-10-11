@@ -137,13 +137,6 @@ public:
            shape[dim] % getContiguity(dim) == 0;
   }
 
-  bool isConstantStrideDim(ArrayRef<int64_t> shape, int dim) const {
-    if (strideValue.size() < 1 || stride.size() < 1)
-      return false;
-    return getStrideValue(dim) == 0 && shape[dim] % getConstancy(dim) == 0 &&
-           shape[dim] / getConstancy(dim) >= 1;
-  }
-
   /// Comparison.
   bool operator==(const AxisInfoExt &other) const {
     return (divisibility == other.divisibility) && (stride == other.stride) &&

@@ -13,7 +13,6 @@
 #include "mlir/Pass/PassRegistry.h"
 #include "mlir/Transforms/Passes.h"
 #include "triton-linalg/Conversion/Passes.h"
-#include "triton-linalg/Dialect/Arith/Transforms/Passes.h"
 #include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
 #include "llvm/ADT/StringRef.h"
 #include <functional>

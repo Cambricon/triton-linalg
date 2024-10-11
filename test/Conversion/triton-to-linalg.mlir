@@ -156,7 +156,7 @@ func.func @view_1d_0d_ptr(%arg0: tensor<1x!tt.ptr<f32>>) {
 // CHECK-LABEL: @add_ptr
 // CHECK-SAME: %[[ARG0:.*]]: i64, %[[ARG1:.*]]: tensor<256xi32>
 tt.func @add_ptr(%arg0: !tt.ptr<f32>, %arg1: tensor<256xi32>) {
-  // CHECK-NEXT: %[[INIT:.*]] = tensor.empty
+  // CHECK: %[[INIT:.*]] = tensor.empty
   // CHECK-NEXT: %[[FILL:.*]] = linalg.fill ins(%[[ARG0]] : i64) outs(%[[INIT]] : tensor<256xi64>)
   // CHECK-NEXT: %[[INIT2:.*]] = tensor.empty
   // CHECK-NEXT: %[[OUT:.*]] = linalg.map ins(%[[FILL]], %[[ARG1]] : tensor<256xi64>, tensor<256xi32>) outs(%[[INIT2]] : tensor<256xi64>)
@@ -175,7 +175,7 @@ tt.func @add_ptr(%arg0: !tt.ptr<f32>, %arg1: tensor<256xi32>) {
 // CHECK-LABEL: @add_ptr_for_scalar
 // CHECK-SAME: %[[ARG0:.*]]: i64, %[[ARG1:.*]]: i32
 tt.func @add_ptr_for_scalar(%arg0: !tt.ptr<f32>, %arg1: i32) {
-  // CHECK-NEXT: %[[EXT:.*]] = arith.extsi %[[ARG1]] : i32 to i64
+  // CHECK: %[[EXT:.*]] = arith.extsi %[[ARG1]] : i32 to i64
   // CHECK-NEXT: %[[C4:.*]] = arith.constant 4
   // CHECK-NEXT: %[[MUL:.*]] = arith.muli %[[EXT]], %[[C4]]
   // CHECK-NEXT: %[[ADD:.*]] = arith.addi %[[ARG0]], %[[MUL]]
@@ -188,7 +188,7 @@ tt.func @add_ptr_for_scalar(%arg0: !tt.ptr<f32>, %arg1: i32) {
 // CHECK-LABEL: @add_ptr_for_scalar_i64
 // CHECK-SAME: %[[ARG0:.*]]: i64, %[[ARG1:.*]]: i64
 tt.func @add_ptr_for_scalar_i64(%arg0: !tt.ptr<f32>, %arg1: i64) {
-  // CHECK-NEXT: %[[C4:.*]] = arith.constant 4
+  // CHECK: %[[C4:.*]] = arith.constant 4
   // CHECK-NEXT: %[[MUL:.*]] = arith.muli %[[ARG1]], %[[C4]]
   // CHECK-NEXT: %[[ADD:.*]] = arith.addi %[[ARG0]], %[[MUL]]
   %0 = tt.addptr %arg0, %arg1: !tt.ptr<f32>, i64
@@ -657,37 +657,35 @@ tt.func @reduce_multi_statement_argmin_f32(%arg0: tensor<1x256xf32>, %arg1: tens
   // CHECK-LABEL:   func.func @reduce_multi_statement_argmin_f32(
   // CHECK-SAME:                                                 %[[VAL_0:.*]]: tensor<1x256xf32>,
   // CHECK-SAME:                                                 %[[VAL_1:.*]]: tensor<1x256xi32>) {
-  // CHECK:           %[[VAL_2:.*]] = tensor.extract_slice %[[VAL_0]][0, 0] [1, 1] [1, 1] : tensor<1x256xf32> to tensor<1x1xf32>
-  // CHECK:           %[[VAL_3:.*]] = tensor.collapse_shape %[[VAL_2]] {{\[\[}}0, 1]] : tensor<1x1xf32> into tensor<1xf32>
-  // CHECK:           %[[VAL_4:.*]] = tensor.extract_slice %[[VAL_0]][0, 1] [1, 255] [1, 1] : tensor<1x256xf32> to tensor<1x255xf32>
-  // CHECK:           %[[VAL_5:.*]] = tensor.extract_slice %[[VAL_1]][0, 0] [1, 1] [1, 1] : tensor<1x256xi32> to tensor<1x1xi32>
-  // CHECK:           %[[VAL_6:.*]] = tensor.collapse_shape %[[VAL_5]] {{\[\[}}0, 1]] : tensor<1x1xi32> into tensor<1xi32>
-  // CHECK:           %[[VAL_7:.*]] = tensor.extract_slice %[[VAL_1]][0, 1] [1, 255] [1, 1] : tensor<1x256xi32> to tensor<1x255xi32>
-  // CHECK:           %[[VAL_8:.*]]:2 = linalg.reduce ins(%[[VAL_4]], %[[VAL_7]] : tensor<1x255xf32>, tensor<1x255xi32>) outs(%[[VAL_3]], %[[VAL_6]] : tensor<1xf32>, tensor<1xi32>) dimensions = [1]
+  // CHECK:           %[[VAL_2:.*]] = arith.constant 0x7F800000 : f32
+  // CHECK:           %[[VAL_3:.*]] = tensor.empty() : tensor<1xf32>
+  // CHECK:           %[[VAL_4:.*]] = linalg.fill ins(%[[VAL_2]] : f32) outs(%[[VAL_3]] : tensor<1xf32>) -> tensor<1xf32>
+  // CHECK:           %[[VAL_5:.*]] = arith.constant -1 : i32
+  // CHECK:           %[[VAL_6:.*]] = tensor.empty() : tensor<1xi32>
+  // CHECK:           %[[VAL_7:.*]] = linalg.fill ins(%[[VAL_5]] : i32) outs(%[[VAL_6]] : tensor<1xi32>) -> tensor<1xi32>
+  // CHECK:           %[[VAL_8:.*]]:2 = linalg.reduce ins(%[[VAL_0]], %[[VAL_1]] : tensor<1x256xf32>, tensor<1x256xi32>) outs(%[[VAL_4]], %[[VAL_7]] : tensor<1xf32>, tensor<1xi32>) dimensions = [1]
   // CHECK:             (%[[VAL_9:.*]]: f32, %[[VAL_10:.*]]: i32, %[[VAL_11:.*]]: f32, %[[VAL_12:.*]]: i32) {
-  // CHECK:               %[[VAL_13:.*]] = arith.cmpf olt, %[[VAL_9]], %[[VAL_11]] : f32
-  // CHECK:               %[[VAL_14:.*]] = arith.cmpf ogt, %[[VAL_9]], %[[VAL_11]] : f32
-  // CHECK:               %[[VAL_15:.*]] = arith.cmpi slt, %[[VAL_10]], %[[VAL_12]] : i32
-  // CHECK:               %[[VAL_16:.*]] = arith.select %[[VAL_15]], %[[VAL_10]], %[[VAL_12]] : i32
-  // CHECK:               %[[VAL_17:.*]] = arith.select %[[VAL_14]], %[[VAL_12]], %[[VAL_16]] : i32
-  // CHECK:               %[[VAL_18:.*]] = arith.select %[[VAL_13]], %[[VAL_10]], %[[VAL_17]] : i32
-  // CHECK:               %[[VAL_19:.*]] = arith.cmpf olt, %[[VAL_9]], %[[VAL_11]] : f32
-  // CHECK:               %[[VAL_20:.*]] = arith.select %[[VAL_19]], %[[VAL_9]], %[[VAL_11]] : f32
-  // CHECK:               linalg.yield %[[VAL_20]], %[[VAL_18]] : f32, i32
+  // CHECK:               %[[VAL_13:.*]] = arith.cmpf oeq, %[[VAL_9]], %[[VAL_11]] : f32
+  // CHECK:               %[[VAL_14:.*]] = arith.cmpi slt, %[[VAL_10]], %[[VAL_12]] : i32
+  // CHECK:               %[[VAL_15:.*]] = arith.andi %[[VAL_13]], %[[VAL_14]] : i1
+  // CHECK:               %[[VAL_16:.*]] = arith.cmpf olt, %[[VAL_9]], %[[VAL_11]] : f32
+  // CHECK:               %[[VAL_17:.*]] = arith.ori %[[VAL_16]], %[[VAL_15]] : i1
+  // CHECK:               %[[VAL_18:.*]] = arith.select %[[VAL_17]], %[[VAL_9]], %[[VAL_11]] : f32
+  // CHECK:               %[[VAL_19:.*]] = arith.select %[[VAL_17]], %[[VAL_10]], %[[VAL_12]] : i32
+  // CHECK:               linalg.yield %[[VAL_18]], %[[VAL_19]] : f32, i32
   // CHECK:             }
   // CHECK:           return
   // CHECK:         }
   %9:2 = "tt.reduce"(%arg0, %arg1) ({
-  ^bb0(%arg4: f32, %arg5: i32, %arg6: f32, %arg7: i32):
-    %14 = arith.cmpf olt, %arg4, %arg6 : f32
-    %15 = arith.cmpf ogt, %arg4, %arg6 : f32
-    %16 = arith.cmpi slt, %arg5, %arg7 : i32
-    %17 = arith.select %16, %arg5, %arg7 : i32
-    %18 = arith.select %15, %arg7, %17 : i32
-    %19 = arith.select %14, %arg5, %18 : i32
-    %20 = arith.cmpf olt, %arg4, %arg6 : f32
-    %21 = arith.select %20, %arg4, %arg6 : f32
-    tt.reduce.return %21, %19 : f32, i32
+  ^bb0(%arg9: f32, %arg10: i32, %arg11: f32, %arg12: i32):
+    %11 = arith.cmpf oeq, %arg9, %arg11 : f32
+    %12 = arith.cmpi slt, %arg10, %arg12 : i32
+    %13 = arith.andi %11, %12 : i1
+    %14 = arith.cmpf olt, %arg9, %arg11 : f32
+    %15 = arith.ori %14, %13 : i1
+    %16 = arith.select %15, %arg9, %arg11 : f32
+    %17 = arith.select %15, %arg10, %arg12 : i32
+    tt.reduce.return %16, %17 : f32, i32
   }) {axis = 1 : i32} : (tensor<1x256xf32>, tensor<1x256xi32>) -> (tensor<1xf32>, tensor<1xi32>)
   tt.return
 }
@@ -697,27 +695,35 @@ tt.func @reduce_multi_statement_argmax_f32(%arg0: tensor<2x2x256xf32>, %arg1: te
   // CHECK-LABEL:   func.func @reduce_multi_statement_argmax_f32(
   // CHECK-SAME:                                                 %[[VAL_0:.*]]: tensor<2x2x256xf32>,
   // CHECK-SAME:                                                 %[[VAL_1:.*]]: tensor<2x2x256xi32>) {
-  // CHECK:           %[[VAL_2:.*]] = tensor.extract_slice %[[VAL_0]][0, 0, 0] [2, 2, 1] [1, 1, 1] : tensor<2x2x256xf32> to tensor<2x2x1xf32>
-  // CHECK:           %[[VAL_3:.*]] = tensor.collapse_shape %[[VAL_2]] {{\[\[}}0], [1, 2]] : tensor<2x2x1xf32> into tensor<2x2xf32>
-  // CHECK:           %[[VAL_4:.*]] = tensor.extract_slice %[[VAL_0]][0, 0, 1] [2, 2, 255] [1, 1, 1] : tensor<2x2x256xf32> to tensor<2x2x255xf32>
-  // CHECK:           %[[VAL_5:.*]] = tensor.extract_slice %[[VAL_1]][0, 0, 0] [2, 2, 1] [1, 1, 1] : tensor<2x2x256xi32> to tensor<2x2x1xi32>
-  // CHECK:           %[[VAL_6:.*]] = tensor.collapse_shape %[[VAL_5]] {{\[\[}}0], [1, 2]] : tensor<2x2x1xi32> into tensor<2x2xi32>
-  // CHECK:           %[[VAL_7:.*]] = tensor.extract_slice %[[VAL_1]][0, 0, 1] [2, 2, 255] [1, 1, 1] : tensor<2x2x256xi32> to tensor<2x2x255xi32>
-  // CHECK:           %[[VAL_8:.*]]:2 = linalg.reduce ins(%[[VAL_4]], %[[VAL_7]] : tensor<2x2x255xf32>, tensor<2x2x255xi32>) outs(%[[VAL_3]], %[[VAL_6]] : tensor<2x2xf32>, tensor<2x2xi32>) dimensions = [2]
+  // CHECK:           %[[VAL_2:.*]] = arith.constant 0xFF800000 : f32
+  // CHECK:           %[[VAL_3:.*]] = tensor.empty() : tensor<2x2xf32>
+  // CHECK:           %[[VAL_4:.*]] = linalg.fill ins(%[[VAL_2]] : f32) outs(%[[VAL_3]] : tensor<2x2xf32>) -> tensor<2x2xf32>
+  // CHECK:           %[[VAL_5:.*]] = arith.constant -1 : i32
+  // CHECK:           %[[VAL_6:.*]] = tensor.empty() : tensor<2x2xi32>
+  // CHECK:           %[[VAL_7:.*]] = linalg.fill ins(%[[VAL_5]] : i32) outs(%[[VAL_6]] : tensor<2x2xi32>) -> tensor<2x2xi32>
+  // CHECK:           %[[VAL_8:.*]]:2 = linalg.reduce ins(%[[VAL_0]], %[[VAL_1]] : tensor<2x2x256xf32>, tensor<2x2x256xi32>) outs(%[[VAL_4]], %[[VAL_7]] : tensor<2x2xf32>, tensor<2x2xi32>) dimensions = [2]
   // CHECK:             (%[[VAL_9:.*]]: f32, %[[VAL_10:.*]]: i32, %[[VAL_11:.*]]: f32, %[[VAL_12:.*]]: i32) {
-  // CHECK:               %[[VAL_13:.*]] = arith.cmpf ogt, %[[VAL_9]], %[[VAL_11]] : f32
-  // CHECK:               %[[VAL_14:.*]] = arith.select %[[VAL_13]], %[[VAL_9]], %[[VAL_11]] : f32
-  // CHECK:               %[[VAL_15:.*]] = arith.select %[[VAL_13]], %[[VAL_10]], %[[VAL_12]] : i32
-  // CHECK:               linalg.yield %[[VAL_14]], %[[VAL_15]] : f32, i32
+  // CHECK:               %[[VAL_13:.*]] = arith.cmpf oeq, %[[VAL_9]], %[[VAL_11]] : f32
+  // CHECK:               %[[VAL_14:.*]] = arith.cmpi slt, %[[VAL_10]], %[[VAL_12]] : i32
+  // CHECK:               %[[VAL_15:.*]] = arith.andi %[[VAL_13]], %[[VAL_14]] : i1
+  // CHECK:               %[[VAL_16:.*]] = arith.cmpf ogt, %[[VAL_9]], %[[VAL_11]] : f32
+  // CHECK:               %[[VAL_17:.*]] = arith.ori %[[VAL_16]], %[[VAL_15]] : i1
+  // CHECK:               %[[VAL_18:.*]] = arith.select %[[VAL_17]], %[[VAL_9]], %[[VAL_11]] : f32
+  // CHECK:               %[[VAL_19:.*]] = arith.select %[[VAL_17]], %[[VAL_10]], %[[VAL_12]] : i32
+  // CHECK:               linalg.yield %[[VAL_18]], %[[VAL_19]] : f32, i32
   // CHECK:             }
   // CHECK:           return
   // CHECK:         }
   %9:2 = "tt.reduce"(%arg0, %arg1) ({
-  ^bb0(%arg4: f32, %arg5: i32, %arg6: f32, %arg7: i32):
-    %1 = arith.cmpf ogt, %arg4, %arg6 : f32
-    %2 = arith.select %1, %arg4, %arg6 : f32
-    %3 = arith.select %1, %arg5, %arg7 : i32
-    tt.reduce.return %2, %3 : f32, i32
+  ^bb0(%arg9: f32, %arg10: i32, %arg11: f32, %arg12: i32):
+    %11 = arith.cmpf oeq, %arg9, %arg11 : f32
+    %12 = arith.cmpi slt, %arg10, %arg12 : i32
+    %13 = arith.andi %11, %12 : i1
+    %14 = arith.cmpf ogt, %arg9, %arg11 : f32
+    %15 = arith.ori %14, %13 : i1
+    %16 = arith.select %15, %arg9, %arg11 : f32
+    %17 = arith.select %15, %arg10, %arg12 : i32
+    tt.reduce.return %16, %17 : f32, i32
   }) {axis = 2 : i32} : (tensor<2x2x256xf32>, tensor<2x2x256xi32>) -> (tensor<2x2xf32>, tensor<2x2xi32>)
   tt.return
 }
@@ -765,6 +771,7 @@ tt.func @ext_elemwise_2(%arg0: tensor<16x16xi32>) {
 // -----
 // CHECK-LABEL: @cast_ptr_and_int_scalar
 tt.func @cast_ptr_and_int_scalar(%arg0: !tt.ptr<f32>) {
+  // CHECK-NEXT: builtin.unrealized_conversion_cast
   // CHECK-NEXT: return
   %0 = tt.ptr_to_int %arg0 : !tt.ptr<f32> -> i64
   %1 = tt.int_to_ptr %0 : i64 -> !tt.ptr<f32>
@@ -774,6 +781,7 @@ tt.func @cast_ptr_and_int_scalar(%arg0: !tt.ptr<f32>) {
 // -----
 // CHECK-LABEL: @cast_ptr_and_int_1D
 tt.func @cast_ptr_and_int_1D(%arg0: tensor<16x!tt.ptr<f32>>) {
+  // CHECK-NEXT: builtin.unrealized_conversion_cast
   // CHECK-NEXT: return
   %0 = tt.ptr_to_int %arg0 : tensor<16x!tt.ptr<f32>> -> tensor<16xi64>
   %1 = tt.int_to_ptr %0 : tensor<16xi64> -> tensor<16x!tt.ptr<f32>>
@@ -783,6 +791,7 @@ tt.func @cast_ptr_and_int_1D(%arg0: tensor<16x!tt.ptr<f32>>) {
 // -----
 // CHECK-LABEL: @cast_ptr_and_int_2D
 tt.func @cast_ptr_and_int_2D(%arg0: tensor<2x16x!tt.ptr<f32>>) {
+  // CHECK-NEXT: builtin.unrealized_conversion_cast
   // CHECK-NEXT: return
   %0 = tt.ptr_to_int %arg0 : tensor<2x16x!tt.ptr<f32>> -> tensor<2x16xi64>
   %1 = tt.int_to_ptr %0 : tensor<2x16xi64> -> tensor<2x16x!tt.ptr<f32>>
@@ -807,6 +816,16 @@ tt.func @cast_ptr_and_int_2D_tt.return_used(%scalar_i64: i64) -> tensor<2x16xi64
 tt.func @optimize_barrier(%arg0: !tt.ptr<f32>) {
   // CHECK: aux.optimization_barrier %[[ARG]] : i64
   aux.optimization_barrier %arg0 : !tt.ptr<f32>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @trans_3d
+// CHECK-SAME:  %[[ARG0:.*]]: tensor<16x256x4xf32>
+tt.func @trans_3d(%arg0: tensor<16x256x4xf32>) {
+  // CHECK: %[[INIT_OUT:.*]] = tensor.empty() : tensor<16x4x256xf32>
+  // CHECK: %[[TRANS_OUT:.*]] = linalg.transpose ins(%[[ARG0]] : tensor<16x256x4xf32>) outs(%[[INIT_OUT]] : tensor<16x4x256xf32>) permutation = [0, 2, 1]
+  %out = tt.trans %arg0 {order = array<i32: 0, 2, 1>} : tensor<16x256x4xf32> -> tensor<16x4x256xf32>
   tt.return
 }
 
@@ -918,9 +937,9 @@ func.func @cmpi_to_fill(%arg0: i32) {
   // CHECK: %[[ARG1:.*]] = arith.maxsi %[[ARG]], %[[C0]] : index
   // CHECK: %[[C128:.*]] = arith.constant 128 : index
   // CHECK: %[[SIZE:.*]] = arith.minsi %[[C128]], %[[ARG1]]
+  // CHECK: %[[FALSE:.*]] = arith.constant false
   // CHECK: %[[INIT1:.*]] = tensor.empty(%[[SIZE]])
   // CHECK: %[[TRUE:.*]] = linalg.fill ins(%true : i1) outs(%[[INIT1]] : tensor<?xi1>)
-  // CHECK: %[[FALSE:.*]] = arith.constant false
   // CHECK: %[[PAD_INIT:.*]] = tensor.empty() : tensor<128xi1>
   // CHECK: %[[C0_0:.*]] = arith.constant 0 : index
   // CHECK: %[[DIM:.*]] = tensor.dim %[[PAD_INIT]], %[[C0_0]] : tensor<128xi1>
@@ -941,16 +960,17 @@ func.func @cmpi_to_fill(%arg0: i32) {
 // CHECK: %[[ARG:.*]] = arith.index_cast %[[ARG_I32]] : i32 to index
 // CHECK: %[[C1:.*]] = arith.constant 1 : index
 // CHECK: %[[ARG1:.*]] = arith.addi %[[ARG]], %[[C1]] : index
+// CHECK: %[[ARG2:.*]] = arith.maxsi %[[ARG1]], %[[ARG]] : index
 // CHECK: %[[C128:.*]] = arith.constant 128 : index
-// CHECK: %[[LB0:.*]] = arith.minsi %[[C128]], %[[ARG1]]
+// CHECK: %[[LB0:.*]] = arith.minsi %[[C128]], %[[ARG2]]
 // CHECK: %[[C0:.*]] = arith.constant 0 : index
 // CHECK: %[[LB1:.*]] = arith.maxsi %[[C0]], %[[LB0]] : index
 // CHECK: %[[C128_0:.*]] = arith.constant 128 : index
 // CHECK: %[[SIZE:.*]] = arith.subi %[[C128_0]], %[[LB1]] : index
+// CHECK: %[[FALSE:.*]] = arith.constant false
 // CHECK: %[[INIT1:.*]] = tensor.empty(%[[SIZE]]) : tensor<?xi1>
 // CHECK: %[[C_TRUE:.*]] = arith.constant true
 // CHECK: %[[TRUE:.*]] = linalg.fill ins(%[[C_TRUE]] : i1) outs(%[[INIT1]] : tensor<?xi1>)
-// CHECK: %[[FALSE:.*]] = arith.constant false
 // CHECK: %[[PAD_INIT:.*]] = tensor.empty() : tensor<128xi1>
 // CHECK: %[[C0_0:.*]] = arith.constant 0 : index
 // CHECK: %[[DIM:.*]] = tensor.dim %[[PAD_INIT]], %[[C0_0]] : tensor<128xi1>
@@ -965,7 +985,29 @@ func.func @cmp2fill_ub(%arg: i32) -> tensor<128xi1> {
   return %2 : tensor<128xi1>
 }
 
-
+// -----
+// CHECK-LABEL: @cmpi_to_fill_false
+func.func @cmpi_to_fill_false() {
+  // CHECK:  %[[C_MAX:.*]] = arith.constant 9223372036854775807 : i64
+  // CHECK:  %[[INIT:.*]] = tensor.empty() : tensor<128xi64>
+  // CHECK:  %[[C_MAX_TENSOR:.*]] = linalg.fill ins(%[[C_MAX]] : i64) outs(%[[INIT]] : tensor<128xi64>) -> tensor<128xi64>
+  // CHECK:  %[[RANGE_INIT:.*]] = tensor.empty() : tensor<128xi32>
+  // CHECK:  %[[C0:.*]] = arith.constant 0 : i32
+  // CHECK:  %[[C128:.*]] = arith.constant 128 : i32
+  // CHECK:  %[[RANGE:.*]] = linalg_ext.make_range {operandSegmentSizes = array<i32: 2, 1>} ins(%[[C0]], %[[C128]] : i32, i32) outs(%[[RANGE_INIT]] : tensor<128xi32>) -> tensor<128xi32>
+  // CHECK:  %[[EXT_INIT:.*]] = tensor.empty() : tensor<128xi64>
+  // CHECK:  %[[EXT_RANGE:.*]] = linalg.map { arith.extsi } ins(%[[RANGE]] : tensor<128xi32>) outs(%[[EXT_INIT]] : tensor<128xi64>)
+  // CHECK:  %[[C_MAX_INDEX:.*]] = arith.constant 9223372036854775807 : index
+  // CHECK:  %[[FALSE:.*]] = arith.constant false
+  // CHECK:  %[[CMP_RES_INIT:.*]] = tensor.empty() : tensor<128xi1>
+  // CHECK:  %[[CMP_RES:.*]] = linalg.fill ins(%[[FALSE]] : i1) outs(%[[CMP_RES_INIT]] : tensor<128xi1>) -> tensor<128xi1>
+  // CHECK-NOT: arith.cmpi
+  %c_max = arith.constant dense<9223372036854775807> : tensor<128xi64>
+  %0 = tt.make_range {end = 128 : i32, start = 0 : i32} : tensor<128xi32>
+  %1 = arith.extsi %0 : tensor<128xi32> to tensor<128xi64>
+  %mask = arith.cmpi sgt, %1, %c_max : tensor<128xi64>
+  return
+}
 
 // -----
 // CHECK-LABEL: @select_conversion
@@ -1068,7 +1110,8 @@ func.func @select_pad_conversion(%arg0: tensor<64x64xf32>, %arg1: i32) -> tensor
 // CHECK: linalg_ext.pad
 // CHECK: %[[C32_INDEX:.*]] = arith.index_cast %{{.*}} : i32 to index
 // CHECK: %[[C1:.*]] = arith.constant 1 : index
-// CHECK: %[[C33:.*]] = arith.addi %[[C32_INDEX]], %[[C1]] : index
+// CHECK: %[[C33_0:.*]] = arith.addi %[[C32_INDEX]], %[[C1]] : index
+// CHECK: %[[C33:.*]] = arith.maxsi %[[C33_0]], %[[C32_INDEX]] : index
 // CHECK: %[[C128:.*]] = arith.constant 128 : index
 // CHECK: %[[C33_1:.*]] = arith.minsi %[[C128]], %[[C33]] : index
 // CHECK: %[[C0:.*]] = arith.constant 0 : index
@@ -1671,6 +1714,105 @@ tt.func @scan_sub_1d_f32(%arg0: tensor<2048xf32>) -> tensor<2048xf32> {
 }
 
 // -----
+// CHECK-LABEL: @scan_add_2d_i32_reverse(
+// CHECK-SAME:                            %[[INPUT:.*]]: tensor<1x2048xi32>) -> tensor<1x2048xi32> {
+tt.func @scan_add_2d_i32_reverse(%arg0: tensor<1x2048xi32>) -> tensor<1x2048xi32> {
+  // CHECK: %[[SCAN_INPUT:.*]] = tensor.extract_slice %[[INPUT]][0, 0] [1, 2047] [1, 1] : tensor<1x2048xi32> to tensor<1x2047xi32>
+  // CHECK-NEXT: %[[SCAN_OUTPUT:.*]] = tensor.empty() : tensor<1x2047xi32>
+  // CHECK-NEXT: %[[INIT:.*]] = tensor.extract_slice %[[INPUT]][0, 2047] [1, 1] [1, 1] : tensor<1x2048xi32> to tensor<1x1xi32>
+  // CHECK-NEXT: %[[SCAN_INIT:.*]] = tensor.collapse_shape %[[INIT]] {{\[\[0, 1]]}} : tensor<1x1xi32> into tensor<1xi32>
+  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<1x2047xi32>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<1x2047xi32>, tensor<1xi32>) dimensions = [1] reverse = true {
+  // CHECK-NEXT: ^bb0(%[[IN:.*]]: i32, %[[OUTPUT:.*]]: i32, %[[INIT:.*]]: i32):
+  // CHECK-NEXT: %[[ADD:.*]] = arith.addi %[[IN]], %[[INIT]] : i32
+  // CHECK-NEXT: linalg_ext.yield %[[ADD]], %[[ADD]] : i32, i32
+  // CHECK-NEXT: } -> tensor<1x2047xi32>, tensor<1xi32>
+  // CHECK-NEXT: %[[INERT_SLICE:.*]] = tensor.insert_slice %[[SCAN]]#0 into %[[INPUT]][0, 0] [1, 2047] [1, 1] : tensor<1x2047xi32> into tensor<1x2048xi32>
+  // CHECK-NEXT: return %[[INERT_SLICE]] : tensor<1x2048xi32>
+
+  %0 = "tt.scan" (%arg0) ({
+  ^bb0(%arg1: i32, %arg2: i32):
+    %1 = arith.addi %arg1, %arg2 : i32
+    tt.scan.return %1 : i32
+  }) {axis = 1 : i32, reverse = true} : (tensor<1x2048xi32>) -> tensor<1x2048xi32>
+  tt.return  %0 : tensor<1x2048xi32>
+}
+
+// -----
+// CHECK-LABEL: @scan_min_2d_f16_reverse(
+// CHECK-SAME:                           %[[INPUT:.*]]: tensor<1x2048xf16>) -> tensor<1x2048xf16> {
+tt.func @scan_min_2d_f16_reverse(%arg0: tensor<1x2048xf16>) -> tensor<1x2048xf16> {
+  // CHECK: %[[SCAN_INPUT:.*]] = tensor.extract_slice %[[INPUT]][0, 0] [1, 2047] [1, 1] : tensor<1x2048xf16> to tensor<1x2047xf16>
+  // CHECK-NEXT: %[[SCAN_OUTPUT:.*]] = tensor.empty() : tensor<1x2047xf16>
+  // CHECK-NEXT: %[[INIT:.*]] = tensor.extract_slice %[[INPUT]][0, 2047] [1, 1] [1, 1] : tensor<1x2048xf16> to tensor<1x1xf16>
+  // CHECK-NEXT: %[[SCAN_INIT:.*]] = tensor.collapse_shape %[[INIT]] {{\[\[0, 1]]}} : tensor<1x1xf16> into tensor<1xf16>
+  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<1x2047xf16>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<1x2047xf16>, tensor<1xf16>) dimensions = [1] reverse = true {
+  // CHECK-NEXT: ^bb0(%[[IN:.*]]: f16, %[[OUTPUT:.*]]: f16, %[[INIT:.*]]: f16):
+  // CHECK-NEXT: %[[MIN:.*]] = arith.minimumf %[[IN]], %[[INIT]] : f16
+  // CHECK-NEXT: linalg_ext.yield %[[MIN]], %[[MIN]] : f16, f16
+  // CHECK-NEXT: } -> tensor<1x2047xf16>, tensor<1xf16>
+  // CHECK-NEXT: %[[INERT_SLICE:.*]] = tensor.insert_slice %[[SCAN]]#0 into %[[INPUT]][0, 0] [1, 2047] [1, 1] : tensor<1x2047xf16> into tensor<1x2048xf16>
+  // CHECK-NEXT: return %[[INERT_SLICE]] : tensor<1x2048xf16>
+
+  %0 = "tt.scan" (%arg0) ({
+  ^bb0(%arg1: f16, %arg2: f16):
+    %1 = arith.minimumf %arg1, %arg2 : f16
+    tt.scan.return %1 : f16
+  }) {axis = 1 : i32, reverse = true} : (tensor<1x2048xf16>) -> tensor<1x2048xf16>
+  tt.return %0 : tensor<1x2048xf16>
+}
+
+// -----
+// CHECK-LABEL: @scan_sub_1d_f32_reverse(
+// CHECK-SAME:                           %[[INPUT:.*]]: tensor<2048xf32>) -> tensor<2048xf32> {
+tt.func @scan_sub_1d_f32_reverse(%arg0: tensor<2048xf32>) -> tensor<2048xf32> {
+  // CHECK: %[[SCAN_INPUT:.*]] = tensor.extract_slice %[[INPUT]][0] [2047] [1] : tensor<2048xf32> to tensor<2047xf32>
+  // CHECK-NEXT: %[[SCAN_OUTPUT:.*]] = tensor.empty() : tensor<2047xf32>
+  // CHECK-NEXT: %[[INIT:.*]] = tensor.extract_slice %[[INPUT]][2047] [1] [1] : tensor<2048xf32> to tensor<1xf32>
+  // CHECK-NEXT: %[[SCAN_INIT:.*]] = tensor.collapse_shape %[[INIT]] {{\[]}} : tensor<1xf32> into tensor<f32>
+  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<2047xf32>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<2047xf32>, tensor<f32>) dimensions = [0] reverse = true {
+  // CHECK-NEXT: ^bb0(%[[IN:.*]]: f32, %[[OUTPUT:.*]]: f32, %[[INIT:.*]]: f32):
+  // CHECK-NEXT: %[[SUB:.*]] = arith.subf %[[IN]], %[[INIT]] : f32
+  // CHECK-NEXT: linalg_ext.yield %[[SUB]], %[[SUB]] : f32, f32
+  // CHECK-NEXT: } -> tensor<2047xf32>, tensor<f32>
+  // CHECK-NEXT: %[[INERT_SLICE:.*]] = tensor.insert_slice %[[SCAN]]#0 into %[[INPUT]][0] [2047] [1] : tensor<2047xf32> into tensor<2048xf32>
+  // CHECK-NEXT: return %[[INERT_SLICE]] : tensor<2048xf32>
+
+  %0 = "tt.scan" (%arg0) ({
+  ^bb0(%arg1: f32, %arg2: f32):
+    %1 = arith.subf %arg1, %arg2 : f32
+    tt.scan.return %1 : f32
+  }) {axis = 0 : i32, reverse = true} : (tensor<2048xf32>) -> tensor<2048xf32>
+  tt.return %0 : tensor<2048xf32>
+}
+
+// -----
+// CHECK-LABEL: @scan_add_1d_size1_f32_reverse(
+// CHECK-SAME:                                 %[[INPUT:.*]]: tensor<1xf32>
+tt.func @scan_add_1d_size1_f32_reverse(%arg0: tensor<1xf32>) -> tensor<1xf32> {
+  // CHECK: return %[[INPUT]] : tensor<1xf32>
+  %0 = "tt.scan" (%arg0) ({
+  ^bb0(%arg1: f32, %arg2: f32):
+    %1 = arith.addf %arg1, %arg2 : f32
+    tt.scan.return %1 : f32
+  }) {axis = 0 : i32, reverse = true} : (tensor<1xf32>) -> tensor<1xf32>
+  tt.return %0 : tensor<1xf32>
+}
+
+// -----
+tt.func @tt_mulhiui_scalar_i32(%arg0: i32, %arg1: i32) {
+  // CHECK: math_ext.mulhiui
+  %0 = tt.mulhiui %arg0, %arg1 : i32
+  tt.return
+}
+
+// -----
+tt.func @tt_mulhiui_vector_i32(%arg0: tensor<16x16xi32>, %arg1: tensor<16x16xi32>) {
+  // CHECK: math_ext.mulhiui
+  %0 = tt.mulhiui %arg0, %arg1 : tensor<16x16xi32>
+  tt.return
+}
+
+// -----
 // CHECK-LABEL: @cat_tensor
 // CHECK-SAME: %[[ARG0:.*]]: tensor<32xf32>, %[[ARG1:.*]]: tensor<32xf32>
 tt.func public @cat_tensor(%arg0: tensor<32xf32>, %arg1: tensor<32xf32>) {
@@ -1701,4 +1843,198 @@ tt.func public @cat_3rank(%arg0: tensor<32x16x8xf32>, %arg1: tensor<32x16x8xf32>
   // CHECK: %[[INSET2:.*]] = tensor.insert_slice %[[ARG1]] into %[[INSET1]][%c32_0, 0, 0] [32, 16, 8] [1, 1, 1] : tensor<32x16x8xf32> into tensor<64x16x8xf32>
   %0 = tt.cat %arg0, %arg1 : tensor<32x16x8xf32> -> tensor<64x16x8xf32>
   tt.return
+}
+
+// -----
+// CHECK-LABEL: @join_int8
+// CHECK-SAME: %[[ARG0:.*]]: tensor<2x8xi8>, %[[ARG1:.*]]: tensor<2x8xi8>
+tt.func @join_int8(%arg0: tensor<2x8xi8>, %arg1: tensor<2x8xi8>) {
+  // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<2x8x2xi8>
+  // CHECK: %[[INSET1:.*]] = tensor.insert_slice %[[ARG0]] into %[[INIT]][0, 0, 0] [2, 8, 1] [1, 1, 1] : tensor<2x8xi8> into tensor<2x8x2xi8>
+  // CHECK: %[[INSET2:.*]] = tensor.insert_slice %[[ARG1]] into %[[INSET1]][0, 0, 1] [2, 8, 1] [1, 1, 1] : tensor<2x8xi8> into tensor<2x8x2xi8>
+  %0 = tt.join %arg0, %arg1 : tensor<2x8xi8> -> tensor<2x8x2xi8>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @join_float32
+// CHECK-SAME: %[[ARG0:.*]]: tensor<4x2x8xf32>, %[[ARG1:.*]]: tensor<4x2x8xf32>
+tt.func @join_float32(%arg0: tensor<4x2x8xf32>, %arg1: tensor<4x2x8xf32>) {
+  // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<4x2x8x2xf32>
+  // CHECK: %[[INSET1:.*]] = tensor.insert_slice %[[ARG0]] into %[[INIT]][0, 0, 0, 0] [4, 2, 8, 1] [1, 1, 1, 1] : tensor<4x2x8xf32> into tensor<4x2x8x2xf32>
+  // CHECK: %[[INSET2:.*]] = tensor.insert_slice %[[ARG1]] into %[[INSET1]][0, 0, 0, 1] [4, 2, 8, 1] [1, 1, 1, 1] : tensor<4x2x8xf32> into tensor<4x2x8x2xf32>
+  %0 = tt.join %arg0, %arg1 : tensor<4x2x8xf32> -> tensor<4x2x8x2xf32>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @join_scalar
+// CHECK-SAME: %[[ARG0:.*]]: tensor<f32>, %[[ARG1:.*]]: tensor<f32>
+tt.func @join_scalar(%arg0: tensor<f32>, %arg1: tensor<f32>) {
+  // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<2xf32>
+  // CHECK: %[[INSET1:.*]] = tensor.insert_slice %[[ARG0]] into %[[INIT]][0] [1] [1] : tensor<f32> into tensor<2xf32>
+  // CHECK: %[[INSET2:.*]] = tensor.insert_slice %[[ARG1]] into %[[INSET1]][1] [1] [1] : tensor<f32> into tensor<2xf32>
+  %0 = tt.join %arg0, %arg1 : tensor<f32> -> tensor<2xf32>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @split_int8
+// CHECK-SAME: %[[ARG0:.*]]: tensor<2x8x2xi8>
+tt.func @split_int8(%arg0: tensor<2x8x2xi8>) {
+  // CHECK: %[[SLICE1:.*]] = tensor.extract_slice %[[ARG0]][0, 0, 0] [2, 8, 1] [1, 1, 1] : tensor<2x8x2xi8> to tensor<2x8xi8>
+  // CHECK: %[[SLICE2:.*]] = tensor.extract_slice %[[ARG0]][0, 0, 1] [2, 8, 1] [1, 1, 1] : tensor<2x8x2xi8> to tensor<2x8xi8>
+  %0, %1 = tt.split %arg0 : tensor<2x8x2xi8> -> tensor<2x8xi8>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @split_float32
+// CHECK-SAME: %[[ARG0:.*]]: tensor<4x2x8x2xf32>
+tt.func @split_float32(%arg0: tensor<4x2x8x2xf32>) {
+  // CHECK: %[[SLICE1:.*]] = tensor.extract_slice %[[ARG0]][0, 0, 0, 0] [4, 2, 8, 1] [1, 1, 1, 1] : tensor<4x2x8x2xf32> to tensor<4x2x8xf32>
+  // CHECK: %[[SLICE2:.*]] = tensor.extract_slice %[[ARG0]][0, 0, 0, 1] [4, 2, 8, 1] [1, 1, 1, 1] : tensor<4x2x8x2xf32> to tensor<4x2x8xf32>
+  %0, %1 = tt.split %arg0 : tensor<4x2x8x2xf32> -> tensor<4x2x8xf32>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @split_one_dim
+// CHECK-SAME: %[[ARG0:.*]]: tensor<2xf32>
+tt.func @split_one_dim(%arg0: tensor<2xf32>) {
+  // CHECK: %[[SLICE1:.*]] = tensor.extract_slice %[[ARG0]][0] [1] [1] : tensor<2xf32> to tensor<f32>
+  // CHECK: %[[SLICE2:.*]] = tensor.extract_slice %[[ARG0]][1] [1] [1] : tensor<2xf32> to tensor<f32>
+  %0, %1 = tt.split %arg0 : tensor<2xf32> -> tensor<f32>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @tt_precise_sqrt_vector_f16
+tt.func @tt_precise_sqrt_vector_f16(%arg0: tensor<128xf16>) {
+  // CHECK: tensor.empty
+  // CHECK: linalg.map { math.sqrt
+  %0 = tt.precise_sqrt %arg0 : tensor<128xf16>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @tt_precise_sqrt_vector_f32
+tt.func @tt_precise_sqrt_vector_f32(%arg0: tensor<128xf32>) {
+  // CHECK: tensor.empty
+  // CHECK: linalg.map { math.sqrt
+  %0 = tt.precise_sqrt %arg0 : tensor<128xf32>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @tt_precise_divf_vector_f16
+tt.func @tt_precise_divf_vector_f16(%arg0: tensor<128xf16>, %arg1: tensor<128xf16>) {
+  // CHECK: tensor.empty
+  // CHECK: linalg.map { arith.divf }
+  %0 = tt.precise_divf %arg0, %arg1 : tensor<128xf16>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @tt_precise_divf_vector_f32
+tt.func @tt_precise_divf_vector_f32(%arg0: tensor<128xf32>, %arg1: tensor<128xf32>) {
+  // CHECK: tensor.empty
+  // CHECK: linalg.map { arith.divf }
+  %0 = tt.precise_divf %arg0, %arg1 : tensor<128xf32>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @clampf_propagateNan_all_f32(
+// CHECK-SAME:                      %[[ARG0:.*]]: tensor<32xf32>, %[[ARG1:.*]]: tensor<32xf32>, %[[ARG2:.*]]: tensor<32xf32>
+tt.func @clampf_propagateNan_all_f32(%x: tensor<32xf32>, %min: tensor<32xf32>, %max: tensor<32xf32>) -> tensor<32xf32> {
+  // CHECK: %[[MAPPED:.*]] = linalg.map { arith.maximumf } ins(%[[ARG0]], %[[ARG1]] : tensor<32xf32>, tensor<32xf32>)
+  // CHECK: linalg.map { arith.minimumf } ins(%[[MAPPED]], %[[ARG2]] : tensor<32xf32>, tensor<32xf32>)
+  %0 = tt.clampf %x, %min, %max, propagateNan = all : tensor<32xf32>
+  tt.return %0 : tensor<32xf32>
+}
+
+// -----
+// CHECK-LABEL: @clampf_propagateNan_none_f32(
+// CHECK-SAME:                      %[[ARG0:.*]]: tensor<32xf32>, %[[ARG1:.*]]: tensor<32xf32>, %[[ARG2:.*]]: tensor<32xf32>
+tt.func @clampf_propagateNan_none_f32(%x: tensor<32xf32>, %min: tensor<32xf32>, %max: tensor<32xf32>) -> tensor<32xf32> {
+  // CHECK: %[[MAPPED]] = linalg.map { arith.maxnumf } ins(%[[ARG0]], %[[ARG1]] : tensor<32xf32>, tensor<32xf32>)
+  // CHECK: linalg.map { arith.minnumf } ins(%[[MAPPED]], %[[ARG2]] : tensor<32xf32>, tensor<32xf32>)
+  %0 = tt.clampf %x, %min, %max, propagateNan = none : tensor<32xf32>
+  tt.return %0 : tensor<32xf32>
+}
+
+// -----
+// CHECK-LABEL: @clampf_propagateNan_all_f16(
+// CHECK-SAME:                      %[[ARG0:.*]]: tensor<32xf16>, %[[ARG1:.*]]: tensor<32xf16>, %[[ARG2:.*]]: tensor<32xf16>
+tt.func @clampf_propagateNan_all_f16(%x: tensor<32xf16>, %min: tensor<32xf16>, %max: tensor<32xf16>) -> tensor<32xf16> {
+  // CHECK: %[[MAPPED]] = linalg.map { arith.maximumf } ins(%[[ARG0]], %[[ARG1]] : tensor<32xf16>, tensor<32xf16>)
+  // CHECK: linalg.map { arith.minimumf } ins(%[[MAPPED]], %[[ARG2]] : tensor<32xf16>, tensor<32xf16>)
+  %0 = tt.clampf %x, %min, %max, propagateNan = all : tensor<32xf16>
+  tt.return %0 : tensor<32xf16>
+}
+
+// -----
+// CHECK-LABEL: @clampf_propagateNan_none_f16(
+// CHECK-SAME:                      %[[ARG0:.*]]: tensor<32xf16>, %[[ARG1:.*]]: tensor<32xf16>, %[[ARG2:.*]]: tensor<32xf16>
+tt.func @clampf_propagateNan_none_f16(%x: tensor<32xf16>, %min: tensor<32xf16>, %max: tensor<32xf16>) -> tensor<32xf16> {
+  // CHECK: %[[MAPPED]] = linalg.map { arith.maxnumf } ins(%[[ARG0]], %[[ARG1]] : tensor<32xf16>, tensor<32xf16>)
+  // CHECK: linalg.map { arith.minnumf } ins(%[[MAPPED]], %[[ARG2]] : tensor<32xf16>, tensor<32xf16>)
+  %0 = tt.clampf %x, %min, %max, propagateNan = none : tensor<32xf16>
+  tt.return %0 : tensor<32xf16>
+}
+
+// -----
+// CHECK-LABEL: @histogram_i32
+// CHECK-SAME: %[[ARG0:.*]]: tensor<8xi32>)
+// CHECK: %[[ARG1:.*]] = tensor.empty() : tensor<2xi32>
+// CHECK: %[[ARG2:.*]] = linalg_ext.histogram ins(%[[ARG0]] : tensor<8xi32>) outs(%[[ARG1]] : tensor<2xi32>) -> tensor<2xi32>
+tt.func @histogram_i32(%0: tensor<8xi32>) {
+  %1 = tt.histogram %0 : tensor<8xi32> -> tensor<2xi32>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @histogram_i64
+// CHECK-SAME: %[[ARG0:.*]]: tensor<128xi64>)
+// CHECK: %[[ARG1:.*]] = tensor.empty() : tensor<32xi64>
+// CHECK: %[[ARG2:.*]] = linalg_ext.histogram ins(%[[ARG0]] : tensor<128xi64>) outs(%[[ARG1]] : tensor<32xi64>) -> tensor<32xi64>
+tt.func @histogram_i64(%0: tensor<128xi64>) {
+  %1 = tt.histogram %0 : tensor<128xi64> -> tensor<32xi64>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: @arith_select_scalar_cond
+// CHECK: linalg.map { arith.select }
+func.func @arith_select_scalar_cond(%arg0: i1, %arg1: tensor<128x128xf32>) {
+  %cst_1 = arith.constant dense<0.000000e+00> : tensor<128x128xf32>
+  %0 = arith.select %arg0, %cst_1, %arg1 : tensor<128x128xf32>
+  return
+}
+
+// -----
+// CHECK-LABEL: @arith_mul_scalar
+// CHECK: arith.muli
+func.func @arith_mul_scalar(%arg0: i32) {
+  %cst_0 = arith.constant 0 : i32
+  %cst_128 = arith.constant 128 : i32
+  %0 = arith.muli %arg0, %cst_0 : i32
+  %1 = arith.muli %0, %cst_128 : i32
+  return
+}
+
+// -----
+// CHECK-LABEL: @automic_rmw_zero_dtype
+func.func @automic_rmw_zero_dtype(%arg0: !tt.ptr<f32>, %arg1: i32, %arg2: f16) {
+  %true = arith.constant true
+  %0 = tt.addptr %arg0, %arg1 : !tt.ptr<f32>, i32
+  %1 = arith.extf %arg2 : f16 to f32
+  // CHECK-NOT: expected integer or index type
+  // CHECK: scf.if
+  // CHECK: else
+  // CHECK-NEXT: %[[ARG:.*]] = arith.constant 0.000000e+00
+  // CHECK: scf.yield %[[ARG]]
+  %2 = tt.atomic_rmw max, acq_rel, gpu, %0, %1, %true : (!tt.ptr<f32>, f32, i1) -> f32
+  return
 }

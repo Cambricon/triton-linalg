@@ -4,6 +4,7 @@
 #include "triton-linalg/Dialect/Auxiliary/Transforms/AuxOpTilingInterface.h"
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
 #include "triton-linalg/Dialect/LinalgExt/Transforms/TilingInterfaceImpl.h"
+#include "triton-linalg/Dialect/MathExt/IR/MathExt.h"
 #include "triton-linalg/Dialect/Triton/Transforms/InferAxisInfoInterfaceImpl.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 
@@ -16,6 +17,7 @@ inline void registerTritonLinalgDialects(mlir::DialectRegistry &registry) {
   // TritonLinalg.
   registry.insert<mlir::triton::aux::AuxiliaryDialect>();
   registry.insert<mlir::triton::linalg_ext::LinalgExtDialect>();
+  registry.insert<mlir::math_ext::MathExtDialect>();
 
   mlir::triton::aux::registerTilingInterfaceExternalModels(registry);
   mlir::triton::linalg_ext::registerTilingInterfaceExternalModels(registry);

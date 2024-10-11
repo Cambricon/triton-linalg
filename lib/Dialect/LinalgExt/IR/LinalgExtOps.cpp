@@ -173,43 +173,6 @@ static void getGenericEffectsImpl(
 //===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
-// BEGIN copied from mlir/lib/Dialect/Linalg/IR/LinalgOps.cpp
-//===----------------------------------------------------------------------===//
-static void getGenericEffectsImpl(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-        &effects,
-    LinalgOp linalgOp) {
-  SmallVector<Value> inputOperands = linalgOp.getDpsInputs();
-  for (auto [index, operand] : llvm::enumerate(inputOperands)) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
-      continue;
-    if (linalgOp.payloadUsesValueFromOperand(&linalgOp->getOpOperand(index))) {
-      effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
-                           /*effectOnFullRegion=*/true,
-                           SideEffects::DefaultResource::get());
-    }
-  }
-  unsigned inputOperandSize = inputOperands.size();
-
-  for (auto [index, operand] : llvm::enumerate(linalgOp.getDpsInits())) {
-    if (!llvm::isa<MemRefType>(operand.getType()))
-      continue;
-    if (linalgOp.payloadUsesValueFromOperand(
-            &linalgOp->getOpOperand(index + inputOperandSize))) {
-      effects.emplace_back(MemoryEffects::Read::get(), operand, /*stage=*/0,
-                           /*effectOnFullRegion=*/true,
-                           SideEffects::DefaultResource::get());
-    }
-    effects.emplace_back(MemoryEffects::Write::get(), operand, /*stage=*/0,
-                         /*effectOnFullRegion=*/true,
-                         SideEffects::DefaultResource::get());
-  }
-}
-//===----------------------------------------------------------------------===//
-// END copied from mlir/lib/Dialect/Linalg/IR/LinalgOps.cpp
-//===----------------------------------------------------------------------===//
-
-//===----------------------------------------------------------------------===//
 // Parse and print functions from LinalgOps.cpp
 //===----------------------------------------------------------------------===//
 /// Common parsing used for both named structured ops created by ods-gen and by
@@ -1794,53 +1757,6 @@ void AtomicRMWOp::getEffects(
   effects.emplace_back(MemoryEffects::Write::get(), dst(), /*stage=*/1,
                        /*effectOnFullRegion=*/true,
                        SideEffects::DefaultResource::get());
-}
-
-//===----------------------------------------------------------------------===//
-// Implementation of contiguous AtomicRMWOp
-//===----------------------------------------------------------------------===//
-void AtomicRMWOp::build(OpBuilder &builder, OperationState &result,
-                        ValueRange inputs, ValueRange inits,
-                        AtomicType atomicType, MemoryOrder memory_order,
-                        ArrayRef<NamedAttribute> attributes) {
-  build(builder, result, TypeRange{}, inputs, inits, atomicType, memory_order);
-  result.addAttributes(attributes);
-
-  // Add output types for output arguments.
-  for (auto i : inits) {
-    result.addTypes(i.getType());
-  }
-}
-
-LogicalResult AtomicRMWOp::verify() {
-  Operation *op = getOperation();
-  if (getNumDpsInputs() != 1) {
-    return op->emitOpError("expected one input operand");
-  }
-  return success();
-}
-
-LogicalResult AtomicRMWOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
-  return memref::foldMemRefCast(*this);
-}
-
-void AtomicRMWOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-        &effects) {
-  for (auto *operand : getDpsInputOperands()) {
-    if (!operand->get().getType().isa<MemRefType>())
-      continue;
-    effects.emplace_back(MemoryEffects::Read::get(), operand->get(),
-                         SideEffects::DefaultResource::get());
-  }
-  effects.emplace_back(MemoryEffects::Read::get(), src(),
-                       SideEffects::DefaultResource::get());
-  effects.emplace_back(MemoryEffects::Write::get(), src(),
-                       SideEffects::DefaultResource::get());
-  if (dst().getType().isa<MemRefType>()) {
-    effects.emplace_back(MemoryEffects::Write::get(), dst(),
-                         SideEffects::DefaultResource::get());
-  }
 }
 
 //===----------------------------------------------------------------------===//

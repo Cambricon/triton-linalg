@@ -152,7 +152,9 @@ public:
   int64_t getContigSize() const { return contigSize; }
   int64_t getBroadcastSize() const { return broadcastSize; }
   int64_t getDimSize() const { return dimSize; }
-  bool isBroadcastDim() const { return getContigSize() == 1; }
+  bool isBroadcastDim() const {
+    return getContigSize() == 1 && getDimSize() != 1;
+  }
 
 private:
   int64_t contigSize = -1;

@@ -1,5 +1,6 @@
 // RUN: triton-linalg-opt -convert-math-to-linalg -split-input-file %s | FileCheck %s
 
+// -----
 func.func @math_log(%arg0: tensor<128xf32>) {
   // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<128xf32>
   // CHECK: %[[MAPPED:.*]] = linalg.map { math.log } ins(%arg0 : tensor<128xf32>) outs(%[[INIT]] : tensor<128xf32>)
@@ -320,6 +321,22 @@ func.func @math_fma_tensor_staic(%arg0: tensor<100x10xf32>, %arg1: tensor<100x10
   // CHECK: %mapped = linalg.map { math.fma } ins(%arg0, %arg0, %arg1 : tensor<100x10xf32>, tensor<100x10xf32>, tensor<100x10xf32>) outs(%[[INIT]] : tensor<100x10xf32>)
   %0 = math.fma %arg0, %arg0, %arg1: tensor<100x10xf32>
   return %0 : tensor<100x10xf32>
+}
+
+// -----
+func.func @math_rsqrt_tensor_staic(%arg0: tensor<64x128xf16>) -> tensor<64x128xf16> {
+  // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<64x128xf16>
+  // CHECK: %mapped = linalg.map { math.rsqrt } ins(%arg0 : tensor<64x128xf16>) outs(%[[INIT]] : tensor<64x128xf16>)
+  %0 = math.rsqrt %arg0: tensor<64x128xf16>
+  return %0 : tensor<64x128xf16>
+}
+
+// -----
+tt.func @tt_mulhiui_vector_i32(%arg0: tensor<16x16xi32>, %arg1: tensor<16x16xi32>) {
+  // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<16x16xi32>
+  // CHECK: %mapped = linalg.map { math_ext.mulhiui } ins(%arg0, %arg1 : tensor<16x16xi32>, tensor<16x16xi32>) outs(%[[INIT]] : tensor<16x16xi32>)
+  %0 = math_ext.mulhiui %arg0, %arg1 : tensor<16x16xi32>
+  tt.return
 }
 
 // -----
