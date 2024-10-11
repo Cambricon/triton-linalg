@@ -64,18 +64,6 @@ Value materializeOpFoldResult(OpBuilder &builder, Location loc,
 /// Return whether value is a scalar.
 bool isScalar(Value val);
 
-/// Return "true" if the last N dimensions of the given type are contiguous.
-///
-/// Examples:
-///   - memref<5x4x3x2xi8, strided<[24, 6, 2, 1]> is contiguous when
-///   considering both _all_ and _only_ the trailing 3 dims,
-///   - memref<5x4x3x2xi8, strided<[48, 6, 2, 1]> is _only_ contiguous when
-///   considering the trailing 3 dims.
-///
-/// Note: This function is from LLVM.
-///       Replace it with the latest version of LLVM after we update.
-bool trailingNDimsContiguous(MemRefType type, int64_t n);
-
 /// Add a unit dimension to the last dim.
 ///
 /// Example 1:
@@ -177,24 +165,11 @@ Value dropUnitFirstDim(OpBuilder &b, Location loc, Value value);
 /// is collapsed to (sn-1' = sn-1xsn):
 /// ```mlir
 /// %0 = foo ... : tensor<s0xs1x..xsn-1xsnxf32>
-/// %1 = tensor.collapse_shape %n [[0] [1] ... [sn-1, sn]]
+/// %1 = tensor.collapse_shape %n [[0] [1] ... [sn-1, sn]
 ///      : tensor<s0xs1x..xsn-1xsnxf32> to tensor<s0xs1x..xsn-1'xf32>
 /// ```
-///
-/// When exceptLastDim is true, the behavior of collapse becomes as follows:
-///
-/// Example 4 (n = 2):
-/// ```mlir
-/// %0 = foo ... : tensor<s0xs1x..xsn-1xsnxf32>
-/// ```
-/// is collapsed to (sn-2xsn-1xsn = sn-2'xsn):
-/// ```mlir
-/// %0 = foo ... : tensor<s0xs1x..xsn-1xsnxf32>
-/// %1 = tensor.collapse_shape %n [[0] [1] ... [sn-2, sn-1] [sn]]
-///      : tensor<s0xs1x..xsn-1xsnxf32> to tensor<s0xs1x..xsn-2'xsnxf32>
-/// ```
 Value collapseLastNDimsToOneDim(OpBuilder &b, Location loc, Value value,
-                                int64_t n, bool exceptLastDim = false);
+                                int64_t n);
 
 } // namespace triton
 } // namespace mlir

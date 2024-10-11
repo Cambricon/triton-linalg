@@ -137,7 +137,6 @@ func.func @batch_conv_2d_nhwc_fhwc_invalid_dtype_in_strides(%input: tensor<?x?x?
 }
 
 // -----
-// CHECK: linalg_ext.make_range
 func.func @make_range_output_rank_invalid(%arg0: tensor<2x64xi32>) -> tensor<2x64xi32> {
   %c0 = arith.constant 0 : i32
   %c128 = arith.constant 128 : i32
@@ -147,7 +146,6 @@ func.func @make_range_output_rank_invalid(%arg0: tensor<2x64xi32>) -> tensor<2x6
 }
 
 // -----
-// CHECK: linalg_ext.make_range
 func.func @make_range_start_end_invalid(%arg0: tensor<128xi32>) -> tensor<128xi32> {
   %c0 = arith.constant 0 : i32
   %c128 = arith.constant 128 : i32
@@ -157,7 +155,6 @@ func.func @make_range_start_end_invalid(%arg0: tensor<128xi32>) -> tensor<128xi3
 }
 
 // -----
-// CHECK: linalg_ext.make_range
 func.func @make_range_output_shape_mismatch(%arg0: tensor<129xi32>) -> tensor<129xi32> {
   %c0 = arith.constant 0 : i32
   %c128 = arith.constant 128 : i32
@@ -167,7 +164,6 @@ func.func @make_range_output_shape_mismatch(%arg0: tensor<129xi32>) -> tensor<12
 }
 
 // -----
-// CHECK: linalg_ext.make_range
 func.func @make_range_result_type_invalid(%arg0: tensor<128xf32>) -> tensor<128xf32> {
   %c2 = arith.constant 2 : i32
   %c130 = arith.constant 130 : i32
@@ -965,131 +961,6 @@ func.func @pad_pvalue_type_mismatch(%input : tensor<4x4xf32>, %init : tensor<6x8
 }
 
 // -----
-func.func @argmax_unsorted_dim(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<16xf32>, %output_index: tensor<128xi32>) {
-  // expected-error @+1 {{'linalg_ext.argmax' op expects all outputs to have the same shapes. Shape at output-index 1 is not equal to the shape at output-index 0.}}
-  %argmax:2 = linalg_ext.argmax
-                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
-                  outs(%output_value, %output_index : tensor<16xf32>, tensor<128xi32>)
-                  dimensions = [1]
-                  (%arg2: f32, %arg3: i32, %arg4: f32, %arg5: i32) {
-                    %0 = arith.cmpf "oeq", %arg2, %arg4 : f32
-                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
-                    %2 = arith.andi %0, %1 : i1
-                    %3 = arith.cmpf "ogt", %arg2, %arg4 : f32
-                    %4 = arith.ori %3, %2 : i1
-                    %5 = arith.select %4, %arg2, %arg4 : f32
-                    %6 = arith.select %4, %arg3, %arg5 : i32
-                    linalg.yield %5, %6 : f32, i32
-                  }
-  func.return
-}
-
-// -----
-
-func.func @argmax_unmatched_dim(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<128xf32>, %output_index: tensor<128xi32>) {
-  // expected-error @+1 {{'linalg_ext.argmax' op init dimensions [128] doesn't match input dimensions after reduction [16]}}
-  %argmax:2 = linalg_ext.argmax
-                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
-                  outs(%output_value, %output_index : tensor<128xf32>, tensor<128xi32>)
-                  dimensions = [1]
-                  (%arg2: f32, %arg3: i32, %arg4: f32, %arg5: i32) {
-                    %0 = arith.cmpf "oeq", %arg2, %arg4 : f32
-                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
-                    %2 = arith.andi %0, %1 : i1
-                    %3 = arith.cmpf "ogt", %arg2, %arg4 : f32
-                    %4 = arith.ori %3, %2 : i1
-                    %5 = arith.select %4, %arg2, %arg4 : f32
-                    %6 = arith.select %4, %arg3, %arg5 : i32
-                    linalg.yield %5, %6 : f32, i32
-                  }
-  func.return
-}
-
-// -----
-
-func.func @argmax_out_of_range(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<128xf32>, %output_index: tensor<128xi32>) {
-  // expected-error @+1 {{'linalg_ext.argmax' op dimensions for reduction should be in the range [0, 1].}}
-  %argmax:2 = linalg_ext.argmax
-                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
-                  outs(%output_value, %output_index : tensor<128xf32>, tensor<128xi32>)
-                  dimensions = [4]
-                  (%arg2: f32, %arg3: i32, %arg4: f32, %arg5: i32) {
-                    %0 = arith.cmpf "oeq", %arg2, %arg4 : f32
-                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
-                    %2 = arith.andi %0, %1 : i1
-                    %3 = arith.cmpf "ogt", %arg2, %arg4 : f32
-                    %4 = arith.ori %3, %2 : i1
-                    %5 = arith.select %4, %arg2, %arg4 : f32
-                    %6 = arith.select %4, %arg3, %arg5 : i32
-                    linalg.yield %5, %6 : f32, i32
-                  }
-  func.return
-}
-
-// -----
-
-func.func @argmin_unsorted_dim(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<16xf32>, %output_index: tensor<128xi32>) {
-  // expected-error @+1 {{'linalg_ext.argmin' op expects all outputs to have the same shapes. Shape at output-index 1 is not equal to the shape at output-index 0.}}
-  %argmin:2 = linalg_ext.argmin
-                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
-                  outs(%output_value, %output_index : tensor<16xf32>, tensor<128xi32>)
-                  dimensions = [1]
-                  (%arg2: f32, %arg3: i32, %arg4: f32, %arg5: i32) {
-                    %0 = arith.cmpf "oeq", %arg2, %arg4 : f32
-                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
-                    %2 = arith.andi %0, %1 : i1
-                    %3 = arith.cmpf "olt", %arg2, %arg4 : f32
-                    %4 = arith.ori %3, %2 : i1
-                    %5 = arith.select %4, %arg2, %arg4 : f32
-                    %6 = arith.select %4, %arg3, %arg5 : i32
-                    linalg.yield %5, %6 : f32, i32
-                  }
-  func.return
-}
-
-// -----
-
-func.func @argmin_unmatched_dim(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<128xf32>, %output_index: tensor<128xi32>) {
-  // expected-error @+1 {{'linalg_ext.argmin' op init dimensions [128] doesn't match input dimensions after reduction [16]}}
-  %argmin:2 = linalg_ext.argmin
-                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
-                  outs(%output_value, %output_index : tensor<128xf32>, tensor<128xi32>)
-                  dimensions = [1]
-                  (%arg2: f32, %arg3: i32, %arg4: f32, %arg5: i32) {
-                    %0 = arith.cmpf "oeq", %arg2, %arg4 : f32
-                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
-                    %2 = arith.andi %0, %1 : i1
-                    %3 = arith.cmpf "olt", %arg2, %arg4 : f32
-                    %4 = arith.ori %3, %2 : i1
-                    %5 = arith.select %4, %arg2, %arg4 : f32
-                    %6 = arith.select %4, %arg3, %arg5 : i32
-                    linalg.yield %5, %6 : f32, i32
-                  }
-  func.return
-}
-
-// -----
-
-func.func @argmin_out_of_range(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<128xf32>, %output_index: tensor<128xi32>) {
-  // expected-error @+1 {{'linalg_ext.argmin' op dimensions for reduction should be in the range [0, 1].}}
-  %argmin:2 = linalg_ext.argmin
-                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
-                  outs(%output_value, %output_index : tensor<128xf32>, tensor<128xi32>)
-                  dimensions = [4]
-                  (%arg2: f32, %arg3: i32, %arg4: f32, %arg5: i32) {
-                    %0 = arith.cmpf "oeq", %arg2, %arg4 : f32
-                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
-                    %2 = arith.andi %0, %1 : i1
-                    %3 = arith.cmpf "olt", %arg2, %arg4 : f32
-                    %4 = arith.ori %3, %2 : i1
-                    %5 = arith.select %4, %arg2, %arg4 : f32
-                    %6 = arith.select %4, %arg3, %arg5 : i32
-                    linalg.yield %5, %6 : f32, i32
-                  }
-  func.return
-}
-
-// -----
 func.func @scan_unmatched_output_and_init_num(%input: tensor<16x32x64xf32>,
                                               %output0: tensor<16x32x64xf32>,
                                               %output1: tensor<16x32x64xf32>,
@@ -1328,179 +1199,4 @@ func.func @scalar_libdevice_call_result_invalid(%arg0: f32) -> tensor<f32> {
       ins(%arg0, %arg0 : f32, f32)
       symbol = "__cn_scalar_add_f32" -> tensor<f32>
   return %libdevicecall : tensor<f32>
-}
-
-// -----
-func.func @histogram_wrong_num(%input1: tensor<128xi32>,
-                               %input2: tensor<64xi32>, %init: tensor<16xi32>) -> tensor<16xi32>  {
-  // expected-error @+1 {{'linalg_ext.histogram' op only supports 1 input operand!}}
-  %1 = linalg_ext.histogram
-      ins(%input1, %input2 : tensor<128xi32>, tensor<64xi32>)
-      outs(%init:tensor<16xi32>) -> tensor<16xi32>
-  func.return %1 : tensor<16xi32>
-}
-
-// -----
-func.func @histogram_wrong_input_rank(%input: tensor<128x64xi32>,
-                                %init: tensor<16x64xi32>) -> tensor<16x64xi32>  {
-  // expected-error @+1 {{'linalg_ext.histogram' op only supports 1D input!}}
-  %1 = linalg_ext.histogram
-      ins(%input : tensor<128x64xi32>)
-      outs(%init:tensor<16x64xi32>) -> tensor<16x64xi32>
-  func.return %1 : tensor<16x64xi32>
-}
-
-// -----
-func.func @histogram_wrong_input_type(%input: tensor<64xf32>,
-                                %init: tensor<8xf32>) -> tensor<8xf32>  {
-  // expected-error @+1 {{'linalg_ext.histogram' op only supports integer input!}}
-  %1 = linalg_ext.histogram
-      ins(%input : tensor<64xf32>)
-      outs(%init:tensor<8xf32>) -> tensor<8xf32>
-  func.return %1 : tensor<8xf32>
-}
-
-// -----
-func.func @histogram_wrong_output_rank(%input: tensor<128xi32>,
-                                %init: tensor<16x64xi32>) -> tensor<16x64xi32>  {
-  // expected-error @+1 {{'linalg_ext.histogram' op only supports 1D output!}}
-  %1 = linalg_ext.histogram
-      ins(%input : tensor<128xi32>)
-      outs(%init:tensor<16x64xi32>) -> tensor<16x64xi32>
-  func.return %1 : tensor<16x64xi32>
-}
-
-// -----
-func.func @histogram_wrong_output_type(%input: tensor<64xi32>,
-                                %init: tensor<8xf32>) -> tensor<8xf32>  {
-  // expected-error @+1 {{'linalg_ext.histogram' op only supports integer output!}}
-  %1 = linalg_ext.histogram
-      ins(%input : tensor<64xi32>)
-      outs(%init:tensor<8xf32>) -> tensor<8xf32>
-  func.return %1 : tensor<8xf32>
-}
-
-// -----
-func.func @argmax_unsorted_dim(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<16xf32>, %output_index: tensor<128xi32>) {
-  // expected-error @+1 {{'linalg_ext.argmax' op expects all outputs to have the same shapes. Shape at output-index 1 is not equal to the shape at output-index 0.}}
-  %argmax:2 = linalg_ext.argmax
-                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
-                  outs(%output_value, %output_index : tensor<16xf32>, tensor<128xi32>)
-                  dimensions = [1]
-                  (%arg2: f32, %arg3: i32, %arg4: f32, %arg5: i32) {
-                    %0 = arith.cmpf "oeq", %arg2, %arg4 : f32
-                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
-                    %2 = arith.andi %0, %1 : i1
-                    %3 = arith.cmpf "ogt", %arg2, %arg4 : f32
-                    %4 = arith.ori %3, %2 : i1
-                    %5 = arith.select %4, %arg2, %arg4 : f32
-                    %6 = arith.select %4, %arg3, %arg5 : i32
-                    linalg.yield %5, %6 : f32, i32
-                  }
-  func.return
-}
-
-// -----
-
-func.func @argmax_unmatched_dim(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<128xf32>, %output_index: tensor<128xi32>) {
-  // expected-error @+1 {{'linalg_ext.argmax' op init dimensions [128] doesn't match input dimensions after reduction [16]}}
-  %argmax:2 = linalg_ext.argmax
-                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
-                  outs(%output_value, %output_index : tensor<128xf32>, tensor<128xi32>)
-                  dimensions = [1]
-                  (%arg2: f32, %arg3: i32, %arg4: f32, %arg5: i32) {
-                    %0 = arith.cmpf "oeq", %arg2, %arg4 : f32
-                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
-                    %2 = arith.andi %0, %1 : i1
-                    %3 = arith.cmpf "ogt", %arg2, %arg4 : f32
-                    %4 = arith.ori %3, %2 : i1
-                    %5 = arith.select %4, %arg2, %arg4 : f32
-                    %6 = arith.select %4, %arg3, %arg5 : i32
-                    linalg.yield %5, %6 : f32, i32
-                  }
-  func.return
-}
-
-// -----
-
-func.func @argmax_out_of_range(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<128xf32>, %output_index: tensor<128xi32>) {
-  // expected-error @+1 {{'linalg_ext.argmax' op dimensions for reduction should be in the range [0, 1].}}
-  %argmax:2 = linalg_ext.argmax
-                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
-                  outs(%output_value, %output_index : tensor<128xf32>, tensor<128xi32>)
-                  dimensions = [4]
-                  (%arg2: f32, %arg3: i32, %arg4: f32, %arg5: i32) {
-                    %0 = arith.cmpf "oeq", %arg2, %arg4 : f32
-                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
-                    %2 = arith.andi %0, %1 : i1
-                    %3 = arith.cmpf "ogt", %arg2, %arg4 : f32
-                    %4 = arith.ori %3, %2 : i1
-                    %5 = arith.select %4, %arg2, %arg4 : f32
-                    %6 = arith.select %4, %arg3, %arg5 : i32
-                    linalg.yield %5, %6 : f32, i32
-                  }
-  func.return
-}
-
-// -----
-
-func.func @argmin_unsorted_dim(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<16xf32>, %output_index: tensor<128xi32>) {
-  // expected-error @+1 {{'linalg_ext.argmin' op expects all outputs to have the same shapes. Shape at output-index 1 is not equal to the shape at output-index 0.}}
-  %argmin:2 = linalg_ext.argmin
-                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
-                  outs(%output_value, %output_index : tensor<16xf32>, tensor<128xi32>)
-                  dimensions = [1]
-                  (%arg2: f32, %arg3: i32, %arg4: f32, %arg5: i32) {
-                    %0 = arith.cmpf "oeq", %arg2, %arg4 : f32
-                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
-                    %2 = arith.andi %0, %1 : i1
-                    %3 = arith.cmpf "olt", %arg2, %arg4 : f32
-                    %4 = arith.ori %3, %2 : i1
-                    %5 = arith.select %4, %arg2, %arg4 : f32
-                    %6 = arith.select %4, %arg3, %arg5 : i32
-                    linalg.yield %5, %6 : f32, i32
-                  }
-  func.return
-}
-
-// -----
-
-func.func @argmin_unmatched_dim(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<128xf32>, %output_index: tensor<128xi32>) {
-  // expected-error @+1 {{'linalg_ext.argmin' op init dimensions [128] doesn't match input dimensions after reduction [16]}}
-  %argmin:2 = linalg_ext.argmin
-                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
-                  outs(%output_value, %output_index : tensor<128xf32>, tensor<128xi32>)
-                  dimensions = [1]
-                  (%arg2: f32, %arg3: i32, %arg4: f32, %arg5: i32) {
-                    %0 = arith.cmpf "oeq", %arg2, %arg4 : f32
-                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
-                    %2 = arith.andi %0, %1 : i1
-                    %3 = arith.cmpf "olt", %arg2, %arg4 : f32
-                    %4 = arith.ori %3, %2 : i1
-                    %5 = arith.select %4, %arg2, %arg4 : f32
-                    %6 = arith.select %4, %arg3, %arg5 : i32
-                    linalg.yield %5, %6 : f32, i32
-                  }
-  func.return
-}
-
-// -----
-
-func.func @argmin_out_of_range(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<128xf32>, %output_index: tensor<128xi32>) {
-  // expected-error @+1 {{'linalg_ext.argmin' op dimensions for reduction should be in the range [0, 1].}}
-  %argmin:2 = linalg_ext.argmin
-                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
-                  outs(%output_value, %output_index : tensor<128xf32>, tensor<128xi32>)
-                  dimensions = [4]
-                  (%arg2: f32, %arg3: i32, %arg4: f32, %arg5: i32) {
-                    %0 = arith.cmpf "oeq", %arg2, %arg4 : f32
-                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
-                    %2 = arith.andi %0, %1 : i1
-                    %3 = arith.cmpf "olt", %arg2, %arg4 : f32
-                    %4 = arith.ori %3, %2 : i1
-                    %5 = arith.select %4, %arg2, %arg4 : f32
-                    %6 = arith.select %4, %arg3, %arg5 : i32
-                    linalg.yield %5, %6 : f32, i32
-                  }
-  func.return
 }

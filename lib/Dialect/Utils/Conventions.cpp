@@ -17,8 +17,8 @@ using namespace mlir::triton;
 
 bool mlir::triton::isLinearMemory(::mlir::ModuleOp op) {
   if (auto attr = op->getAttr(getIsLinearMemoryAttrKey())) {
-    assert(dyn_cast<BoolAttr>(attr) && "Invalid linear attribute type");
-    return cast<BoolAttr>(attr).getValue();
+    assert(attr.dyn_cast<BoolAttr>() && "Invalid linear attribute type");
+    return attr.cast<BoolAttr>().getValue();
   }
 
   // The default value for missing linear attribute is false.

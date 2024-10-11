@@ -9,10 +9,8 @@ add_triton_library(TritonToLinalg
 
   DEPENDS
   TritonLinalgConverisonIncGen
-  TritonInterfacesExtendTableGen
 
   LINK_LIBS PUBLIC
   LinalgExtDialectUtils
-  TritonInterfaceExtend
   MLIRIR
 )

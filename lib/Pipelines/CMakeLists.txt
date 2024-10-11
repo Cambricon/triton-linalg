@@ -6,5 +6,6 @@ add_triton_library(TritonLinalgPipelines
   MathToLinalg
   MLIRIR
   TritonToLinalg
+  TritonToTensor
   TritonTransformsExtend
 )

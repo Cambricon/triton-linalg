@@ -64,6 +64,7 @@ public:
 
   FailureOr<bool> parse(Value operand, Location loc,
                         ConversionPatternRewriter &rewriter);
+
 private:
   template <typename OpTy>
   LogicalResult parseOp(OpTy op, Location loc,

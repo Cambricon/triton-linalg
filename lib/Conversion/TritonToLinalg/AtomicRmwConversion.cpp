@@ -99,7 +99,7 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
     Type resultTy = op.getResult().getType();
     // FIXME: lower to llvm.atom directly.
-    if (isa<RankedTensorType>(resultTy))
+    if (resultTy.isa<RankedTensorType>())
       return failure();
 
     auto loc = op.getLoc();
@@ -110,7 +110,7 @@ public:
 
     auto zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     RankedTensorType originTensorTy =
-        cast<RankedTensorType>(originTensor.getType());
+        originTensor.getType().cast<RankedTensorType>();
 
     SmallVector<int64_t, 2> shape = {1, 1};
     auto val =
@@ -162,7 +162,7 @@ public:
     // Yield 0 if mask is false, align with GPU behaviour.
     rewriter.setInsertionPointToStart(ifOp.elseBlock());
     Value zeroConst = rewriter.create<arith::ConstantOp>(
-        loc, rewriter.getZeroAttr(op.getResult().getType()));
+        loc, rewriter.getIntegerAttr(op.getResult().getType(), 0));
     rewriter.create<scf::YieldOp>(loc, ValueRange(zeroConst));
     rewriter.replaceOp(op, ifOp.getResult(0));
     return success();
@@ -187,7 +187,7 @@ public:
   matchAndRewrite(triton::AtomicRMWOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
     RankedTensorType resultTy =
-        dyn_cast<RankedTensorType>(op.getResult().getType());
+        op.getResult().getType().dyn_cast<RankedTensorType>();
     if (!resultTy)
       return failure();
 
@@ -211,6 +211,8 @@ public:
         loc, ptrInfo->memref, true, true);
 
     // Create atomic_rmw here.
+    // Get linalg_ext.atomic_rmw input operands.
+    SmallVector<Value> atomicInputs{op.getVal()};
     // Init atomic output.
     Type resultEltType = resultTy.getElementType();
     Value atomicResultInit = rewriter.create<tensor::EmptyOp>(
@@ -219,19 +221,7 @@ public:
     if (!maybeKind)
       return failure();
 
-    Value input = op.getVal();
-    auto rank = cast<ShapedType>(atomicResultInit.getType()).getRank();
-    atomicResultInit = rewriter.create<tensor::ExtractSliceOp>(
-        loc, atomicResultInit, ptrInfo->offsets, ptrInfo->sizes,
-        SmallVector<OpFoldResult>(rank, rewriter.getIndexAttr(1)));
-
-    input = rewriter.create<tensor::ExtractSliceOp>(
-        loc, input, ptrInfo->offsets, ptrInfo->sizes,
-        SmallVector<OpFoldResult>(rank, rewriter.getIndexAttr(1)));
-
     SmallVector<Value> atomicInits{originalTensor, atomicResultInit};
-    // Get linalg_ext.atomic_rmw input operands.
-    SmallVector<Value> atomicInputs{input};
 
     auto maybeMemoryOrder = getLinalgExtAtomicMemoryOrder(op.getSem());
     if (failed(maybeMemoryOrder))
@@ -242,13 +232,6 @@ public:
             .create<triton::linalg_ext::AtomicRMWOp>(
                 loc, atomicInputs, atomicInits, *maybeKind, *maybeMemoryOrder)
             ->getResult(1);
-    // Pad value is set to 0 to align with GPU.
-    Value c0 = rewriter.create<arith::ConstantOp>(
-        loc, resultEltType, rewriter.getZeroAttr(resultEltType));
-    sliceTensor = getPadOrInsertOpWithOther(
-        loc, c0,
-        RankedTensorType::get(resultTy.getShape(), resultTy.getElementType()),
-        sliceTensor, ptrInfo->offsets, ptrInfo->sizes, rewriter);
 
     rewriter.replaceOp(op, sliceTensor);
     return success();
@@ -272,7 +255,7 @@ public:
   mlir::LogicalResult
   matchAndRewrite(triton::AtomicRMWOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
-    auto resultTy = dyn_cast<RankedTensorType>(op.getResult().getType());
+    auto resultTy = op.getResult().getType().dyn_cast<RankedTensorType>();
     if (!resultTy)
       return failure();
 
@@ -297,6 +280,18 @@ public:
     if (op.getMask()) {
       auto atomicMask = triton::flattenValueToMatchGatherScatter(
           rewriter, op.getMask(), false);
+      Value maskInit = rewriter.create<tensor::EmptyOp>(
+          loc, atomicMask.getType().cast<RankedTensorType>().getShape(),
+          rewriter.getI8Type());
+      atomicMask = rewriter
+                       .create<linalg::MapOp>(
+                           loc, ValueRange{atomicMask}, maskInit,
+                           [](OpBuilder &b, Location loc, ValueRange args) {
+                             Value ret = b.create<arith::ExtSIOp>(
+                                 loc, b.getI8Type(), args[0]);
+                             b.create<linalg::YieldOp>(loc, ret);
+                           })
+                       .getResult()[0];
       atomicInputs.push_back(atomicMask);
     }
 

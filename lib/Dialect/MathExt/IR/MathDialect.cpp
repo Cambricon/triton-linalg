@@ -1,4 +1,4 @@
-//===- MathExtDialect.cpp - Dialect for MathExt implementation --*- C++ -*-===//
+//===- MathDialect.cpp - MLIR dialect for Math implementation ---*- C++ -*-===//
 //
 // Copyright (C) [2022-2025] by Cambricon.
 //
@@ -6,7 +6,7 @@
 
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/Transforms/InliningUtils.h"
-#include "triton-linalg/Dialect/MathExt/IR/MathExt.h"
+#include "triton-linalg/Dialect/MathExt/IR/Math.h"
 
 using namespace mlir;
 using namespace mlir::math_ext;

@@ -80,12 +80,12 @@ bool mlir::triton::createReassociationMaps(
 }
 
 Value triton::castToIndexType(OpBuilder &b, Location loc, OpFoldResult ofr) {
-  if (auto value = dyn_cast<Value>(ofr)) {
-    if (!isa<IndexType>(value.getType()))
+  if (auto value = ofr.dyn_cast<Value>()) {
+    if (!value.getType().isa<IndexType>())
       return b.createOrFold<arith::IndexCastOp>(loc, b.getIndexType(), value);
     return value;
   }
-  auto attr = dyn_cast<IntegerAttr>(dyn_cast<Attribute>(ofr));
+  auto attr = ofr.dyn_cast<Attribute>().dyn_cast<IntegerAttr>();
   assert(attr && "expect the op fold result casts to an integer attribute");
   return b.create<arith::ConstantIndexOp>(loc, attr.getValue().getSExtValue())
       .getResult();

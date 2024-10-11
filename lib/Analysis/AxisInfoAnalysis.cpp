@@ -51,22 +51,6 @@ using namespace mlir::triton;
 //===--------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
-// AxisInfoLattice
-//===----------------------------------------------------------------------===//
-
-ChangeResult AxisInfoLattice::join(const AxisInfoExt &rhs) {
-  if (!initialized) {
-    initialized = true;
-    auto &kepval = getValue();
-    if (kepval == rhs)
-      return ChangeResult::NoChange;
-    kepval = rhs;
-    return ChangeResult::Change;
-  }
-  return mlir::dataflow::Lattice<AxisInfoExt>::join(rhs);
-}
-
-//===----------------------------------------------------------------------===//
 // AxisInfoAnalysisExt
 //===----------------------------------------------------------------------===//
 
@@ -84,7 +68,7 @@ void AxisInfoAnalysisExt::visitOperation(
   }
 
   auto joinCallback = [op, results, this](Value v, const AxisInfoExt &info) {
-    auto result = dyn_cast<OpResult>(v);
+    auto result = v.dyn_cast<OpResult>();
     if (!result)
       return;
     assert(llvm::is_contained(op->getResults(), result));
@@ -116,7 +100,7 @@ void AxisInfoAnalysisExt::visitNonControlFlowArguments(
 
   auto getRank = [](Type type) {
     auto rank = 1;
-    if (TensorType ty = dyn_cast<TensorType>(type))
+    if (TensorType ty = type.dyn_cast<TensorType>())
       rank = ty.getRank();
     return rank;
   };
@@ -142,8 +126,9 @@ void AxisInfoAnalysisExt::visitNonControlFlowArguments(
     }
 
     auto lowerBoundVal =
-        cast<IntegerAttr>(lowerBound.getValue()).getValue().getZExtValue();
-    auto stepVal = cast<IntegerAttr>(step.getValue()).getValue().getZExtValue();
+        lowerBound.getValue().cast<IntegerAttr>().getValue().getZExtValue();
+    auto stepVal =
+        step.getValue().cast<IntegerAttr>().getValue().getZExtValue();
     auto divHint = AxisInfoExt::kInitValue;
     auto k = std::gcd(lowerBoundVal, stepVal);
     if (k != 0)

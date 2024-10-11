@@ -166,7 +166,7 @@ def MakeRangeOp : LinalgStructuredBase_Op<"make_range",
     }
     MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
     ShapedType getOutputOperandType() {
-      return mlir::cast<ShapedType>(getOutputs().front().getType());
+      return getOutputs().front().getType().cast<ShapedType>();
     }
   }];
 }
@@ -276,131 +276,6 @@ def Im2ColOp : LinalgStructuredBase_Op<"im2col", [AttrSizedOperandSegments]> {
       LogicalResult verifyIndexingMapRequiredAttributes();
       MutableOperandRange getDpsInitsMutable() { return getOutputsMutable(); }
     }];
-}
-
-//===----------------------------------------------------------------------===//
-// ArgMaxMinBase op.
-//===----------------------------------------------------------------------===//
-
-class ArgMaxMinBaseOp<string mnemonic, list<Trait> props>
-  : LinalgStructuredBase_Op<mnemonic, !listconcat([
-    DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
-    SameVariadicOperandSize], props)> {
-  let summary = "Argmax/Argmin base operator";
-  let description = [{
-    Executes `combiner` on the `dimensions` of `inputs` and returns the
-    argmax/min result. The `dimensions` attribute needs to list the reduction
-    dimensions in increasing order.
-  }];
-
-  let arguments = (ins
-    // Input arg
-    Variadic<TensorOrMemref>:$inputs,
-    // Output arg
-    Variadic<TensorOrMemref>:$inits,
-
-    ConfinedAttr<DenseI64ArrayAttr,
-                 [DenseArrayStrictlySorted<DenseI64ArrayAttr>]>:$dimensions
-  );
-  let results = (outs Variadic<AnyTensor>);
-  let regions = (region SizedRegion<1>:$combiner);
-
-  let builders = [
-    OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$inits,
-      "ArrayRef<int64_t>":$dimensions,
-      "function_ref<void(OpBuilder &, Location, ValueRange)>",
-      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
-  ];
-
-  let extraClassDeclaration = structuredOpsBaseDecls # [{
-    // Declare functions necessary for LinalgStructuredInterface.
-    SmallVector<mlir::utils::IteratorType> getIteratorTypesArray() {
-      int64_t inputRank = mlir::cast<ShapedType>(getInputs()[0].getType()).getRank();
-      SmallVector<mlir::utils::IteratorType> iteratorTypes(inputRank,
-                                                     mlir::utils::IteratorType::parallel);
-      for (int64_t reductionDim : getDimensions())
-        iteratorTypes[reductionDim] = mlir::utils::IteratorType::reduction;
-      return iteratorTypes;
-    }
-    void getAsmBlockArgumentNames(Region &region,
-                                  OpAsmSetValueNameFn setNameFn) {
-      for (Value v : getRegionInputArgs())
-        setNameFn(v, "in");
-      for (Value v : getRegionOutputArgs())
-        setNameFn(v, "init");
-    }
-    ArrayAttr getIndexingMaps() {
-      int64_t inputRank = mlir::cast<ShapedType>(getInputs()[0].getType()).getRank();
-      SmallVector<AffineMap> affineMaps(
-          getNumDpsInputs(),
-          AffineMap::getMultiDimIdentityMap(inputRank, getContext()));
-      AffineMap resultMap =
-          AffineMap::getMultiDimIdentityMap(inputRank, getContext())
-              .dropResults(getDimensions());
-      for (int64_t i = 0, e = getNumDpsInits(); i < e; ++i)
-        affineMaps.push_back(resultMap);
-      return Builder(getContext()).getAffineMapArrayAttr(affineMaps);
-    }
-    std::string getLibraryCallName() {
-      return "op_has_no_registered_library_name";
-    }
-    static void regionBuilder(ImplicitLocOpBuilder &b,
-                              Block &block, ArrayRef<NamedAttribute> attrs);
-    // Implement functions necessary for DestinationStyleOpInterface.
-    static std::function<void(mlir::ImplicitLocOpBuilder &, mlir::Block &,
-                              mlir::ArrayRef<mlir::NamedAttribute>)>
-    getRegionBuilder() {
-      return regionBuilder;
-    }
-    MutableOperandRange getDpsInitsMutable() { return getInitsMutable(); }
-  }];
-
-  let hasCustomAssemblyFormat = 1;
-  let hasVerifier = 1;
-}
-
-def ArgMaxOp : ArgMaxMinBaseOp<"argmax", []> {
-  let description = [{
-    Example:
-    ```
-      %argmax:2 = linalg_ext.argmax
-          ins(%input, %index : tensor<16x32x64xf32>, tensor<16x32x64xi32>)
-          outs(%out1, %out2 : tensor<16x64xf32>, tensor<16x64xi32>)
-          dimensions = [1]
-          (%arg2: f32, %arg3: i32, %arg4: f32, %arg5: i32) {
-            %0 = arith.cmpf "oeq", %arg2, %arg4 : f32
-            %1 = arith.cmpi "slt", %arg3, %arg5 : i32
-            %2 = arith.andi %0, %1 : i1
-            %3 = arith.cmpf "ogt", %arg2, %arg4 : f32
-            %4 = arith.ori %3, %2 : i1
-            %5 = arith.select %4, %arg2, %arg4 : f32
-            %6 = arith.select %4, %arg3, %arg5 : i32
-            linalg.yield %5, %6 : f32, i32
-          }
-    ```
-  }];
-}
-
-def ArgMinOp : ArgMaxMinBaseOp<"argmin", []> {
-  let description = [{
-    Example:
-    ```
-      %argmin:2 = linalg_ext.argmin
-          ins(%input, %index : tensor<16x32x64xf32>, tensor<16x32x64xi32>)
-          outs(%out1, %out2 : tensor<16x64xf32>, tensor<16x64xi32>)
-          dimensions = [1]
-          (%arg2: f32, %arg3: i32, %arg4: f32, %arg5: i32) {
-            %0 = arith.cmpf "oeq", %arg2, %arg4 : f32
-            %1 = arith.cmpi "slt", %arg3, %arg5 : i32
-            %2 = arith.andi %0, %1 : i1
-            %3 = arith.cmpf "olt", %arg2, %arg4 : f32
-            %4 = arith.ori %3, %2 : i1
-            %5 = arith.select %4, %arg2, %arg4 : f32
-            %6 = arith.select %4, %arg3, %arg5 : i32
-            linalg.yield %5, %6 : f32, i32
-          }
-    ```
-  }];
 }
 
 //===----------------------------------------------------------------------===//

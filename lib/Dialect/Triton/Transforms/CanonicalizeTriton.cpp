@@ -7,7 +7,6 @@
 #include <assert.h>
 #include <memory>
 #include <optional>
-#include <queue>
 #include <stddef.h>
 #include <stdint.h>
 #include <utility>
@@ -33,7 +32,6 @@
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
-#include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h"
 #include "triton-linalg/Dialect/Triton/Transforms/PassDetail.h" // IWYU pragma: keep
 #include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
 #include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
@@ -52,7 +50,6 @@
 #include "llvm/ADT/iterator.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/FormatVariadic.h"
 
 using namespace mlir;
 using namespace triton;
@@ -61,168 +58,51 @@ namespace mlir {
 class MLIRContext;
 } // namespace mlir
 
-static bool isAllOneSizeType(ShapedType inputType) {
+bool isAllOneSizeType(ShapedType inputType) {
   return inputType.getRank() == 0 ||
          llvm::all_of(inputType.getShape(),
                       [](int64_t size) { return size == int64_t(1); });
 }
 
-// Extract cond value from mask.
-static Value extractCondFromShapeMask(Value mask, PatternRewriter &rewriter) {
-  if (!mask)
-    return mask;
-  auto loc = mask.getLoc();
-  if (auto maskValType = dyn_cast<ShapedType>(mask.getType())) {
-    assert(isAllOneSizeType(maskValType) ||
-           isa_and_nonnull<arith::ConstantOp>(mask.getDefiningOp()));
-    Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
-    SmallVector<Value> indices;
-    for (int64_t i = 0; i < maskValType.getRank(); ++i)
-      indices.push_back(zero);
-    return rewriter.create<tensor::ExtractOp>(loc, mask, ValueRange(indices));
-  }
-  return mask;
-}
-
-/// Get cond value from mask.
-static Value getCondVal(Value mask, PatternRewriter &rewriter) {
-  if (!mask)
-    return nullptr;
-
-  // If the mask value is a 0-rank tensor or a tensor with all dimensions of
-  // one-size, return it.
-  // For example:
-  // - %mask : tensor<i1>
-  // - %mask = tensor<1x1xi1>
-  if (auto maskTy = dyn_cast<ShapedType>(mask.getType())) {
-    if (isAllOneSizeType(maskTy))
-      return extractCondFromShapeMask(mask, rewriter);
-  }
-
-  // The origin mask must be obtained by broadcasting an i1.
-  auto defineOp = mask.getDefiningOp();
-  Value scalarMask = nullptr;
-  if (defineOp) {
-    llvm::TypeSwitch<Operation *>(defineOp)
-        // %mask = tt.splat i1 -> <axbxi1>
-        .Case<triton::SplatOp>(
-            [&](triton::SplatOp splatOp) { scalarMask = splatOp.getSrc(); })
-        // %mask = tt.broadcast tensor<i1> -> <axbxi1>
-        // %mask = tt.broadcast tensor<1x1xi1> -> <ax1xbx1xi1>
-        .Case<triton::BroadcastOp>([&](triton::BroadcastOp broadcastOp) {
-          Value src = broadcastOp.getSrc();
-          if (isAllOneSizeType(cast<ShapedType>(src.getType()))) {
-            scalarMask = src;
-          } else {
-            scalarMask = getCondVal(src, rewriter);
-          }
-        })
-        // %mask = arith.constant dense : tensor<axbxi1>
-        .Case<arith::ConstantOp>([&](arith::ConstantOp constantOp) {
-          auto value = dyn_cast<DenseElementsAttr>(constantOp.getValue());
-          if (value && value.isSplat())
-            scalarMask = constantOp.getResult();
-        });
-  }
-  return extractCondFromShapeMask(scalarMask, rewriter);
-}
-
-/// Donate the MaskInfo extract from mask.
-struct MaskInfo {
-  enum LogicalType { AND, OR, NONE };
-  Value cond;              ///< Mask which is splat or broadcast by i1 scalar.
-  Value mask;              ///< Tensor or i1, other mask.
-  LogicalType logicalType; ///< The logical type of cond and mask.
-};
-
-/// Get mask info mask which separate mask from splat scalar i1 or broadcast by
-/// tensor<1xi1> with others.
-///
-/// Example:
-///
-/// ```mlir
-/// %mask0 = ...
-/// %mask1 = tt.splat %scalar
-/// %mask2 = tt.broadcast %tensor0d
-/// %mask01 = arith.andi %mask0, %mask1
-/// %mask = arith.andi %mask01, %mask2
-/// ```
-///
-/// Given %mask, returns %splatMask and %otherMask.
-///
-/// ```mlir
-/// %extract = tensor.extract %tensor0d
-/// %cond = arith.andi %scalar, %extract
-/// %mask = %mask0
-/// ```
-MaskInfo getMaskInfo(Value mask, PatternRewriter &rewriter) {
-  MaskInfo maskInfo = {nullptr, nullptr, MaskInfo::LogicalType::NONE};
-  if (!mask)
-    return maskInfo;
-
-  auto loc = mask.getLoc();
-
-  using LogicalType = MaskInfo::LogicalType;
-  auto createMasks = [&rewriter, loc](ArrayRef<Value> masks,
-                                      LogicalType type) -> Value {
-    if (masks.empty())
-      return nullptr;
-    auto size = masks.size();
-    Value ret = masks[0];
-    for (size_t i = 1; i < size; i++) {
-      if (type == LogicalType::AND) {
-        ret = rewriter.create<arith::AndIOp>(loc, ret, masks[i]);
-      } else {
-        assert(type == LogicalType::OR);
-        ret = rewriter.create<arith::OrIOp>(loc, ret, masks[i]);
-      }
+/// Get base mask value before broadcasting.
+static std::optional<Value> getBaseMaskVal(Value maskVal) {
+  Value baseMaskVal = nullptr;
+  if (maskVal) {
+    // If the mask value is a 0-rank tensor or a tensor with all dimensions of
+    // one-size, return it.
+    // For example:
+    // - %mask : tensor<i1>
+    // - %mask = tensor<1x1xi1>
+    if (auto maskTy = maskVal.getType().dyn_cast<ShapedType>()) {
+      if (isAllOneSizeType(maskTy))
+        return maskVal;
     }
 
-    return ret;
-  };
-
-  SmallVector<Value> condMasks, otherMasks;
-  std::queue<Value> worklist;
-  worklist.push(mask);
-  LogicalType logicalType = LogicalType::NONE;
-  while (!worklist.empty()) {
-    auto item = worklist.front();
-    worklist.pop();
-    auto defOp = item.getDefiningOp();
-    if (llvm::isa_and_nonnull<arith::AndIOp, arith::OrIOp>(defOp)) {
-      worklist.push(defOp->getOperand(0));
-      worklist.push(defOp->getOperand(1));
-      LogicalType currentLogicalType =
-          llvm::isa<arith::AndIOp>(defOp) ? LogicalType::AND : LogicalType::OR;
-      if (logicalType == LogicalType::NONE) {
-        logicalType = currentLogicalType;
-      } else if (logicalType != currentLogicalType) {
-        // TODO: add support for mixed logical type.
-        return maskInfo;
-      }
-      continue;
+    // The origin mask must be obtained by broadcasting an i1.
+    auto defineOp = maskVal.getDefiningOp();
+    if (defineOp) {
+      llvm::TypeSwitch<Operation *>(defineOp)
+          // %mask = tt.splat i1 -> <axbxi1>
+          .Case<triton::SplatOp>(
+              [&](triton::SplatOp splatOp) { baseMaskVal = splatOp.getSrc(); })
+          // %mask = tt.broadcast tensor<i1> -> <axbxi1>
+          // %mask = tt.broadcast tensor<1x1xi1> -> <ax1xbx1xi1>
+          .Case<triton::BroadcastOp>([&](triton::BroadcastOp broadcastOp) {
+            Value src = broadcastOp.getSrc();
+            if (isAllOneSizeType(src.getType().cast<ShapedType>()))
+              baseMaskVal = src;
+          })
+          // %mask = arith.constant dense : tensor<axbxi1>
+          .Case<arith::ConstantOp>([&](arith::ConstantOp constantOp) {
+            auto value = constantOp.getValue().dyn_cast<DenseElementsAttr>();
+            if (value && value.isSplat())
+              baseMaskVal = constantOp.getResult();
+          });
     }
-
-    Value cond = getCondVal(item, rewriter);
-    if (cond) {
-      condMasks.push_back(cond);
-      continue;
-    }
-
-    otherMasks.push_back(item);
   }
-  if (condMasks.empty())
-    return maskInfo;
-
-  // Only has cond, set logical type to AND.
-  if (otherMasks.empty())
-    logicalType = LogicalType::AND;
-
-  maskInfo.logicalType = logicalType;
-  maskInfo.cond = createMasks(condMasks, logicalType);
-  maskInfo.mask = createMasks(otherMasks, logicalType);
-
-  return maskInfo;
+  if (baseMaskVal)
+    return baseMaskVal;
+  return std::nullopt;
 }
 
 namespace {
@@ -372,8 +252,8 @@ public:
       return success();
     }
 
-    ShapedType inputShape = cast<ShapedType>(op.getSrc().getType());
-    ShapedType outputShape = cast<ShapedType>(op.getResult().getType());
+    ShapedType inputShape = op.getSrc().getType().cast<ShapedType>();
+    ShapedType outputShape = op.getResult().getType().cast<ShapedType>();
     // Meet case 3 described above, so do nothing but return.
     if (inputShape.getRank() == outputShape.getRank()) {
       return failure();
@@ -388,7 +268,7 @@ public:
       expanded =
           rewriter.create<triton::ExpandDimsOp>(op.getLoc(), expanded, 0);
     }
-    if (llvm::equal(cast<ShapedType>(expanded.getType()).getShape(),
+    if (llvm::equal(expanded.getType().cast<ShapedType>().getShape(),
                     outputShapeArr)) {
       rewriter.replaceOp(op, expanded);
     } else {
@@ -400,8 +280,8 @@ public:
 
 private:
   bool isScalarOr0dTensor(const Value &val) const {
-    return !isa<ShapedType>(val.getType()) ||
-           cast<ShapedType>(val.getType()).getRank() == 0;
+    return !val.getType().isa<ShapedType>() ||
+           val.getType().cast<ShapedType>().getRank() == 0;
   }
 
   /// Returns how many axes should be expanded to input
@@ -515,44 +395,24 @@ public:
 };
 
 /// This pattern applies to memory access operations like `tt.load` and
-/// `tt.store`. If their mask is created through a scalar splat of `i1` or used
-/// as an input for `arith.andi` or `arith.ori`, it results in subsequent
-/// conversion to discrete memory access operations. This pattern converts
-/// memory access operations with this specific mask into `scf.if` + the memory
-/// access operation(without splat i1 mask).
-///
-/// Case1: If the mask is created by `arith.andi`, it convert to:
-/// ```
-///   if (%cond) {
-///       yield tt.load
-///   } else {
-///       yield other operand from tt.load op
-///   }
-/// ```
-///
-/// Case2: If the mask is created by `arith.ori`, it convert to:
-/// ```
-///   if (%cond) {
-///       yield other operand from tt.load op
-///   } else {
-///       yield tt.load
-///   }
-/// ```
+/// `tt.store`. If their mask is created through broadcasting an `i1`, it
+/// results in subsequent conversion to scalar memory access operations. This
+/// pattern converts memory access operations with this specific mask into
+/// `scf.if` + the memory access operation(without mask).
 ///
 /// Example 1:
 ///
 /// ``` mlir
-///   %mask0 = tt.splat %bool : i1 -> tensor<1x1024xi1>
-///   %mask1 = ...
-///   %mask = arith.andi %mask0, %mask1
-///   %res = tt.load %ptr, %mask : tensor<1x1024x!tt.ptr<f32>>
+///   %other = arith.constant dense<0.000000e+00> : tensor<1x1024xf32>
+///   %mask = tt.splat %bool : i1 -> tensor<1x1024xi1>
+///   %res = tt.load %ptr, %mask, %other : tensor<1x1024x!tt.ptr<f32>>
 ///   tt.return %res : tensor<1x1024xf32>
 /// ```
 /// is converted to:
 /// ``` mlir
 ///   %constant = arith.constant dense<0.000000e+00> : tensor<1x1024xf32>
 ///   %res = scf.if (%bool) -> tensor<1x1024xf32> {
-///     %load = tt.load %ptr, %mask1 : tensor<1x1024x!tt.ptr<f32>>
+///     %load = tt.load %ptr : tensor<1x1024x!tt.ptr<f32>>
 ///     scf.yield %load : tensor<1x1024xf32>
 ///   } else {
 ///     scf.yield %constant : tensor<1x1024xf32>
@@ -561,28 +421,6 @@ public:
 /// ```
 ///
 /// Example 2:
-///
-/// ``` mlir
-///   %other = arith.constant dense<1.000000e+00> : tensor<1x1024xf32>
-///   %mask0 = tt.splat %bool : i1 -> tensor<1x1024xi1>
-///   %mask1 = ...
-///   %mask = arith.andi %mask0, %mask1
-///   %res = tt.load %ptr, %mask, %other : tensor<1x1024x!tt.ptr<f32>>
-///   tt.return %res : tensor<1x1024xf32>
-/// ```
-/// is converted to:
-/// ``` mlir
-///   %other = arith.constant dense<1.000000e+00> : tensor<1x1024xf32>
-///   %res = scf.if (%bool) -> tensor<1x1024xf32> {
-///     %load = tt.load %ptr, %mask1, %other : tensor<1x1024x!tt.ptr<f32>>
-///     scf.yield %load : tensor<1x1024xf32>
-///   } else {
-///     scf.yield %other : tensor<1x1024xf32>
-///   }
-///   tt.return %res : tensor<1x1024xf32>
-/// ```
-///
-/// Example 3:
 ///
 /// ``` mlir
 ///   %mask = tt.splat %bool : i1 -> tensor<1x1024xi1>
@@ -595,7 +433,7 @@ public:
 ///   }
 /// ```
 ///
-/// Example 4:
+/// Example 3:
 ///
 /// ``` mlir
 ///   %mask = tt.splat %bool : i1 -> tensor<64x64xi1>
@@ -626,61 +464,46 @@ class CanonicalizeTtMaskAccessPattern : public OpRewritePattern<OpTy> {
           llvm::isa<triton::AtomicRMWOp>(op)))
       return failure();
 
-    MaskInfo maskInfo = getMaskInfo(op.getMask(), rewriter);
-
-    if (!maskInfo.cond)
+    std::optional<Value> baseMaskVal = getBaseMaskVal(op.getMask());
+    if (!baseMaskVal.has_value())
       return failure();
 
-    assert(maskInfo.logicalType != MaskInfo::LogicalType::NONE);
     auto loc = op->getLoc();
     auto resTypes = op->getResultTypes();
+    // Create scf.if op.
+    Value condVal = baseMaskVal.value();
+    if (auto condValType = condVal.getType().dyn_cast<ShapedType>()) {
+      Value zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
+      SmallVector<Value> indices;
+      for (int64_t i = 0; i < condValType.getRank(); ++i)
+        indices.push_back(zero);
+      condVal =
+          rewriter.create<tensor::ExtractOp>(loc, condVal, ValueRange(indices));
+    }
     scf::IfOp ifOp = rewriter.create<scf::IfOp>(loc,
                                                 /*resultTypes*/ resTypes,
-                                                /*cond*/ maskInfo.cond,
+                                                /*cond*/ condVal,
                                                 /*addElseBlock*/ true);
 
-    // Create new op in then region if logical type is AND.
-    // Then region: new op(new_mask) + yield(if new op has result)
-    if (maskInfo.logicalType == MaskInfo::LogicalType::AND) {
-      rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
-    } else {
-      rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
-    }
-    if (maskInfo.mask) {
-      op.getMaskMutable().assign(maskInfo.mask);
-    } else {
-      op.getMaskMutable().clear();
-    }
+    // Create new op in then region.
+    // Then region: new op(without mask) + yield(if new op has result)
+    rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
+    op.getMaskMutable().clear();
     auto newOp = rewriter.clone(*op);
-    if (auto loadOp = llvm::dyn_cast<triton::LoadOp>(*newOp)) {
-      // If load op has no mask, delete other operand.
-      if (op.getMaskMutable().empty())
-        loadOp.getOtherMutable().clear();
-    }
+    if (auto loadOp = llvm::dyn_cast<triton::LoadOp>(*newOp))
+      loadOp.getOtherMutable().clear();
 
     if (resTypes.empty()) {
       rewriter.eraseOp(op);
     } else {
       rewriter.create<scf::YieldOp>(loc, newOp->getResults());
       // If else region is empty, it will be fold in canonicalize.
-      // Else region: constant(0 or other value) + yield if logical type is AND.
-      if (maskInfo.logicalType == MaskInfo::LogicalType::AND) {
-        rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
-      } else {
-        rewriter.setInsertionPointToStart(&ifOp.getThenRegion().front());
-      }
+      // Else region: constant(0) + yield.
+      rewriter.setInsertionPointToStart(&ifOp.getElseRegion().front());
       // If the processed op has results, it will has only one result.
-      Value yieldVal = nullptr;
-      // If load has other arg set, use other value
-      auto loadOp = llvm::dyn_cast<triton::LoadOp>(op.getOperation());
-      if (loadOp && loadOp.getOther()) {
-        yieldVal = loadOp.getOther();
-      } else {
-        yieldVal = rewriter.create<arith::ConstantOp>(
-            loc, resTypes.front(), rewriter.getZeroAttr(resTypes.front()));
-      }
-
-      rewriter.create<scf::YieldOp>(loc, yieldVal);
+      Value zeroVal = rewriter.create<arith::ConstantOp>(
+          loc, resTypes.front(), rewriter.getZeroAttr(resTypes.front()));
+      rewriter.create<scf::YieldOp>(loc, zeroVal);
       rewriter.replaceOp(op, ifOp);
     }
 
@@ -688,58 +511,9 @@ class CanonicalizeTtMaskAccessPattern : public OpRewritePattern<OpTy> {
   }
 };
 
-class CanonicalizeTtAssertPattern : public OpRewritePattern<triton::AssertOp> {
-public:
-  explicit CanonicalizeTtAssertPattern(MLIRContext *ctx)
-      : OpRewritePattern<triton::AssertOp>(ctx) {}
-
-  LogicalResult matchAndRewrite(triton::AssertOp op,
-                                PatternRewriter &rewriter) const override {
-    auto condVal = op.getCondition();
-    auto valType = condVal.getType();
-    auto rank = valType.getRank();
-    auto assertMessage =
-        llvm::formatv("{0}:{1}: {2} Assertion `{3}` failed", op.getFile(),
-                      op.getLine(), op.getFunc(), op.getMessage());
-    assert(isa<mlir::IntegerType>(valType.getElementType()) &&
-           "Only support int tensor for assert");
-    // If the AssertOp input shape dimension is 1 or 0 dimension and the 0th
-    // dimension is 1, it is converted to ScalarAssertOp.
-    if ((rank != 1 && rank != 0) || (rank > 0 && valType.getShape()[0] != 1)) {
-      return failure();
-    }
-    auto rankType = cast<RankedTensorType>(valType);
-    auto elemType = rankType.getElementType();
-    Value zeroIndex = rewriter.create<arith::ConstantIndexOp>(op.getLoc(), 0);
-    Value cond;
-    if (rank == 0) {
-      cond =
-          rewriter.create<tensor::ExtractOp>(op.getLoc(), condVal).getResult();
-    } else {
-      cond = rewriter.create<tensor::ExtractOp>(op.getLoc(), condVal, zeroIndex)
-                 .getResult();
-    }
-    // If the input data type is not i1, cast it to i1.
-    if (!elemType.isInteger(1)) {
-      Value zero = rewriter.create<arith::ConstantOp>(
-          op.getLoc(), rewriter.getIntegerAttr(elemType, 0));
-      cond = rewriter.create<arith::CmpIOp>(
-          op.getLoc(), arith::CmpIPredicate::ne, cond, zero);
-    }
-    rewriter.create<triton::linalg_ext::ScalarAssertOp>(op.getLoc(), cond,
-                                                        assertMessage.str());
-    rewriter.eraseOp(op);
-    return success();
-  }
-};
-
 struct CanonicalizeTritonPass
     : public CanonicalizeTritonBase<CanonicalizeTritonPass> {
 
-  void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<triton::linalg_ext::LinalgExtDialect, tensor::TensorDialect,
-                    scf::SCFDialect, arith::ArithDialect>();
-  }
   void runOnOperation() override {
     MLIRContext &ctx = getContext();
     // Canonicalize mask-related ops and its connection.
@@ -756,8 +530,7 @@ struct CanonicalizeTritonPass
     patterns.insert<CanonicalizeTtBroadCastPattern, CanonicalizeTtLoadPattern,
                     CanonicalizeTtMaskAccessPattern<triton::LoadOp>,
                     CanonicalizeTtMaskAccessPattern<triton::StoreOp>,
-                    CanonicalizeTtMaskAccessPattern<triton::AtomicRMWOp>,
-                    CanonicalizeTtAssertPattern>(&ctx);
+                    CanonicalizeTtMaskAccessPattern<triton::AtomicRMWOp>>(&ctx);
 
     if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                             std::move(patterns)))) {

@@ -32,8 +32,6 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/raw_ostream.h"
 
-#include "triton/Dialect/Triton/IR/Types.h"
-
 #include "triton-linalg/Dialect/Triton/Interfaces/InferAxisInfoInterface.cpp.inc"
 
 using namespace mlir;
@@ -59,16 +57,12 @@ AxisInfoExt AxisInfoExt::overrideByHint(Operation *op) const {
 
 AxisInfoExt AxisInfoExt::getPessimisticValueState(Value value) {
   auto rank = 1;
-  if (TensorType ty = dyn_cast<TensorType>(value.getType()))
+  if (TensorType ty = value.getType().dyn_cast<TensorType>())
     rank = ty.getRank();
-
-  if (triton::PointerType ty = dyn_cast<triton::PointerType>(value.getType()))
-    if (TensorType elemTy = dyn_cast<TensorType>(ty.getPointeeType()))
-      rank = elemTy.getRank();
 
   AxisInfoExt ret(DimVectorT(rank, kInitValue), DimVectorT(rank, kInitValue),
                   DimVectorT(rank, kStrideValueInitValue));
-  BlockArgument blockArg = dyn_cast<BlockArgument>(value);
+  BlockArgument blockArg = value.dyn_cast<BlockArgument>();
   if (!blockArg || !blockArg.getOwner()->isEntryBlock()) {
     return ret;
   }
@@ -88,9 +82,9 @@ AxisInfoExt AxisInfoExt::getPessimisticValueState(Value value) {
   // Initialize attributes one by one.
   for (auto [vec, attrName] : retVecs) {
     Attribute attr = func.getArgAttr(blockArg.getArgNumber(), attrName);
-    if (auto intAttr = dyn_cast_or_null<IntegerAttr>(attr))
+    if (auto intAttr = attr.dyn_cast_or_null<IntegerAttr>())
       *vec = AxisInfoExt::DimVectorT(rank, intAttr.getValue().getZExtValue());
-    if (auto denseAttr = dyn_cast_or_null<DenseElementsAttr>(attr)) {
+    if (auto denseAttr = attr.dyn_cast_or_null<DenseElementsAttr>()) {
       auto vals = denseAttr.getValues<int>();
       *vec = AxisInfoExt::DimVectorT(vals.begin(), vals.end());
     }
@@ -127,8 +121,9 @@ AxisInfoExt AxisInfoExt::join(const AxisInfoExt &lhs, const AxisInfoExt &rhs) {
   DimVectorT stride(lhsRank, kInitValue);
   DimVectorT strideValue(lhsRank, kStrideValueInitValue);
   for (auto d = 0; d < lhsRank; ++d) {
-    divisibility[d] = std::gcd(lhs.getDivisibility(d), rhs.getDivisibility(d));
-    stride[d] = std::gcd(lhs.getStride(d), rhs.getStride(d));
+    divisibility[d] =
+        leastCommonMultiple(lhs.getDivisibility(d), rhs.getDivisibility(d));
+    stride[d] = leastCommonMultiple(lhs.getStride(d), rhs.getStride(d));
     if (lhs.strideValue[d] != kStrideValueInitValue &&
         rhs.strideValue[d] != kStrideValueInitValue &&
         lhs.strideValue[d] == rhs.strideValue[d]) {
@@ -168,18 +163,18 @@ triton::overrideAxisInfoByHint(Operation *op,
   AxisInfoExt::DimVectorT divisibility = knownDivisibility,
                           stride = knownStride, strideValue = knownStrideValue;
   if (Attribute attr = op->getAttr("tt.divisibility")) {
-    auto vals = cast<DenseElementsAttr>(attr).getValues<int>();
+    auto vals = attr.cast<DenseElementsAttr>().getValues<int>();
     divisibility = AxisInfoExt::DimVectorT(vals.begin(), vals.end());
   }
   if (Attribute attr = op->getAttr("tt.contiguity")) {
-    auto vals = cast<DenseElementsAttr>(attr).getValues<int>();
+    auto vals = attr.cast<DenseElementsAttr>().getValues<int>();
     stride = AxisInfoExt::DimVectorT(vals.begin(), vals.end());
     strideValue = AxisInfoExt::DimVectorT(vals.size(), 1);
   }
   if (Attribute attr = op->getAttr("tt.constancy")) {
     assert(!op->getAttr("tt.contiguity") &&
            "Get tt.constancy and tt.contiguity attribute at the same op");
-    auto vals = cast<DenseElementsAttr>(attr).getValues<int>();
+    auto vals = attr.cast<DenseElementsAttr>().getValues<int>();
     stride = AxisInfoExt::DimVectorT(vals.begin(), vals.end());
     strideValue = AxisInfoExt::DimVectorT(vals.size(), 0);
   }

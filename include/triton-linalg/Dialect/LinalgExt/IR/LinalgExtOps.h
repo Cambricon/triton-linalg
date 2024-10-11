@@ -14,6 +14,7 @@
 #include "mlir/Dialect/Utils/StructuredOpsUtils.h"
 #include "mlir/Interfaces/DestinationStyleOpInterface.h"
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtInterface.h"
+#include "triton-linalg/Interfaces/InferResultTypeOpInterface.h"
 // IWYU pragma: end_keep
 //===----------------------------------------------------------------------===//
 // LinalgExt Dialect

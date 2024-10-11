@@ -39,7 +39,7 @@ func.func @extract_slice_from_broadcast_op(%arg0: tensor<128x4xi32>) -> tensor<1
 // CHECK:           return %[[VAL_2]] : tensor<3x2xi32>
 // CHECK:         }
 func.func @extract_slice_from_expand_shape_op1(%arg0: tensor<5x6x7xi32>) -> tensor<3x2xi32> {
-  %0 = tensor.expand_shape %arg0 [[0], [1, 2], [3]] output_shape [5, 6, 1, 7] : tensor<5x6x7xi32> into tensor<5x6x1x7xi32>
+  %0 = tensor.expand_shape %arg0 [[0], [1, 2], [3]] : tensor<5x6x7xi32> into tensor<5x6x1x7xi32>
   %1 = tensor.extract_slice %0[1, 0, 0, 2] [3, 1, 1, 2] [1, 1, 1, 1] : tensor<5x6x1x7xi32> to tensor<3x2xi32>
   return %1 : tensor<3x2xi32>
 }
@@ -48,12 +48,12 @@ func.func @extract_slice_from_expand_shape_op1(%arg0: tensor<5x6x7xi32>) -> tens
 // CHECK-LABEL:   func.func @extract_slice_from_expand_shape_op2(
 // CHECK-SAME:                                                   %[[VAL_0:.*]]: tensor<5x6x7xi32>) -> tensor<3x2x3xi32> {
 // CHECK:           %[[VAL_1:.*]] = tensor.extract_slice %[[VAL_0]][1, 0, 2] [3, 6, 1] [1, 1, 1] : tensor<5x6x7xi32> to tensor<3x6x1xi32>
-// CHECK:           %[[VAL_2:.*]] = tensor.expand_shape %[[VAL_1]] {{\[\[}}0], [1, 2], [3]] output_shape [3, 2, 3, 1] : tensor<3x6x1xi32> into tensor<3x2x3x1xi32>
+// CHECK:           %[[VAL_2:.*]] = tensor.expand_shape %[[VAL_1]] {{\[\[}}0], [1, 2], [3]] : tensor<3x6x1xi32> into tensor<3x2x3x1xi32>
 // CHECK:           %[[VAL_3:.*]] = tensor.collapse_shape %[[VAL_2]] {{\[\[}}0], [1], [2, 3]] : tensor<3x2x3x1xi32> into tensor<3x2x3xi32>
 // CHECK:           return %[[VAL_3]] : tensor<3x2x3xi32>
 // CHECK:         }
 func.func @extract_slice_from_expand_shape_op2(%arg0: tensor<5x6x7xi32>) -> tensor<3x2x3xi32> {
-  %0 = tensor.expand_shape %arg0 [[0], [1, 2], [3]] output_shape [5, 2, 3, 7] : tensor<5x6x7xi32> into tensor<5x2x3x7xi32>
+  %0 = tensor.expand_shape %arg0 [[0], [1, 2], [3]] : tensor<5x6x7xi32> into tensor<5x2x3x7xi32>
   %1 = tensor.extract_slice %0[1, 0, 0, 2] [3, 2, 3, 1] [1, 1, 1, 1] : tensor<5x2x3x7xi32> to tensor<3x2x3xi32>
   return %1 : tensor<3x2x3xi32>
 }
@@ -61,12 +61,12 @@ func.func @extract_slice_from_expand_shape_op2(%arg0: tensor<5x6x7xi32>) -> tens
 // -----
 // CHECK-LABEL:   func.func @extract_slice_from_expand_shape_op3(
 // CHECK-SAME:                                                   %[[VAL_0:.*]]: tensor<5x6x7xi32>) -> tensor<3x2x2xi32> {
-// CHECK:           %[[VAL_1:.*]] = tensor.expand_shape %[[VAL_0]] {{\[\[}}0], [1, 2], [3]] output_shape [5, 2, 3, 7] : tensor<5x6x7xi32> into tensor<5x2x3x7xi32>
+// CHECK:           %[[VAL_1:.*]] = tensor.expand_shape %[[VAL_0]] {{\[\[}}0], [1, 2], [3]] : tensor<5x6x7xi32> into tensor<5x2x3x7xi32>
 // CHECK:           %[[VAL_2:.*]] = tensor.extract_slice %[[VAL_1]][1, 0, 0, 2] [3, 1, 2, 2] [1, 1, 1, 1] : tensor<5x2x3x7xi32> to tensor<3x2x2xi32>
 // CHECK:           return %[[VAL_2]] : tensor<3x2x2xi32>
 // CHECK:         }
 func.func @extract_slice_from_expand_shape_op3(%arg0: tensor<5x6x7xi32>) -> tensor<3x2x2xi32> {
-  %0 = tensor.expand_shape %arg0 [[0], [1, 2], [3]] output_shape [5, 2, 3, 7] : tensor<5x6x7xi32> into tensor<5x2x3x7xi32>
+  %0 = tensor.expand_shape %arg0 [[0], [1, 2], [3]] : tensor<5x6x7xi32> into tensor<5x2x3x7xi32>
   %1 = tensor.extract_slice %0[1, 0, 0, 2] [3, 1, 2, 2] [1, 1, 1, 1] : tensor<5x2x3x7xi32> to tensor<3x2x2xi32>
   return %1 : tensor<3x2x2xi32>
 }
@@ -149,17 +149,17 @@ func.func @extract_slice_from_collapse_shape_op_with_0_rank(%arg0 : tensor<1x1xf
 // CHECK-LABEL:   func.func @extract_slice_from_map_arith_add(
 // CHECK-SAME:                                                %[[VAL_0:.*]]: tensor<128x16xi32>,
 // CHECK-SAME:                                                %[[VAL_1:.*]]: tensor<128x16xi32>) -> tensor<16xi32> {
-// CHECK:           %[[VAL_2:.*]] = tensor.extract_slice %[[VAL_1]][0, 0] [16, 1] [2, 2] : tensor<128x16xi32> to tensor<16x1xi32>
-// CHECK:           %[[VAL_3:.*]] = tensor.extract_slice %[[VAL_0]][0, 0] [16, 1] [2, 2] : tensor<128x16xi32> to tensor<16x1xi32>
+// CHECK:           %[[VAL_2:.*]] = tensor.extract_slice %[[VAL_0]][0, 0] [16, 1] [2, 2] : tensor<128x16xi32> to tensor<16x1xi32>
+// CHECK:           %[[VAL_3:.*]] = tensor.extract_slice %[[VAL_1]][0, 0] [16, 1] [2, 2] : tensor<128x16xi32> to tensor<16x1xi32>
 // CHECK:           %[[VAL_4:.*]] = tensor.empty() : tensor<16x1xi32>
-// CHECK:           %[[VAL_5:.*]] = linalg.map { arith.addi {overflowFlags = #arith.overflow<none>} } ins(%[[VAL_3]], %[[VAL_2]] : tensor<16x1xi32>, tensor<16x1xi32>) outs(%[[VAL_4]] : tensor<16x1xi32>)
+// CHECK:           %[[VAL_5:.*]] = linalg.map { arith.addi {overflowFlags = #arith.overflow<none>} } ins(%[[VAL_2]], %[[VAL_3]] : tensor<16x1xi32>, tensor<16x1xi32>) outs(%[[VAL_4]] : tensor<16x1xi32>)
 // CHECK:           %[[VAL_6:.*]] = tensor.collapse_shape %[[VAL_5]] {{\[\[}}0, 1]] : tensor<16x1xi32> into tensor<16xi32>
 // CHECK:           return %[[VAL_6]] : tensor<16xi32>
 // CHECK:         }
 func.func @extract_slice_from_map_arith_add(
     %arg0: tensor<128x16xi32>, %arg1: tensor<128x16xi32>) -> tensor<16xi32> {
   %0 = tensor.empty() : tensor<128x16xi32>
-  %1 = linalg.map { arith.addi {overflowFlags = #arith.overflow<none>} } ins(%arg0, %arg1 : tensor<128x16xi32>, tensor<128x16xi32>) outs(%0 : tensor<128x16xi32>)
+  %1 = linalg.map { arith.addi } ins(%arg0, %arg1 : tensor<128x16xi32>, tensor<128x16xi32>) outs(%0 : tensor<128x16xi32>)
   %2 = tensor.extract_slice %1[0, 0] [16, 1] [2, 2] : tensor<128x16xi32> to tensor<16xi32>
   return %2 : tensor<16xi32>
 }
@@ -169,10 +169,10 @@ func.func @extract_slice_from_map_arith_add(
 // CHECK-SAME:                                            %[[VAL_0:.*]]: tensor<128x16xi1>,
 // CHECK-SAME:                                            %[[VAL_1:.*]]: tensor<128x16xf32>,
 // CHECK-SAME:                                            %[[VAL_2:.*]]: tensor<128x16xf32>) -> tensor<100xf32> {
-// CHECK:           %[[VAL_3:.*]] = tensor.extract_slice %[[VAL_2]][10, 5] [100, 1] [1, 2] : tensor<128x16xf32> to tensor<100x1xf32>
+// CHECK:           %[[VAL_3:.*]] = tensor.extract_slice %[[VAL_0]][10, 5] [100, 1] [1, 2] : tensor<128x16xi1> to tensor<100x1xi1>
 // CHECK:           %[[VAL_4:.*]] = tensor.extract_slice %[[VAL_1]][10, 5] [100, 1] [1, 2] : tensor<128x16xf32> to tensor<100x1xf32>
-// CHECK:           %[[VAL_5:.*]] = tensor.extract_slice %[[VAL_0]][10, 5] [100, 1] [1, 2] : tensor<128x16xi1> to tensor<100x1xi1>
-// CHECK:           %[[VAL_6:.*]] = arith.select %[[VAL_5]], %[[VAL_4]], %[[VAL_3]] : tensor<100x1xi1>, tensor<100x1xf32>
+// CHECK:           %[[VAL_5:.*]] = tensor.extract_slice %[[VAL_2]][10, 5] [100, 1] [1, 2] : tensor<128x16xf32> to tensor<100x1xf32>
+// CHECK:           %[[VAL_6:.*]] = arith.select %[[VAL_3]], %[[VAL_4]], %[[VAL_5]] : tensor<100x1xi1>, tensor<100x1xf32>
 // CHECK:           %[[VAL_7:.*]] = tensor.collapse_shape %[[VAL_6]] {{\[\[}}0, 1]] : tensor<100x1xf32> into tensor<100xf32>
 // CHECK:           return %[[VAL_7]] : tensor<100xf32>
 // CHECK:         }
@@ -250,16 +250,16 @@ func.func @extract_slice_from_broadcast_op_with_0d_input(%arg0: tensor<i32>) -> 
 // -----
 // CHECK-LABEL:   func.func @test_destination_style_op_for_result_chain(
 // CHECK-SAME:                                                          %[[VAL_0:.*]]: tensor<64xf32>) -> (tensor<64xf32>, tensor<f32>) {
-// CHECK:           %[[VAL_1:.*]] = tensor.extract_slice %[[VAL_0]][0] [1] [1] : tensor<64xf32> to tensor<1xf32>
-// CHECK:           %[[VAL_2:.*]] = tensor.empty() : tensor<1xf32>
-// CHECK:           %[[VAL_3:.*]] = linalg.map { math.absf } ins(%[[VAL_1]] : tensor<1xf32>) outs(%[[VAL_2]] : tensor<1xf32>)
-// CHECK:           %[[VAL_4:.*]] = tensor.empty() : tensor<1xf32>
-// CHECK:           %[[VAL_5:.*]] = linalg.map { math.exp } ins(%[[VAL_3]] : tensor<1xf32>) outs(%[[VAL_4]] : tensor<1xf32>)
-// CHECK:           %[[VAL_6:.*]] = tensor.collapse_shape %[[VAL_5]] [] : tensor<1xf32> into tensor<f32>
-// CHECK:           %[[VAL_7:.*]] = tensor.empty() : tensor<64xf32>
-// CHECK:           %[[VAL_8:.*]] = linalg.map { math.absf } ins(%[[VAL_0]] : tensor<64xf32>) outs(%[[VAL_7]] : tensor<64xf32>)
-// CHECK:           %[[VAL_9:.*]] = linalg.map { math.atan } ins(%[[VAL_0]] : tensor<64xf32>) outs(%[[VAL_8]] : tensor<64xf32>)
-// CHECK:           return %[[VAL_9]], %[[VAL_6]] : tensor<64xf32>, tensor<f32>
+// CHECK:           %[[VAL_1:.*]] = tensor.empty() : tensor<64xf32>
+// CHECK:           %[[VAL_2:.*]] = linalg.map { math.absf } ins(%[[VAL_0]] : tensor<64xf32>) outs(%[[VAL_1]] : tensor<64xf32>)
+// CHECK:           %[[VAL_3:.*]] = linalg.map { math.atan } ins(%[[VAL_0]] : tensor<64xf32>) outs(%[[VAL_2]] : tensor<64xf32>)
+// CHECK:           %[[VAL_4:.*]] = tensor.extract_slice %[[VAL_0]][0] [1] [1] : tensor<64xf32> to tensor<1xf32>
+// CHECK:           %[[VAL_5:.*]] = tensor.empty() : tensor<1xf32>
+// CHECK:           %[[VAL_6:.*]] = linalg.map { math.absf } ins(%[[VAL_4]] : tensor<1xf32>) outs(%[[VAL_5]] : tensor<1xf32>)
+// CHECK:           %[[VAL_7:.*]] = tensor.empty() : tensor<1xf32>
+// CHECK:           %[[VAL_8:.*]] = linalg.map { math.exp } ins(%[[VAL_6]] : tensor<1xf32>) outs(%[[VAL_7]] : tensor<1xf32>)
+// CHECK:           %[[VAL_9:.*]] = tensor.collapse_shape %[[VAL_8]] [] : tensor<1xf32> into tensor<f32>
+// CHECK:           return %[[VAL_3]], %[[VAL_9]] : tensor<64xf32>, tensor<f32>
 // CHECK:         }
 func.func @test_destination_style_op_for_result_chain(%arg0: tensor<64xf32>) -> (tensor<64xf32>, tensor<f32>) {
   %0 = tensor.empty() : tensor<64xf32>
@@ -273,14 +273,14 @@ func.func @test_destination_style_op_for_result_chain(%arg0: tensor<64xf32>) -> 
 // -----
 // CHECK-LABEL:   func.func @test_destination_style_op_for_init_chain(
 // CHECK-SAME:                                                        %[[VAL_0:.*]]: tensor<64xf32>) -> (tensor<64xf32>, tensor<f32>) {
-// CHECK:           %[[VAL_1:.*]] = tensor.extract_slice %[[VAL_0]][0] [1] [1] : tensor<64xf32> to tensor<1xf32>
-// CHECK:           %[[VAL_2:.*]] = tensor.empty() : tensor<1xf32>
-// CHECK:           %[[VAL_3:.*]] = linalg.map { math.atan } ins(%[[VAL_1]] : tensor<1xf32>) outs(%[[VAL_2]] : tensor<1xf32>)
-// CHECK:           %[[VAL_4:.*]] = tensor.collapse_shape %[[VAL_3]] [] : tensor<1xf32> into tensor<f32>
-// CHECK:           %[[VAL_5:.*]] = tensor.empty() : tensor<64xf32>
-// CHECK:           %[[VAL_6:.*]] = linalg.map { math.absf } ins(%[[VAL_0]] : tensor<64xf32>) outs(%[[VAL_5]] : tensor<64xf32>)
-// CHECK:           %[[VAL_7:.*]] = linalg.map { math.exp } ins(%[[VAL_6]] : tensor<64xf32>) outs(%[[VAL_6]] : tensor<64xf32>)
-// CHECK:           return %[[VAL_7]], %[[VAL_4]] : tensor<64xf32>, tensor<f32>
+// CHECK:           %[[VAL_1:.*]] = tensor.empty() : tensor<64xf32>
+// CHECK:           %[[VAL_2:.*]] = linalg.map { math.absf } ins(%[[VAL_0]] : tensor<64xf32>) outs(%[[VAL_1]] : tensor<64xf32>)
+// CHECK:           %[[VAL_3:.*]] = linalg.map { math.exp } ins(%[[VAL_2]] : tensor<64xf32>) outs(%[[VAL_2]] : tensor<64xf32>)
+// CHECK:           %[[VAL_4:.*]] = tensor.extract_slice %[[VAL_0]][0] [1] [1] : tensor<64xf32> to tensor<1xf32>
+// CHECK:           %[[VAL_5:.*]] = tensor.empty() : tensor<1xf32>
+// CHECK:           %[[VAL_6:.*]] = linalg.map { math.atan } ins(%[[VAL_4]] : tensor<1xf32>) outs(%[[VAL_5]] : tensor<1xf32>)
+// CHECK:           %[[VAL_7:.*]] = tensor.collapse_shape %[[VAL_6]] [] : tensor<1xf32> into tensor<f32>
+// CHECK:           return %[[VAL_3]], %[[VAL_7]] : tensor<64xf32>, tensor<f32>
 // CHECK:         }
 func.func @test_destination_style_op_for_init_chain(%arg0: tensor<64xf32>) -> (tensor<64xf32>, tensor<f32>) {
   %0 = tensor.empty() : tensor<64xf32>
@@ -294,16 +294,16 @@ func.func @test_destination_style_op_for_init_chain(%arg0: tensor<64xf32>) -> (t
 // -----
 // CHECK-LABEL:   func.func @test_destination_style_op_cross_block(
 // CHECK-SAME:                                                     %[[VAL_0:.*]]: tensor<64xf32>) -> (tensor<64xf32>, tensor<f32>) {
-// CHECK:           %[[VAL_1:.*]] = tensor.extract_slice %[[VAL_0]][0] [1] [1] : tensor<64xf32> to tensor<1xf32>
-// CHECK:           %[[VAL_2:.*]] = tensor.empty() : tensor<1xf32>
-// CHECK:           %[[VAL_3:.*]] = linalg.map { math.absf } ins(%[[VAL_1]] : tensor<1xf32>) outs(%[[VAL_2]] : tensor<1xf32>)
-// CHECK:           %[[VAL_4:.*]] = tensor.empty() : tensor<1xf32>
-// CHECK:           %[[VAL_5:.*]] = linalg.map { math.exp } ins(%[[VAL_3]] : tensor<1xf32>) outs(%[[VAL_4]] : tensor<1xf32>)
-// CHECK:           %[[VAL_6:.*]] = tensor.collapse_shape %[[VAL_5]] [] : tensor<1xf32> into tensor<f32>
-// CHECK:           %[[VAL_7:.*]] = tensor.empty() : tensor<64xf32>
-// CHECK:           %[[VAL_8:.*]] = linalg.map { math.absf } ins(%[[VAL_0]] : tensor<64xf32>) outs(%[[VAL_7]] : tensor<64xf32>)
-// CHECK:           %[[VAL_9:.*]] = linalg.map { math.atan } ins(%[[VAL_0]] : tensor<64xf32>) outs(%[[VAL_8]] : tensor<64xf32>)
-// CHECK:           return %[[VAL_9]], %[[VAL_6]] : tensor<64xf32>, tensor<f32>
+// CHECK:           %[[VAL_1:.*]] = tensor.empty() : tensor<64xf32>
+// CHECK:           %[[VAL_2:.*]] = linalg.map { math.absf } ins(%[[VAL_0]] : tensor<64xf32>) outs(%[[VAL_1]] : tensor<64xf32>)
+// CHECK:           %[[VAL_3:.*]] = linalg.map { math.atan } ins(%[[VAL_0]] : tensor<64xf32>) outs(%[[VAL_2]] : tensor<64xf32>)
+// CHECK:           %[[VAL_4:.*]] = tensor.extract_slice %[[VAL_0]][0] [1] [1] : tensor<64xf32> to tensor<1xf32>
+// CHECK:           %[[VAL_5:.*]] = tensor.empty() : tensor<1xf32>
+// CHECK:           %[[VAL_6:.*]] = linalg.map { math.absf } ins(%[[VAL_4]] : tensor<1xf32>) outs(%[[VAL_5]] : tensor<1xf32>)
+// CHECK:           %[[VAL_7:.*]] = tensor.empty() : tensor<1xf32>
+// CHECK:           %[[VAL_8:.*]] = linalg.map { math.exp } ins(%[[VAL_6]] : tensor<1xf32>) outs(%[[VAL_7]] : tensor<1xf32>)
+// CHECK:           %[[VAL_9:.*]] = tensor.collapse_shape %[[VAL_8]] [] : tensor<1xf32> into tensor<f32>
+// CHECK:           return %[[VAL_3]], %[[VAL_9]] : tensor<64xf32>, tensor<f32>
 // CHECK:         }
 func.func @test_destination_style_op_cross_block(%arg0: tensor<64xf32>) -> (tensor<64xf32>, tensor<f32>) {
   %0 = tensor.empty() : tensor<64xf32>
@@ -385,17 +385,17 @@ func.func @extractslice_outside_failed(%arg0: i64, %arg1: tensor<64x64xf32>, %ar
 // CHECK-LABEL:   func.func @extractslice_cross_iter_args(
 // CHECK-SAME:                                            %[[VAL_0:.*]]: tensor<128x64xi32>,
 // CHECK-SAME:                                            %[[VAL_1:.*]]: tensor<128x64xi32>) {
-// CHECK:           %[[VAL_2:.*]] = arith.constant 0 : i32
+// CHECK:           %[[VAL_2:.*]] = arith.constant 8 : i32
 // CHECK:           %[[VAL_3:.*]] = arith.constant 1 : i32
-// CHECK:           %[[VAL_4:.*]] = arith.constant 8 : i32
-// CHECK:           %[[VAL_5:.*]] = tensor.extract_slice %[[VAL_0]][0, 0] [128, 1] [1, 1] : tensor<128x64xi32> to tensor<128x1xi32>
-// CHECK:           %[[VAL_6:.*]] = tensor.extract_slice %[[VAL_1]][0, 0] [128, 1] [1, 1] : tensor<128x64xi32> to tensor<128xi32>
-// CHECK:           %[[VAL_7:.*]] = scf.for %[[VAL_8:.*]] = %[[VAL_2]] to %[[VAL_4]] step %[[VAL_3]] iter_args(%[[VAL_9:.*]] = %[[VAL_6]]) -> (tensor<128xi32>)  : i32 {
-// CHECK:             %[[VAL_10:.*]] = tensor.expand_shape %[[VAL_9]] {{\[\[}}0, 1]] output_shape [128, 1] : tensor<128xi32> into tensor<128x1xi32>
+// CHECK:           %[[VAL_4:.*]] = arith.constant 0 : i32
+// CHECK:           %[[VAL_5:.*]] = tensor.extract_slice %[[VAL_1]][0, 0] [128, 1] [1, 1] : tensor<128x64xi32> to tensor<128xi32>
+// CHECK:           %[[VAL_6:.*]] = scf.for %[[VAL_7:.*]] = %[[VAL_4]] to %[[VAL_2]] step %[[VAL_3]] iter_args(%[[VAL_8:.*]] = %[[VAL_5]]) -> (tensor<128xi32>)  : i32 {
+// CHECK:             %[[VAL_9:.*]] = tensor.expand_shape %[[VAL_8]] {{\[\[}}0, 1]] : tensor<128xi32> into tensor<128x1xi32>
+// CHECK:             "test.foo"(%[[VAL_8]]) : (tensor<128xi32>) -> ()
+// CHECK:             %[[VAL_10:.*]] = tensor.extract_slice %[[VAL_0]][0, 0] [128, 1] [1, 1] : tensor<128x64xi32> to tensor<128x1xi32>
 // CHECK:             %[[VAL_11:.*]] = tensor.empty() : tensor<128x1xi32>
-// CHECK:             %[[VAL_12:.*]] = linalg.map { arith.addi {overflowFlags = #arith.overflow<none>} } ins(%[[VAL_10]], %[[VAL_5]] : tensor<128x1xi32>, tensor<128x1xi32>) outs(%[[VAL_11]] : tensor<128x1xi32>)
+// CHECK:             %[[VAL_12:.*]] = linalg.map { arith.addi {overflowFlags = #arith.overflow<none>} } ins(%[[VAL_9]], %[[VAL_10]] : tensor<128x1xi32>, tensor<128x1xi32>) outs(%[[VAL_11]] : tensor<128x1xi32>)
 // CHECK:             %[[VAL_13:.*]] = tensor.collapse_shape %[[VAL_12]] {{\[\[}}0, 1]] : tensor<128x1xi32> into tensor<128xi32>
-// CHECK:             "test.foo"(%[[VAL_9]]) : (tensor<128xi32>) -> ()
 // CHECK:             scf.yield %[[VAL_13]] : tensor<128xi32>
 // CHECK:           }
 // CHECK:           return
@@ -408,45 +408,8 @@ func.func @extractslice_cross_iter_args(%arg0: tensor<128x64xi32>, %arg1: tensor
     %extracted_slice = tensor.extract_slice %arg3[0, 0] [128, 1] [1, 1] : tensor<128x64xi32> to tensor<128xi32>
     "test.foo"(%extracted_slice) : (tensor<128xi32>) -> ()
     %1 = tensor.empty() : tensor<128x64xi32>
-    %mapped = linalg.map { arith.addi {overflowFlags = #arith.overflow<none>} } ins(%arg3, %arg0 : tensor<128x64xi32>, tensor<128x64xi32>) outs(%1 : tensor<128x64xi32>)
+    %mapped = linalg.map { arith.addi } ins(%arg3, %arg0 : tensor<128x64xi32>, tensor<128x64xi32>) outs(%1 : tensor<128x64xi32>)
     scf.yield %mapped : tensor<128x64xi32>
   }
   return
 }
-
-// -----
-func.func @extract_slice_from_out_of_if_body(%arg0: i1, %arg1: tensor<12800x1xf32>) -> tensor<2800xf16> {
-  %0 = tensor.empty() : tensor<12800x1xf32>
-  %mapped = linalg.map { math.absf } ins(%arg1 : tensor<12800x1xf32>) outs(%0 : tensor<12800x1xf32>)
-  %1 = tensor.empty() : tensor<12800x1xf16>
-  %2 = tensor.empty() : tensor<2800xf16>
-  %mapped_0 = linalg.map { arith.truncf } ins(%mapped : tensor<12800x1xf32>) outs(%1 : tensor<12800x1xf16>)
-  %3 = scf.if %arg0 -> (tensor<2800xf16>) {
-    %extracted_slice = tensor.extract_slice %mapped_0[0, 0] [2800, 1] [1, 1] : tensor<12800x1xf16> to tensor<2800xf16>
-    %4 = tensor.empty() : tensor<2800xf16>
-    %mapped_1 = linalg.map { math.absf } ins(%extracted_slice : tensor<2800xf16>) outs(%4 : tensor<2800xf16>)
-    scf.yield %mapped_1 : tensor<2800xf16>
-  } else {
-    scf.yield %2 : tensor<2800xf16>
-  }
-  return %3 : tensor<2800xf16>
-}
-// CHECK-LABEL:   func.func @extract_slice_from_out_of_if_body(
-// CHECK-SAME:                                                 %[[VAL_0:.*]]: i1,
-// CHECK-SAME:                                                 %[[VAL_1:.*]]: tensor<12800x1xf32>) -> tensor<2800xf16> {
-// CHECK:           %[[VAL_2:.*]] = tensor.extract_slice %[[VAL_1]][0, 0] [2800, 1] [1, 1] : tensor<12800x1xf32> to tensor<2800x1xf32>
-// CHECK:           %[[VAL_3:.*]] = tensor.empty() : tensor<2800x1xf32>
-// CHECK:           %[[VAL_4:.*]] = linalg.map { math.absf } ins(%[[VAL_2]] : tensor<2800x1xf32>) outs(%[[VAL_3]] : tensor<2800x1xf32>)
-// CHECK:           %[[VAL_5:.*]] = tensor.empty() : tensor<2800x1xf16>
-// CHECK:           %[[VAL_6:.*]] = linalg.map { arith.truncf } ins(%[[VAL_4]] : tensor<2800x1xf32>) outs(%[[VAL_5]] : tensor<2800x1xf16>)
-// CHECK:           %[[VAL_7:.*]] = tensor.collapse_shape %[[VAL_6]] {{\[\[}}0, 1]] : tensor<2800x1xf16> into tensor<2800xf16>
-// CHECK:           %[[VAL_8:.*]] = tensor.empty() : tensor<2800xf16>
-// CHECK:           %[[VAL_9:.*]] = scf.if %[[VAL_0]] -> (tensor<2800xf16>) {
-// CHECK:             %[[VAL_10:.*]] = tensor.empty() : tensor<2800xf16>
-// CHECK:             %[[VAL_11:.*]] = linalg.map { math.absf } ins(%[[VAL_7]] : tensor<2800xf16>) outs(%[[VAL_10]] : tensor<2800xf16>)
-// CHECK:             scf.yield %[[VAL_11]] : tensor<2800xf16>
-// CHECK:           } else {
-// CHECK:             scf.yield %[[VAL_8]] : tensor<2800xf16>
-// CHECK:           }
-// CHECK:           return %[[VAL_9]] : tensor<2800xf16>
-// CHECK:         }

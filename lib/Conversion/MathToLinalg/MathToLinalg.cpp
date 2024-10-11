@@ -24,7 +24,7 @@
 #include "triton-linalg/Conversion/MathToLinalg/MathToLinalg.h"
 #include "triton-linalg/Conversion/PassDetail.h"
 #include "triton-linalg/Dialect/LinalgExt/IR/LinalgExtOps.h" // IWYU pragma: keep
-#include "triton-linalg/Dialect/MathExt/IR/MathExt.h" // IWYU pragma: keep
+#include "triton-linalg/Dialect/MathExt/IR/Math.h" // IWYU pragma: keep
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/StringRef.h"
 
@@ -45,7 +45,6 @@ void mlir::triton::populateMathToLinalgPatterns(RewritePatternSet &patterns) {
                GenericOpPattern<math::FmaOp>, GenericOpPattern<math::CeilOp>,
                GenericOpPattern<math::Log2Op>, GenericOpPattern<math::Exp2Op>,
                GenericOpPattern<math::RsqrtOp>, GenericOpPattern<math::ErfOp>,
-               GenericOpPattern<math::TanhOp>,
                GenericOpPattern<math_ext::MulhiUIOp>>(context);
 }
 
@@ -61,7 +60,7 @@ struct MathToLinalgPass : public MathToLinalgPassBase<MathToLinalgPass> {
     target.addDynamicallyLegalDialect<math::MathDialect,
                                       math_ext::MathExtDialect>(
         [&](Operation *op) {
-          return !isa<ShapedType>(op->getResultTypes().front());
+          return !op->getResultTypes().front().isa<ShapedType>();
         });
     // Setup conversion patterns.
     RewritePatternSet patterns(&ctx);

@@ -1,10 +1,10 @@
-//===- MathExtBase.td - Base definitions of MathExt dialect *- tablegen -*-===//
+//===- MathBase.td - Base definitions for math dialect -----*- tablegen -*-===//
 //
 // Copyright (C) [2022-2025] by Cambricon.
 //
 //===----------------------------------------------------------------------===//
-#ifndef TRITON_LINALG_DIALECT_MATHEXT_IR_MATHEXTBASE_TD
-#define TRITON_LINALG_DIALECT_MATHEXT_IR_MATHEXTBASE_TD
+#ifndef TRITON_LINALG_DIALECT_MATHEXT_IR_MATHBASE_TD
+#define TRITON_LINALG_DIALECT_MATHEXT_IR_MATHBASE_TD
 
 include "mlir/IR/OpBase.td"
 
@@ -20,4 +20,4 @@ def MathExt_Dialect : Dialect {
     "::mlir::arith::ArithDialect"
   ];
 }
-#endif // TRITON_LINALG_DIALECT_MATHEXT_IR_MATHEXTBASE_TD
+#endif // TRITON_LINALG_DIALECT_MATHEXT_IR_MATHBASE_TD

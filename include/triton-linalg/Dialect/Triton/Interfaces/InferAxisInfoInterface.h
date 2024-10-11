@@ -88,53 +88,29 @@ public:
 
   std::optional<int64_t> getConstantValue() const { return constantValue; }
 
-  bool isFullContiguousDim(ArrayRef<int64_t> shape, int dim) const {
+  bool isContiguousDim(ArrayRef<int64_t> shape, int dim) const {
     return getContiguity(dim) == shape[dim];
   }
 
-  bool isStridedContiguousDim(ArrayRef<int64_t> shape, int dim) const {
-    if (strideValue.size() < 1 || stride.size() < 1)
-      return false;
-    if (shape[dim] == 1)
-      return true;
-    return getStrideValue(dim) == 1 && getStride(dim) > 1 &&
-           shape[dim] % getContiguity(dim) == 0;
-  }
-
-  bool isFullConstantDim(ArrayRef<int64_t> shape, int dim) const {
-    return getConstancy(dim) == shape[dim];
-  }
-
-  bool isStridedConstantDim(ArrayRef<int64_t> shape, int dim) const {
-    if (strideValue.size() < 1 || stride.size() < 1)
-      return false;
-    if (shape[dim] == 1)
-      return true;
-    return getStrideValue(dim) == 0 && getStride(dim) > 1 &&
-           shape[dim] % getConstancy(dim) == 0;
-  }
-
-  bool isFullStrideDim(ArrayRef<int64_t> shape, int dim) const {
+  bool isStrideDim(ArrayRef<int64_t> shape, int dim) const {
     return getStride(dim) == shape[dim];
   }
 
-  bool isNonConstantFullStrideDim(ArrayRef<int64_t> shape, int dim) const {
-    return isFullStrideDim(shape, dim) && !isFullConstantDim(shape, dim);
+  bool isNonContiguousNonConstantStrideDim(ArrayRef<int64_t> shape,
+                                           int dim) const {
+    return getStride(dim) == shape[dim] && !isContiguousDim(shape, dim) &&
+           !isConstantDim(shape, dim);
   }
 
-  bool isNonContiguousNonConstantFullStrideDim(ArrayRef<int64_t> shape,
-                                               int dim) const {
-    return isFullStrideDim(shape, dim) && !isFullContiguousDim(shape, dim) &&
-           !isFullConstantDim(shape, dim);
+  bool isConstantDim(ArrayRef<int64_t> shape, int dim) const {
+    return getConstancy(dim) == shape[dim];
   }
 
-  bool isNonStridedConstantStrideDim(ArrayRef<int64_t> shape, int dim) const {
+  bool isConstantStrideDim(ArrayRef<int64_t> shape, int dim) const {
     if (strideValue.size() < 1 || stride.size() < 1)
       return false;
-    if (shape[dim] == 1)
-      return true;
-    return getStrideValue(dim) != 0 && getStride(dim) > 1 &&
-           shape[dim] % getContiguity(dim) == 0;
+    return getStrideValue(dim) == 0 && shape[dim] % getConstancy(dim) == 0 &&
+           shape[dim] / getConstancy(dim) >= 1;
   }
 
   /// Comparison.

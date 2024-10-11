@@ -1,10 +1,10 @@
 set(MLIR_BINARY_DIR ${CMAKE_BINARY_DIR})
 
-set(LLVM_TARGET_DEFINITIONS MathExtBase.td)
+set(LLVM_TARGET_DEFINITIONS MathBase.td)
 mlir_tablegen(MathExtOpsDialect.h.inc -gen-dialect-decls -dialect=math_ext)
 mlir_tablegen(MathExtOpsDialect.cpp.inc -gen-dialect-defs -dialect=math_ext)
 
-set(LLVM_TARGET_DEFINITIONS MathExtOps.td)
+set(LLVM_TARGET_DEFINITIONS MathOps.td)
 mlir_tablegen(MathExtOps.h.inc -gen-op-decls)
 mlir_tablegen(MathExtOps.cpp.inc -gen-op-defs)
 

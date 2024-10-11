@@ -1,11 +1,11 @@
-//===- MathExt.h - MathExt dialect ------------------------------*- C++ -*-===//
+//===- Math.h - Math dialect ------------------------------------*- C++ -*-===//
 //
 // Copyright (C) [2022-2025] by Cambricon.
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef TRITON_LINALG_DIALECT_MATHEXT_IR_MATHEXT_H
-#define TRITON_LINALG_DIALECT_MATHEXT_IR_MATHEXT_H
+#ifndef TRITON_LINALG_DIALECT_MATHEXT_IR_MATH_H
+#define TRITON_LINALG_DIALECT_MATHEXT_IR_MATH_H
 
 #include "mlir/Bytecode/BytecodeOpInterface.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -30,4 +30,4 @@
 #define GET_OP_CLASSES
 #include "triton-linalg/Dialect/MathExt/IR/MathExtOps.h.inc"
 
-#endif // TRITON_LINALG_DIALECT_MATHEXT_IR_MATHEXT_H
+#endif // TRITON_LINALG_DIALECT_MATHEXT_IR_MATH_H

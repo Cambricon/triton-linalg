@@ -12,6 +12,7 @@
 #include "triton-linalg/Conversion/ArithToLinalg/ArithToLinalg.h"
 #include "triton-linalg/Conversion/MathToLinalg/MathToLinalg.h"
 #include "triton-linalg/Conversion/TritonToLinalg/TritonToLinalg.h"
+#include "triton-linalg/Conversion/TritonToTensor/TritonToTensor.h"
 
 namespace mlir {
 class Pass;

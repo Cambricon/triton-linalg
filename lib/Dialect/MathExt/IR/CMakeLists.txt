@@ -1,6 +1,6 @@
 add_triton_library(MathExtDialect
-  MathExtOps.cpp
-  MathExtDialect.cpp
+  MathOps.cpp
+  MathDialect.cpp
 
   DEPENDS
   MathExtTableGen

@@ -1,7 +1,5 @@
 // RUN: triton-linalg-opt -convert-arith-to-linalg -split-input-file %s | FileCheck %s
 
-// -----
-
 func.func @const_valid_float(%arg0: tensor<1x16x128x128xf32>) -> tensor<1x16x128x128xf32> {
   // CHECK:  %cst = arith.constant 0.000000e+00 : f32
   // CHECK:  tensor.empty

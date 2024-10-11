@@ -40,7 +40,7 @@ Value mlir::triton::getPadOrInsertOpWithOther(Location loc, Value other,
                                               ArrayRef<OpFoldResult> offsets,
                                               ArrayRef<OpFoldResult> sizes,
                                               OpBuilder &rewriter) {
-  auto otherShapedType = cast<ShapedType>(otherType);
+  auto otherShapedType = otherType.cast<ShapedType>();
   assert(otherShapedType.hasStaticShape() && "other val shape must be static.");
   Type elementType = otherShapedType.getElementType();
   auto rank = otherShapedType.getRank();

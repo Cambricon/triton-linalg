@@ -1,4 +1,4 @@
-//===- MathExtOps.cpp - Operations for MathExt implementation ---*- C++ -*-===//
+//===- MathOps.cpp - MLIR operations for math implementation ----*- C++ -*-===//
 //
 // Copyright (C) [2022-2025] by Cambricon.
 //
@@ -8,7 +8,7 @@
 #include "mlir/Dialect/CommonFolders.h"
 #include "mlir/Dialect/UB/IR/UBOps.h"
 #include "mlir/IR/Builders.h"
-#include "triton-linalg/Dialect/MathExt/IR/MathExt.h"
+#include "triton-linalg/Dialect/MathExt/IR/Math.h"
 #include <optional>
 
 using namespace mlir;

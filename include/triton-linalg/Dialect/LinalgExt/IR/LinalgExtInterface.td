@@ -24,67 +24,67 @@ def LinalgExtInterface : OpInterface<"LinalgExtOp"> {
     //========================================================================//
 
     int64_t getNumDpsInputs() {
-      return mlir::cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
+      return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
           .getNumDpsInputs();
     }
 
     int64_t getNumDpsInits() {
-      return mlir::cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
+      return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
           .getNumDpsInits();
     }
 
     ::llvm::SmallVector<::mlir::OpOperand *> getDpsInputOperands() {
-      return mlir::cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
+      return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
           .getDpsInputOperands();
     }
 
     OpOperand *getDpsInputOperand(int64_t i) {
-      return mlir::cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
+      return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
           .getDpsInputOperand(i);
     }
 
     void setDpsInitOperand(int64_t i, Value value) {
-      return mlir::cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
+      return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
           .setDpsInitOperand(i, value);
     }
 
     MutableOperandRange getDpsInitsMutable() {
-      return mlir::cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
+      return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
           .getDpsInitsMutable();
     }
 
     OpOperand *getDpsInitOperand(int64_t i) {
-      return mlir::cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
+      return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
           .getDpsInitOperand(i);
     }
 
     bool isDpsInput(OpOperand *opOperand) {
-      return mlir::cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
+      return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
           .isDpsInput(opOperand);
     }
 
     bool isDpsInit(OpOperand *opOperand) {
-      return mlir::cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
+      return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
           .isDpsInit(opOperand);
     }
 
     bool isScalar(OpOperand *opOperand) {
-      return mlir::cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
+      return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
           .isScalar(opOperand);
     }
 
     OpResult getTiedOpResult(OpOperand *opOperand) {
-      return mlir::cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
+      return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
           .getTiedOpResult(opOperand);
     }
 
     bool hasPureBufferSemantics() {
-      return mlir::cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
+      return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
           .hasPureBufferSemantics();
     }
 
     bool hasPureTensorSemantics() {
-      return mlir::cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
+      return cast<mlir::DestinationStyleOpInterface>(*this->getOperation())
           .hasPureTensorSemantics();
     }
 
@@ -102,8 +102,8 @@ def LinalgExtInterface : OpInterface<"LinalgExtOp"> {
 
     private:
     void setOperandSegmentAt(unsigned idx, unsigned val) {
-      auto attr = mlir::cast<DenseIntElementsAttr>(
-          (*this)->getAttr("operand_segment_sizes"));
+      auto attr = (*this)->getAttr("operand_segment_sizes")
+        .cast<DenseIntElementsAttr>();
       unsigned i = 0;
       auto newAttr = attr.mapValues(IntegerType::get(getContext(), 32),
         [&](const APInt &v) { return (i++ == idx) ? APInt(32, val) : v; });
