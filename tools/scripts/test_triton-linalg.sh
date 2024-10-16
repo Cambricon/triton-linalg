@@ -5,12 +5,12 @@ function check_ret(){
 }
 
 function test_linalg_unittest() {
-  mkdir -p ${CI_WORK_DIR}/test_logs
-  export TRITON_PLUGIN_DIRS=${CI_WORK_DIR}/triton-linalg
+  mkdir -p ${TRITON_LINALG_WORK_DIR}/test_logs
+  export TRITON_PLUGIN_DIRS=${TRITON_LINALG_WORK_DIR}/triton-linalg
   pip3 install lit
-  pushd ${CI_WORK_DIR}/triton-linalg/triton/python/build/cmake.linux-x86_64-cpython-3.10/third_party/triton_linalg
+  pushd ${TRITON_LINALG_WORK_DIR}/triton-linalg/triton/python/build/cmake.linux-x86_64-cpython-3.10/third_party/triton_linalg
     if lit test \
-        --xunit-xml-output ${CI_WORK_DIR}/test_logs/test_linalg_unittest_results.xml;
+        --xunit-xml-output ${TRITON_LINALG_WORK_DIR}/test_logs/test_linalg_unittest_results.xml;
     then
       error=0
     else
@@ -38,6 +38,9 @@ function print_usage() {
 
 # main entry
 function main() {
+  if [ -z "${TRITON_LINALG_WORK_DIR}" ]; then
+    TRITON_LINALG_WORK_DIR=${CI_WORK_DIR}
+  fi
   local cmd=$1
   N_JOBS=""
   if [ ! -z "$2" ]; then
