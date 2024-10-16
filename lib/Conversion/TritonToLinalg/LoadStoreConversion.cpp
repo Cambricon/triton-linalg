@@ -316,6 +316,7 @@ public:
                                 b.create<linalg_ext::ExtYieldOp>(loc, args[0]);
                               })
                           .getResult()[0];
+    gatherRes = triton::collapseLastNDimsToOneDim(rewriter, loc, gatherRes, 2);
     gatherRes = reshapeGatherScatterValueTo(gatherRes, resultTy, rewriter);
     rewriter.replaceOp(op, gatherRes.getDefiningOp()->getResults());
 
