@@ -246,9 +246,10 @@ Value TritonPtrConversionBase::transformResultWithTransposeAndDimInfo(
   // linalg.broadcast ops. then
   // ```
   // originShape = (b, c)
-  // after broadcast: (b, c, a)
+  // after broadcast: (b, c, a) with inverted permute(2, 0, 1)
   // after transpose: (a, b, c)
   // ```
+
   auto transposedDimInfos = getValuesByPerms(dimInfos, permutations);
   // Get broadcast dimensions.
   SmallVector<int64_t> broadcastDimensions;
@@ -274,10 +275,12 @@ Value TritonPtrConversionBase::transformResultWithTransposeAndDimInfo(
   }
 
   if (!isConsecutive(permutations)) {
-    Value init = rewriter.create<tensor::EmptyOp>(
-        loc, getValuesByPerms<OpFoldResult>(broadcastShape, permutations),
-        valueTy.getElementType());
-    ret = rewriter.create<linalg::TransposeOp>(loc, ret, init, permutations)
+    // Permutations trans from 'triton tensor shape' to 'original physical
+    // tensor shape', here we need the inverse trans permute to create trans op.
+    auto invertPermute = invertPermutationVector(permutations);
+    Value init = rewriter.create<tensor::EmptyOp>(loc, actualSizes,
+                                                  valueTy.getElementType());
+    ret = rewriter.create<linalg::TransposeOp>(loc, ret, init, invertPermute)
               .getResult()[0];
   }
   return ret;
@@ -377,12 +380,24 @@ SmallVector<OpFoldResult> TritonPtrLoadStoreOpConversionBase::getMaskedOffsets(
 }
 
 SmallVector<DimInfo> TritonPtrLoadStoreOpConversionBase::getDimInfos(
-    const triton::AxisInfoExt *axisInfo, ArrayRef<int64_t> tensorShape) const {
+    const triton::AxisInfoExt *axisInfo, ArrayRef<int64_t> tensorShape,
+    const triton::MaskTracker &maskTracker) const {
   SmallVector<DimInfo> dimInfos;
   dimInfos.reserve(tensorShape.size());
+  auto isNonMaskOrHasFullMask = [&maskTracker, tensorShape](int idx) {
+    if (maskTracker.getRank() != tensorShape.size())
+      return true;
+    return isConstantIntValue(maskTracker.getSizes()[idx], tensorShape[idx]);
+  };
   for (const auto &dim : llvm::enumerate(tensorShape)) {
     if (axisInfo->isFullConstantDim(tensorShape, dim.index())) {
-      dimInfos.push_back({1, dim.value(), DimInfo::Kind::BROADCAST});
+      if (isNonMaskOrHasFullMask(dim.index())) {
+        dimInfos.push_back({1, dim.value(), DimInfo::Kind::BROADCAST});
+      } else if (tensorShape[dim.index()] == 1) {
+        dimInfos.push_back({1, 1, DimInfo::Kind::CONTIG});
+      } else {
+        dimInfos.push_back({dim.value()});
+      }
     } else if (axisInfo->isFullStrideDim(tensorShape, dim.index())) {
       dimInfos.push_back({dim.value(), 1, DimInfo::Kind::CONTIG});
     } else {
@@ -528,7 +543,7 @@ FailureOr<PtrInfo> TritonPtrContiguousConversionBase::getPtrInfo(
     }
   }
 
-  ret.dimInfos = getDimInfos(axisInfo, tensorType.getShape());
+  ret.dimInfos = getDimInfos(axisInfo, tensorType.getShape(), maskTracker);
   if (!isBlockPtr(ret.dimInfos))
     return failure();
 
@@ -623,17 +638,28 @@ TritonTensorPtrLoadStoreOpConversionBase::getPtrInfo(
 }
 
 SmallVector<DimInfo> TritonTensorPtrLoadStoreOpConversionBase::getDimInfos(
-    ArrayRef<OpFoldResult> strides, ArrayRef<int64_t> tensorShape) const {
+    ArrayRef<OpFoldResult> strides, ArrayRef<int64_t> tensorShape,
+    std::optional<ArrayRef<int>> boundaryCheck) const {
   SmallVector<DimInfo> dimInfos;
   dimInfos.reserve(strides.size());
+  int64_t dim = 0;
   for (auto [stride, size] : llvm::zip(strides, tensorShape)) {
     auto strideAsInt = getConstantIntValue(stride);
     if (strideAsInt.has_value() && strideAsInt.value() == 0) {
+      bool needBoundaryCheck =
+          !boundaryCheck.has_value()
+              ? false
+              : llvm::any_of(boundaryCheck.value(),
+                             [&dim](int val) { return val == dim; });
+      assert(!needBoundaryCheck &&
+             "Conversion triton-to-linalg not support tensor ptr pattern "
+             "{stride == 0 && boundaryCheck == true}, please run "
+             "canonicalize-triton to change stride to 1.");
       dimInfos.push_back({1, size, DimInfo::Kind::BROADCAST});
-      continue;
+    } else {
+      dimInfos.push_back({size, 1, DimInfo::Kind::CONTIG});
     }
-
-    dimInfos.push_back({size, 1, DimInfo::Kind::CONTIG});
+    ++dim;
   }
   return dimInfos;
 }

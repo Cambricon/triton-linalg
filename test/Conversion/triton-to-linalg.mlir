@@ -175,10 +175,9 @@ tt.func @add_ptr(%arg0: !tt.ptr<f32>, %arg1: tensor<256xi32>) {
 // CHECK-LABEL: @add_ptr_for_scalar
 // CHECK-SAME: %[[ARG0:.*]]: i64, %[[ARG1:.*]]: i32
 tt.func @add_ptr_for_scalar(%arg0: !tt.ptr<f32>, %arg1: i32) {
-  // CHECK: %[[EXT:.*]] = arith.extsi %[[ARG1]] : i32 to i64
-  // CHECK-NEXT: %[[C4:.*]] = arith.constant 4
-  // CHECK-NEXT: %[[MUL:.*]] = arith.muli %[[EXT]], %[[C4]]
-  // CHECK-NEXT: %[[ADD:.*]] = arith.addi %[[ARG0]], %[[MUL]]
+  // CHECK: %[[PTR:.*]] = llvm.inttoptr %[[ARG0]] : i64 to !llvm.ptr
+  // CHECK-NEXT: %[[PTR1:.*]] = llvm.getelementptr %[[PTR]][%arg1] : (!llvm.ptr, i32) -> !llvm.ptr, f32
+  // CHECK-NEXT: llvm.ptrtoint %[[PTR1]] : !llvm.ptr to i64
   %0 = tt.addptr %arg0, %arg1: !tt.ptr<f32>, i32
   tt.return
 }
@@ -188,9 +187,9 @@ tt.func @add_ptr_for_scalar(%arg0: !tt.ptr<f32>, %arg1: i32) {
 // CHECK-LABEL: @add_ptr_for_scalar_i64
 // CHECK-SAME: %[[ARG0:.*]]: i64, %[[ARG1:.*]]: i64
 tt.func @add_ptr_for_scalar_i64(%arg0: !tt.ptr<f32>, %arg1: i64) {
-  // CHECK: %[[C4:.*]] = arith.constant 4
-  // CHECK-NEXT: %[[MUL:.*]] = arith.muli %[[ARG1]], %[[C4]]
-  // CHECK-NEXT: %[[ADD:.*]] = arith.addi %[[ARG0]], %[[MUL]]
+  // CHECK: %[[PTR:.*]] = llvm.inttoptr %[[ARG0]] : i64 to !llvm.ptr
+  // CHECK-NEXT: %[[PTR1:.*]] = llvm.getelementptr %[[PTR]][%arg1] : (!llvm.ptr, i64) -> !llvm.ptr, f32
+  // CHECK-NEXT: llvm.ptrtoint %[[PTR1]] : !llvm.ptr to i64
   %0 = tt.addptr %arg0, %arg1: !tt.ptr<f32>, i64
   tt.return
 }
@@ -691,6 +690,44 @@ tt.func @reduce_multi_statement_argmin_f32(%arg0: tensor<1x256xf32>, %arg1: tens
 }
 
 // -----
+tt.func @reduce_multi_statement_argmin_i32(%arg0: tensor<1x256xi32>, %arg1: tensor<1x256xi32>) {
+  // CHECK-LABEL:   func.func @reduce_multi_statement_argmin_i32(
+  // CHECK-SAME:                                                 %[[VAL_0:.*]]: tensor<1x256xi32>,
+  // CHECK-SAME:                                                 %[[VAL_1:.*]]: tensor<1x256xi32>) {
+  // CHECK:           %[[VAL_2:.*]] = arith.constant 2147483647 : i32
+  // CHECK:           %[[VAL_3:.*]] = tensor.empty() : tensor<1xi32>
+  // CHECK:           %[[VAL_4:.*]] = linalg.fill ins(%[[VAL_2]] : i32) outs(%[[VAL_3]] : tensor<1xi32>) -> tensor<1xi32>
+  // CHECK:           %[[VAL_5:.*]] = arith.constant -1 : i32
+  // CHECK:           %[[VAL_6:.*]] = tensor.empty() : tensor<1xi32>
+  // CHECK:           %[[VAL_7:.*]] = linalg.fill ins(%[[VAL_5]] : i32) outs(%[[VAL_6]] : tensor<1xi32>) -> tensor<1xi32>
+  // CHECK:           %[[VAL_8:.*]]:2 = linalg.reduce ins(%[[VAL_0]], %[[VAL_1]] : tensor<1x256xi32>, tensor<1x256xi32>) outs(%[[VAL_4]], %[[VAL_7]] : tensor<1xi32>, tensor<1xi32>) dimensions = [1]
+  // CHECK:             (%[[VAL_9:.*]]: i32, %[[VAL_10:.*]]: i32, %[[VAL_11:.*]]: i32, %[[VAL_12:.*]]: i32) {
+  // CHECK:               %[[VAL_13:.*]] = arith.cmpi eq, %[[VAL_9]], %[[VAL_11]] : i32
+  // CHECK:               %[[VAL_14:.*]] = arith.cmpi slt, %[[VAL_10]], %[[VAL_12]] : i32
+  // CHECK:               %[[VAL_15:.*]] = arith.andi %[[VAL_13]], %[[VAL_14]] : i1
+  // CHECK:               %[[VAL_16:.*]] = arith.cmpi slt, %[[VAL_9]], %[[VAL_11]] : i32
+  // CHECK:               %[[VAL_17:.*]] = arith.ori %[[VAL_16]], %[[VAL_15]] : i1
+  // CHECK:               %[[VAL_18:.*]] = arith.select %[[VAL_17]], %[[VAL_9]], %[[VAL_11]] : i32
+  // CHECK:               %[[VAL_19:.*]] = arith.select %[[VAL_17]], %[[VAL_10]], %[[VAL_12]] : i32
+  // CHECK:               linalg.yield %[[VAL_18]], %[[VAL_19]] : i32, i32
+  // CHECK:             }
+  // CHECK:           return
+  // CHECK:         }
+  %9:2 = "tt.reduce"(%arg0, %arg1) ({
+  ^bb0(%arg9: i32, %arg10: i32, %arg11: i32, %arg12: i32):
+    %11 = arith.cmpi eq, %arg9, %arg11 : i32
+    %12 = arith.cmpi slt, %arg10, %arg12 : i32
+    %13 = arith.andi %11, %12 : i1
+    %14 = arith.cmpi slt, %arg9, %arg11 : i32
+    %15 = arith.ori %14, %13 : i1
+    %16 = arith.select %15, %arg9, %arg11 : i32
+    %17 = arith.select %15, %arg10, %arg12 : i32
+    tt.reduce.return %16, %17 : i32, i32
+  }) {axis = 1 : i32} : (tensor<1x256xi32>, tensor<1x256xi32>) -> (tensor<1xi32>, tensor<1xi32>)
+  tt.return
+}
+
+// -----
 tt.func @reduce_multi_statement_argmax_f32(%arg0: tensor<2x2x256xf32>, %arg1: tensor<2x2x256xi32>) {
   // CHECK-LABEL:   func.func @reduce_multi_statement_argmax_f32(
   // CHECK-SAME:                                                 %[[VAL_0:.*]]: tensor<2x2x256xf32>,
@@ -725,6 +762,43 @@ tt.func @reduce_multi_statement_argmax_f32(%arg0: tensor<2x2x256xf32>, %arg1: te
     %17 = arith.select %15, %arg10, %arg12 : i32
     tt.reduce.return %16, %17 : f32, i32
   }) {axis = 2 : i32} : (tensor<2x2x256xf32>, tensor<2x2x256xi32>) -> (tensor<2x2xf32>, tensor<2x2xi32>)
+  tt.return
+}
+
+tt.func @reduce_multi_statement_argmax_i32(%arg0: tensor<2x2x256xi32>, %arg1: tensor<2x2x256xi32>) {
+  // CHECK-LABEL:   func.func @reduce_multi_statement_argmax_i32(
+  // CHECK-SAME:                                                 %[[VAL_0:.*]]: tensor<2x2x256xi32>,
+  // CHECK-SAME:                                                 %[[VAL_1:.*]]: tensor<2x2x256xi32>) {
+  // CHECK:           %[[VAL_2:.*]] = arith.constant -2147483648 : i32
+  // CHECK:           %[[VAL_3:.*]] = tensor.empty() : tensor<2x2xi32>
+  // CHECK:           %[[VAL_4:.*]] = linalg.fill ins(%[[VAL_2]] : i32) outs(%[[VAL_3]] : tensor<2x2xi32>) -> tensor<2x2xi32>
+  // CHECK:           %[[VAL_5:.*]] = arith.constant -1 : i32
+  // CHECK:           %[[VAL_6:.*]] = tensor.empty() : tensor<2x2xi32>
+  // CHECK:           %[[VAL_7:.*]] = linalg.fill ins(%[[VAL_5]] : i32) outs(%[[VAL_6]] : tensor<2x2xi32>) -> tensor<2x2xi32>
+  // CHECK:           %[[VAL_8:.*]]:2 = linalg.reduce ins(%[[VAL_0]], %[[VAL_1]] : tensor<2x2x256xi32>, tensor<2x2x256xi32>) outs(%[[VAL_4]], %[[VAL_7]] : tensor<2x2xi32>, tensor<2x2xi32>) dimensions = [2]
+  // CHECK:             (%[[VAL_9:.*]]: i32, %[[VAL_10:.*]]: i32, %[[VAL_11:.*]]: i32, %[[VAL_12:.*]]: i32) {
+  // CHECK:               %[[VAL_13:.*]] = arith.cmpi eq, %[[VAL_9]], %[[VAL_11]] : i32
+  // CHECK:               %[[VAL_14:.*]] = arith.cmpi slt, %[[VAL_10]], %[[VAL_12]] : i32
+  // CHECK:               %[[VAL_15:.*]] = arith.andi %[[VAL_13]], %[[VAL_14]] : i1
+  // CHECK:               %[[VAL_16:.*]] = arith.cmpi sgt, %[[VAL_9]], %[[VAL_11]] : i32
+  // CHECK:               %[[VAL_17:.*]] = arith.ori %[[VAL_16]], %[[VAL_15]] : i1
+  // CHECK:               %[[VAL_18:.*]] = arith.select %[[VAL_17]], %[[VAL_9]], %[[VAL_11]] : i32
+  // CHECK:               %[[VAL_19:.*]] = arith.select %[[VAL_17]], %[[VAL_10]], %[[VAL_12]] : i32
+  // CHECK:               linalg.yield %[[VAL_18]], %[[VAL_19]] : i32, i32
+  // CHECK:             }
+  // CHECK:           return
+  // CHECK:         }
+  %9:2 = "tt.reduce"(%arg0, %arg1) ({
+  ^bb0(%arg9: i32, %arg10: i32, %arg11: i32, %arg12: i32):
+    %11 = arith.cmpi eq, %arg9, %arg11 : i32
+    %12 = arith.cmpi slt, %arg10, %arg12 : i32
+    %13 = arith.andi %11, %12 : i1
+    %14 = arith.cmpi sgt, %arg9, %arg11 : i32
+    %15 = arith.ori %14, %13 : i1
+    %16 = arith.select %15, %arg9, %arg11 : i32
+    %17 = arith.select %15, %arg10, %arg12 : i32
+    tt.reduce.return %16, %17 : i32, i32
+  }) {axis = 2 : i32} : (tensor<2x2x256xi32>, tensor<2x2x256xi32>) -> (tensor<2x2xi32>, tensor<2x2xi32>)
   tt.return
 }
 
@@ -1140,15 +1214,13 @@ func.func @select_scalar_ptr(%arg0: !tt.ptr<f32>, %arg1: !tt.ptr<f32>) {
   // CHECK: %[[C1:.*]] = arith.constant 1 : i32
   // CHECK: %[[SCT:.*]] = arith.constant 0 : i32
   // CHECK: %[[CMP:.*]] = arith.cmpi slt, %[[C1]], %[[C0]] : i32
-  // CHECK: %[[EXTSI:.*]] = arith.extsi %[[SCT]] : i32 to i64
-  // CHECK: %[[C2:.*]] = arith.constant 4 : i64
-  // CHECK: %[[MUL:.*]] = arith.muli %[[EXTSI]], %[[C2]] : i64
-  // CHECK: %[[ADD:.*]] = arith.addi %[[CAST0]], %[[MUL]] : i64
-  // CHECK: %[[EXTSI1:.*]] = arith.extsi %[[SCT]] : i32 to i64
-  // CHECK: %[[C3:.*]] = arith.constant 4 : i64
-  // CHECK: %[[MUL1:.*]] = arith.muli %[[EXTSI1]], %[[C3]] : i64
-  // CHECK: %[[ADD1:.*]] = arith.addi %[[CAST1]], %[[MUL1]] : i64
-  // CHECK: %[[SELECT:.*]] = arith.select %[[CMP]], %[[ADD]], %[[ADD1]] : i64
+  // CHECK: %[[PTR:.*]] = llvm.inttoptr %[[CAST0]] : i64 to !llvm.ptr
+  // CHECK: %[[PTR1:.*]] = llvm.getelementptr %[[PTR]][%[[SCT]]] : (!llvm.ptr, i32) -> !llvm.ptr, f32
+  // CHECK: %[[INT:.*]] = llvm.ptrtoint %[[PTR1]] : !llvm.ptr to i64
+  // CHECK: %[[PTR2:.*]] = llvm.inttoptr %[[CAST1]] : i64 to !llvm.ptr
+  // CHECK: %[[PTR3:.*]] = llvm.getelementptr %[[PTR2]][%[[SCT]]] : (!llvm.ptr, i32) -> !llvm.ptr, f32
+  // CHECK: %[[INT1:.*]] = llvm.ptrtoint %[[PTR3]] : !llvm.ptr to i64
+  // CHECK: %[[SELECT:.*]] = arith.select %[[CMP]], %[[INT]], %[[INT1]] : i64
   // CHECK: return
   %sct_0 = arith.constant 0 : i32
   %sct_1 = arith.constant 1 : i32
@@ -1308,7 +1380,7 @@ func.func @assert_tensor_i64(%arg0: tensor<32xi64>) {
 // CHECK: aux.scalar.print(%[[ARG6]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG7]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print {format = "print test\0A"}
+// CHECK: aux.scalar.print {format = "print test\0A\0A"}
 // CHECK: %[[ARG8:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG9:.*]] = tt.get_program_id y : i32
 // CHECK: %[[ARG10:.*]] = tt.get_program_id z : i32
@@ -1316,7 +1388,7 @@ func.func @assert_tensor_i64(%arg0: tensor<32xi64>) {
 // CHECK: aux.scalar.print(%[[ARG9]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG10]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = ""}
+// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "\0A"}
 // CHECK: %[[ARG11:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG12:.*]] = tt.get_program_id y : i32
 // CHECK: %[[ARG13:.*]] = tt.get_program_id z : i32
@@ -1324,7 +1396,7 @@ func.func @assert_tensor_i64(%arg0: tensor<32xi64>) {
 // CHECK: aux.scalar.print(%[[ARG12]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG13]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg0: \0A"}
+// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg0: \0A\0A"}
 // CHECK: %[[ARG14:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG15:.*]] = tt.get_program_id y : i32
 // CHECK: %[[ARG16:.*]] = tt.get_program_id z : i32
@@ -1332,8 +1404,8 @@ func.func @assert_tensor_i64(%arg0: tensor<32xi64>) {
 // CHECK: aux.scalar.print(%[[ARG15]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG16]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg0, arg1"}
-// CHECK: aux.scalar.print(%[[ARG1]] : f32) {format = "arg0, arg1"}
+// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg0, arg1\0A"}
+// CHECK: aux.scalar.print(%[[ARG1]] : f32) {format = "arg0, arg1\0A"}
 // CHECK: %[[ARG17:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG18:.*]] = tt.get_program_id y : i32
 // CHECK: %[[ARG19:.*]] = tt.get_program_id z : i32
@@ -1341,7 +1413,7 @@ func.func @assert_tensor_i64(%arg0: tensor<32xi64>) {
 // CHECK: aux.scalar.print(%[[ARG18]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG19]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG4]] : i64) {format = "arg2: %p"}
+// CHECK: aux.scalar.print(%[[ARG4]] : i64) {format = "arg2: %p\0A"}
 // CHECK: %[[ARG20:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG21:.*]] = tt.get_program_id y : i32
 // CHECK: %[[ARG22:.*]] = tt.get_program_id z : i32
@@ -1349,7 +1421,7 @@ func.func @assert_tensor_i64(%arg0: tensor<32xi64>) {
 // CHECK: aux.scalar.print(%[[ARG21]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG22]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG3]] : i64) {format = "arg3: \0A"}
+// CHECK: aux.scalar.print(%[[ARG3]] : i64) {format = "arg3: \0A\0A"}
 func.func @print_scalar(%arg0: i32, %arg1: f32, %arg2: !tt.ptr<f32>, %arg3: i64) {
   tt.print "print test\n" { hex = false }
   tt.print "" { hex = false } : %arg0 : i32
@@ -1371,7 +1443,7 @@ func.func @print_scalar(%arg0: i32, %arg1: f32, %arg2: !tt.ptr<f32>, %arg3: i64)
 // CHECK: aux.scalar.print(%[[ARG6]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG7]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "0x%08x"}
+// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "0x%08x\0A"}
 // CHECK: %[[ARG8:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG9:.*]] = tt.get_program_id y : i32
 // CHECK: %[[ARG10:.*]] = tt.get_program_id z : i32
@@ -1379,7 +1451,7 @@ func.func @print_scalar(%arg0: i32, %arg1: f32, %arg2: !tt.ptr<f32>, %arg3: i64)
 // CHECK: aux.scalar.print(%[[ARG9]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG10]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg0: \0A0x%08x"}
+// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg0: \0A0x%08x\0A"}
 // CHECK: %[[ARG11:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG12:.*]] = tt.get_program_id y : i32
 // CHECK: %[[ARG13:.*]] = tt.get_program_id z : i32
@@ -1387,8 +1459,8 @@ func.func @print_scalar(%arg0: i32, %arg1: f32, %arg2: !tt.ptr<f32>, %arg3: i64)
 // CHECK: aux.scalar.print(%[[ARG12]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG13]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg0, arg10x%08x"}
-// CHECK: aux.scalar.print(%[[ARG1]] : f32) {format = "arg0, arg10x%08x"}
+// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg0, arg10x%08x\0A"}
+// CHECK: aux.scalar.print(%[[ARG1]] : f32) {format = "arg0, arg10x%08x\0A"}
 // CHECK: %[[ARG14:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG15:.*]] = tt.get_program_id y : i32
 // CHECK: %[[ARG16:.*]] = tt.get_program_id z : i32
@@ -1396,7 +1468,7 @@ func.func @print_scalar(%arg0: i32, %arg1: f32, %arg2: !tt.ptr<f32>, %arg3: i64)
 // CHECK: aux.scalar.print(%[[ARG15]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG16]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG4]] : i64) {format = "arg2: %p"}
+// CHECK: aux.scalar.print(%[[ARG4]] : i64) {format = "arg2: %p\0A"}
 // CHECK: %[[ARG17:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG18:.*]] = tt.get_program_id y : i32
 // CHECK: %[[ARG19:.*]] = tt.get_program_id z : i32
@@ -1404,7 +1476,7 @@ func.func @print_scalar(%arg0: i32, %arg1: f32, %arg2: !tt.ptr<f32>, %arg3: i64)
 // CHECK: aux.scalar.print(%[[ARG18]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG19]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG3]] : i64) {format = "arg3: \0A0x%016llx"}
+// CHECK: aux.scalar.print(%[[ARG3]] : i64) {format = "arg3: \0A0x%016llx\0A"}
 func.func @print_scalar_hex(%arg0: i32, %arg1: f32, %arg2: !tt.ptr<f32>, %arg3: i64) {
   tt.print "" { hex = true } : %arg0 : i32
   tt.print "arg0: \n" { hex = true } : %arg0 : i32
@@ -1516,7 +1588,7 @@ func.func @print_tensor_hex(%arg0: tensor<16xi32>, %arg1: tensor<2x8xf32>, %arg2
 // CHECK: aux.scalar.print(%[[ARG12]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG13]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = ""}
+// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "\0A"}
 // CHECK: %[[ARG14:.*]] = aux.print(%[[ARG1]] : tensor<16xi32>) {format = ""} -> (tensor<16xi32>)
 // CHECK: %[[ARG15:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG16:.*]] = tt.get_program_id y : i32
@@ -1525,9 +1597,9 @@ func.func @print_tensor_hex(%arg0: tensor<16xi32>, %arg1: tensor<2x8xf32>, %arg2
 // CHECK: aux.scalar.print(%[[ARG16]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG17]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg0, arg1, arg2"}
+// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg0, arg1, arg2\0A"}
 // CHECK: %[[ARG18:.*]] = aux.print(%[[ARG14]] : tensor<16xi32>) {format = "arg0, arg1, arg2"} -> (tensor<16xi32>)
-// CHECK: aux.scalar.print(%[[ARG2]] : f32) {format = "arg0, arg1, arg2"}
+// CHECK: aux.scalar.print(%[[ARG2]] : f32) {format = "arg0, arg1, arg2\0A"}
 // CHECK: %[[ARG19:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG20:.*]] = tt.get_program_id y : i32
 // CHECK: %[[ARG21:.*]] = tt.get_program_id z : i32
@@ -1535,11 +1607,11 @@ func.func @print_tensor_hex(%arg0: tensor<16xi32>, %arg1: tensor<2x8xf32>, %arg2
 // CHECK: aux.scalar.print(%[[ARG20]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG21]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = ""}
-// CHECK: aux.scalar.print(%[[ARG2]] : f32) {format = ""}
+// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "\0A"}
+// CHECK: aux.scalar.print(%[[ARG2]] : f32) {format = "\0A"}
 // CHECK: %[[ARG22:.*]] = aux.print(%[[ARG18]] : tensor<16xi32>) {format = ""} -> (tensor<16xi32>)
 // CHECK: %[[ARG23:.*]] = aux.print(%[[ARG4]] : tensor<2x8xf32>) {format = ""} -> (tensor<2x8xf32>)
-// CHECK: aux.scalar.print(%[[ARG3]] : i32) {format = ""}
+// CHECK: aux.scalar.print(%[[ARG3]] : i32) {format = "\0A"}
 // CHECK: %[[ARG24:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG25:.*]] = tt.get_program_id y : i32
 // CHECK: %[[ARG26:.*]] = tt.get_program_id z : i32
@@ -1548,9 +1620,9 @@ func.func @print_tensor_hex(%arg0: tensor<16xi32>, %arg1: tensor<2x8xf32>, %arg2
 // CHECK: aux.scalar.print(%[[ARG26]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
 // CHECK: %[[ARG27:.*]] = aux.print(%[[ARG22]] : tensor<16xi32>) {format = "arg1, arg2, arg4, arg3"} -> (tensor<16xi32>)
-// CHECK: aux.scalar.print(%[[ARG2]] : f32) {format = "arg1, arg2, arg4, arg3"}
+// CHECK: aux.scalar.print(%[[ARG2]] : f32) {format = "arg1, arg2, arg4, arg3\0A"}
 // CHECK: %[[ARG28:.*]] = aux.print(%[[ARG23]] : tensor<2x8xf32>) {format = "arg1, arg2, arg4, arg3"} -> (tensor<2x8xf32>)
-// CHECK: aux.scalar.print(%[[ARG3]] : i32) {format = "arg1, arg2, arg4, arg3"}
+// CHECK: aux.scalar.print(%[[ARG3]] : i32) {format = "arg1, arg2, arg4, arg3\0A"}
 // CHECK: %[[ARG29:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG30:.*]] = tt.get_program_id y : i32
 // CHECK: %[[ARG31:.*]] = tt.get_program_id z : i32
@@ -1560,9 +1632,9 @@ func.func @print_tensor_hex(%arg0: tensor<16xi32>, %arg1: tensor<2x8xf32>, %arg2
 // CHECK: aux.scalar.print {format = ") "}
 // CHECK: %[[ARG32:.*]] = aux.print(%[[ARG27]] : tensor<16xi32>) {format = "arg1, arg5, arg0, arg6, arg7, arg8"} -> (tensor<16xi32>)
 // CHECK: %[[ARG33:.*]] = aux.print(%[[ARG9]] : tensor<16xi64>) {format = "arg1, arg5, arg0, arg6, arg7, arg8%p"} -> (tensor<16xi64>)
-// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg1, arg5, arg0, arg6, arg7, arg8"}
-// CHECK: aux.scalar.print(%[[ARG10]] : i64) {format = "arg1, arg5, arg0, arg6, arg7, arg8%p"}
-// CHECK: aux.scalar.print(%[[ARG7]] : i64) {format = "arg1, arg5, arg0, arg6, arg7, arg8"}
+// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg1, arg5, arg0, arg6, arg7, arg8\0A"}
+// CHECK: aux.scalar.print(%[[ARG10]] : i64) {format = "arg1, arg5, arg0, arg6, arg7, arg8%p\0A"}
+// CHECK: aux.scalar.print(%[[ARG7]] : i64) {format = "arg1, arg5, arg0, arg6, arg7, arg8\0A"}
 // CHECK: %[[ARG34:.*]] = aux.print(%[[ARG8]] : tensor<32xi64>) {format = "arg1, arg5, arg0, arg6, arg7, arg8"} -> (tensor<32xi64>)
 func.func @print_scalar_and_tensor(%arg0: i32, %arg1: tensor<16xi32>, %arg2: f32, %arg3: i32, %arg4: tensor<2x8xf32>, %arg5: tensor<16x!tt.ptr<f32>>, %arg6: !tt.ptr<f32>, %arg7: i64, %arg8: tensor<32xi64>) {
   tt.print "" { hex = false } : %arg0, %arg1 : i32, tensor<16xi32>
@@ -1585,7 +1657,7 @@ func.func @print_scalar_and_tensor(%arg0: i32, %arg1: tensor<16xi32>, %arg2: f32
 // CHECK: aux.scalar.print(%[[ARG10]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG11]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "0x%08x"}
+// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "0x%08x\0A"}
 // CHECK: %[[ARG12:.*]] = aux.print(%[[ARG1]] : tensor<16xi32>) {format = "0x%08x"} -> (tensor<16xi32>)
 // CHECK: %[[ARG13:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG14:.*]] = tt.get_program_id y : i32
@@ -1594,9 +1666,9 @@ func.func @print_scalar_and_tensor(%arg0: i32, %arg1: tensor<16xi32>, %arg2: f32
 // CHECK: aux.scalar.print(%[[ARG14]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG15]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg0, arg1, arg20x%08x"}
+// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg0, arg1, arg20x%08x\0A"}
 // CHECK: %[[ARG16:.*]] = aux.print(%[[ARG12]] : tensor<16xi32>) {format = "arg0, arg1, arg20x%08x"} -> (tensor<16xi32>)
-// CHECK: aux.scalar.print(%[[ARG2]] : f32) {format = "arg0, arg1, arg20x%08x"}
+// CHECK: aux.scalar.print(%[[ARG2]] : f32) {format = "arg0, arg1, arg20x%08x\0A"}
 // CHECK: %[[ARG17:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG18:.*]] = tt.get_program_id y : i32
 // CHECK: %[[ARG19:.*]] = tt.get_program_id z : i32
@@ -1604,11 +1676,11 @@ func.func @print_scalar_and_tensor(%arg0: i32, %arg1: tensor<16xi32>, %arg2: f32
 // CHECK: aux.scalar.print(%[[ARG18]] : i32) {format = ", "}
 // CHECK: aux.scalar.print(%[[ARG19]] : i32) {format = ", "}
 // CHECK: aux.scalar.print {format = ") "}
-// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "0x%08x"}
-// CHECK: aux.scalar.print(%[[ARG2]] : f32) {format = "0x%08x"}
+// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "0x%08x\0A"}
+// CHECK: aux.scalar.print(%[[ARG2]] : f32) {format = "0x%08x\0A"}
 // CHECK: %[[ARG20:.*]] = aux.print(%[[ARG16]] : tensor<16xi32>) {format = "0x%08x"} -> (tensor<16xi32>)
 // CHECK: %[[ARG21:.*]] = aux.print(%[[ARG4]] : tensor<2x8xf32>) {format = "0x%08x"} -> (tensor<2x8xf32>)
-// CHECK: aux.scalar.print(%[[ARG3]] : i32) {format = "0x%08x"}
+// CHECK: aux.scalar.print(%[[ARG3]] : i32) {format = "0x%08x\0A"}
 // CHECK: %[[ARG22:.*]] = tt.get_program_id x : i32
 // CHECK: %[[ARG23:.*]] = tt.get_program_id y : i32
 // CHECK: %[[ARG24:.*]] = tt.get_program_id z : i32
@@ -1618,8 +1690,8 @@ func.func @print_scalar_and_tensor(%arg0: i32, %arg1: tensor<16xi32>, %arg2: f32
 // CHECK: aux.scalar.print {format = ") "}
 // CHECK: %[[ARG25:.*]] = aux.print(%[[ARG20]] : tensor<16xi32>) {format = "arg1, arg5, arg0, arg6"} -> (tensor<16xi32>)
 // CHECK: %[[ARG26:.*]] = aux.print(%[[ARG7]] : tensor<16xi64>) {format = "arg1, arg5, arg0, arg6%p"} -> (tensor<16xi64>)
-// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg1, arg5, arg0, arg6"}
-// CHECK: aux.scalar.print(%[[ARG8]] : i64) {format = "arg1, arg5, arg0, arg6%p"}
+// CHECK: aux.scalar.print(%[[ARG0]] : i32) {format = "arg1, arg5, arg0, arg6\0A"}
+// CHECK: aux.scalar.print(%[[ARG8]] : i64) {format = "arg1, arg5, arg0, arg6%p\0A"}
 func.func @print_scalar_and_tensor(%arg0: i32, %arg1: tensor<16xi32>, %arg2: f32, %arg3: i32, %arg4: tensor<2x8xf32>, %arg5: tensor<16x!tt.ptr<f32>>, %arg6: !tt.ptr<f32>) {
   tt.print "" { hex = true } : %arg0, %arg1 : i32, tensor<16xi32>
   tt.print "arg0, arg1, arg2" { hex = true } : %arg0, %arg1, %arg2 : i32, tensor<16xi32>, f32
@@ -1636,7 +1708,7 @@ tt.func @scan_add_2d_i32(%arg0: tensor<1x2048xi32>) -> tensor<1x2048xi32> {
   // CHECK-NEXT: %[[SCAN_OUTPUT:.*]] = tensor.empty() : tensor<1x2047xi32>
   // CHECK-NEXT: %[[INIT:.*]] = tensor.extract_slice %[[INPUT]][0, 0] [1, 1] [1, 1] : tensor<1x2048xi32> to tensor<1x1xi32>
   // CHECK-NEXT: %[[SCAN_INIT:.*]] = tensor.collapse_shape %[[INIT]] {{\[\[0, 1]]}} : tensor<1x1xi32> into tensor<1xi32>
-  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<1x2047xi32>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<1x2047xi32>, tensor<1xi32>) dimensions = [1] reverse = false {
+  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<1x2047xi32>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<1x2047xi32>, tensor<1xi32>) dimensions = [1] reverse = false inclusive = true {
   // CHECK-NEXT: ^bb0(%[[IN:.*]]: i32, %[[OUTPUT:.*]]: i32, %[[INIT:.*]]: i32):
   // CHECK-NEXT: %[[ADD:.*]] = arith.addi %[[IN]], %[[INIT]] : i32
   // CHECK-NEXT: linalg_ext.yield %[[ADD]], %[[ADD]] : i32, i32
@@ -1660,7 +1732,7 @@ tt.func @scan_min_2d_f16(%arg0: tensor<1x2048xf16>) -> tensor<1x2048xf16> {
   // CHECK-NEXT: %[[SCAN_OUTPUT:.*]] = tensor.empty() : tensor<1x2047xf16>
   // CHECK-NEXT: %[[INIT:.*]] = tensor.extract_slice %[[INPUT]][0, 0] [1, 1] [1, 1] : tensor<1x2048xf16> to tensor<1x1xf16>
   // CHECK-NEXT: %[[SCAN_INIT:.*]] = tensor.collapse_shape %[[INIT]] {{\[\[0, 1]]}} : tensor<1x1xf16> into tensor<1xf16>
-  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<1x2047xf16>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<1x2047xf16>, tensor<1xf16>) dimensions = [1] reverse = false {
+  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<1x2047xf16>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<1x2047xf16>, tensor<1xf16>) dimensions = [1] reverse = false inclusive = true {
   // CHECK-NEXT: ^bb0(%[[IN:.*]]: f16, %[[OUTPUT:.*]]: f16, %[[INIT:.*]]: f16):
   // CHECK-NEXT: %[[MIN:.*]] = arith.minimumf %[[IN]], %[[INIT]] : f16
   // CHECK-NEXT: linalg_ext.yield %[[MIN]], %[[MIN]] : f16, f16
@@ -1697,7 +1769,7 @@ tt.func @scan_sub_1d_f32(%arg0: tensor<2048xf32>) -> tensor<2048xf32> {
   // CHECK-NEXT: %[[SCAN_OUTPUT:.*]] = tensor.empty() : tensor<2047xf32>
   // CHECK-NEXT: %[[INIT:.*]] = tensor.extract_slice %[[INPUT]][0] [1] [1] : tensor<2048xf32> to tensor<1xf32>
   // CHECK-NEXT: %[[SCAN_INIT:.*]] = tensor.collapse_shape %[[INIT]] {{\[]}} : tensor<1xf32> into tensor<f32>
-  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<2047xf32>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<2047xf32>, tensor<f32>) dimensions = [0] reverse = false {
+  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<2047xf32>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<2047xf32>, tensor<f32>) dimensions = [0] reverse = false inclusive = true {
   // CHECK-NEXT: ^bb0(%[[IN:.*]]: f32, %[[OUTPUT:.*]]: f32, %[[INIT:.*]]: f32):
   // CHECK-NEXT: %[[SUB:.*]] = arith.subf %[[IN]], %[[INIT]] : f32
   // CHECK-NEXT: linalg_ext.yield %[[SUB]], %[[SUB]] : f32, f32
@@ -1721,7 +1793,7 @@ tt.func @scan_add_2d_i32_reverse(%arg0: tensor<1x2048xi32>) -> tensor<1x2048xi32
   // CHECK-NEXT: %[[SCAN_OUTPUT:.*]] = tensor.empty() : tensor<1x2047xi32>
   // CHECK-NEXT: %[[INIT:.*]] = tensor.extract_slice %[[INPUT]][0, 2047] [1, 1] [1, 1] : tensor<1x2048xi32> to tensor<1x1xi32>
   // CHECK-NEXT: %[[SCAN_INIT:.*]] = tensor.collapse_shape %[[INIT]] {{\[\[0, 1]]}} : tensor<1x1xi32> into tensor<1xi32>
-  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<1x2047xi32>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<1x2047xi32>, tensor<1xi32>) dimensions = [1] reverse = true {
+  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<1x2047xi32>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<1x2047xi32>, tensor<1xi32>) dimensions = [1] reverse = true inclusive = true {
   // CHECK-NEXT: ^bb0(%[[IN:.*]]: i32, %[[OUTPUT:.*]]: i32, %[[INIT:.*]]: i32):
   // CHECK-NEXT: %[[ADD:.*]] = arith.addi %[[IN]], %[[INIT]] : i32
   // CHECK-NEXT: linalg_ext.yield %[[ADD]], %[[ADD]] : i32, i32
@@ -1745,7 +1817,7 @@ tt.func @scan_min_2d_f16_reverse(%arg0: tensor<1x2048xf16>) -> tensor<1x2048xf16
   // CHECK-NEXT: %[[SCAN_OUTPUT:.*]] = tensor.empty() : tensor<1x2047xf16>
   // CHECK-NEXT: %[[INIT:.*]] = tensor.extract_slice %[[INPUT]][0, 2047] [1, 1] [1, 1] : tensor<1x2048xf16> to tensor<1x1xf16>
   // CHECK-NEXT: %[[SCAN_INIT:.*]] = tensor.collapse_shape %[[INIT]] {{\[\[0, 1]]}} : tensor<1x1xf16> into tensor<1xf16>
-  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<1x2047xf16>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<1x2047xf16>, tensor<1xf16>) dimensions = [1] reverse = true {
+  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<1x2047xf16>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<1x2047xf16>, tensor<1xf16>) dimensions = [1] reverse = true inclusive = true {
   // CHECK-NEXT: ^bb0(%[[IN:.*]]: f16, %[[OUTPUT:.*]]: f16, %[[INIT:.*]]: f16):
   // CHECK-NEXT: %[[MIN:.*]] = arith.minimumf %[[IN]], %[[INIT]] : f16
   // CHECK-NEXT: linalg_ext.yield %[[MIN]], %[[MIN]] : f16, f16
@@ -1769,7 +1841,7 @@ tt.func @scan_sub_1d_f32_reverse(%arg0: tensor<2048xf32>) -> tensor<2048xf32> {
   // CHECK-NEXT: %[[SCAN_OUTPUT:.*]] = tensor.empty() : tensor<2047xf32>
   // CHECK-NEXT: %[[INIT:.*]] = tensor.extract_slice %[[INPUT]][2047] [1] [1] : tensor<2048xf32> to tensor<1xf32>
   // CHECK-NEXT: %[[SCAN_INIT:.*]] = tensor.collapse_shape %[[INIT]] {{\[]}} : tensor<1xf32> into tensor<f32>
-  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<2047xf32>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<2047xf32>, tensor<f32>) dimensions = [0] reverse = true {
+  // CHECK-NEXT: %[[SCAN:.*]]:2 = linalg_ext.scan ins(%[[SCAN_INPUT]] : tensor<2047xf32>) outs(%[[SCAN_OUTPUT]], %[[SCAN_INIT]] : tensor<2047xf32>, tensor<f32>) dimensions = [0] reverse = true inclusive = true {
   // CHECK-NEXT: ^bb0(%[[IN:.*]]: f32, %[[OUTPUT:.*]]: f32, %[[INIT:.*]]: f32):
   // CHECK-NEXT: %[[SUB:.*]] = arith.subf %[[IN]], %[[INIT]] : f32
   // CHECK-NEXT: linalg_ext.yield %[[SUB]], %[[SUB]] : f32, f32
@@ -1796,6 +1868,37 @@ tt.func @scan_add_1d_size1_f32_reverse(%arg0: tensor<1xf32>) -> tensor<1xf32> {
     tt.scan.return %1 : f32
   }) {axis = 0 : i32, reverse = true} : (tensor<1xf32>) -> tensor<1xf32>
   tt.return %0 : tensor<1xf32>
+}
+
+// -----
+// CHECK-LABEL: @scan_multi_operands_2d_i32_reverse(
+// CHECK-SAME:                                      %[[INPUT0:.*]]: tensor<1x2048xi32>, %[[INPUT1:.*]]: tensor<1x2048xi32>) -> (tensor<1x2048xi32>, tensor<1x2048xi32>) {
+tt.func @scan_multi_operands_2d_i32_reverse(%arg0: tensor<1x2048xi32>, %arg1: tensor<1x2048xi32>) -> (tensor<1x2048xi32>, tensor<1x2048xi32>) {
+  // CHECK: %[[SCAN_INPUT0:.*]] = tensor.extract_slice %[[INPUT0]][0, 0] [1, 2047] [1, 1] : tensor<1x2048xi32> to tensor<1x2047xi32>
+  // CHECK-NEXT: %[[SCAN_OUTPUT0:.*]] = tensor.empty() : tensor<1x2047xi32>
+  // CHECK-NEXT: %[[INIT0:.*]] = tensor.extract_slice %[[INPUT0]][0, 2047] [1, 1] [1, 1] : tensor<1x2048xi32> to tensor<1x1xi32>
+  // CHECK-NEXT: %[[SCAN_INIT0:.*]] = tensor.collapse_shape %[[INIT0]] {{\[\[0, 1]]}} : tensor<1x1xi32> into tensor<1xi32>
+  // CHECK-NEXT: %[[SCAN_INPUT1:.*]] = tensor.extract_slice %[[INPUT1]][0, 0] [1, 2047] [1, 1] : tensor<1x2048xi32> to tensor<1x2047xi32>
+  // CHECK-NEXT: %[[SCAN_OUTPUT1:.*]] = tensor.empty() : tensor<1x2047xi32>
+  // CHECK-NEXT: %[[INIT1:.*]] = tensor.extract_slice %[[INPUT1]][0, 2047] [1, 1] [1, 1] : tensor<1x2048xi32> to tensor<1x1xi32>
+  // CHECK-NEXT: %[[SCAN_INIT1:.*]] = tensor.collapse_shape %[[INIT1]] {{\[\[0, 1]]}} : tensor<1x1xi32> into tensor<1xi32>
+  // CHECK-NEXT: %[[SCAN:.*]]:4 = linalg_ext.scan ins(%[[SCAN_INPUT0]], %[[SCAN_INPUT1]] : tensor<1x2047xi32>, tensor<1x2047xi32>) outs(%[[SCAN_OUTPUT0]], %[[SCAN_OUTPUT1]], %[[SCAN_INIT0]], %[[SCAN_INIT1]] : tensor<1x2047xi32>, tensor<1x2047xi32>, tensor<1xi32>, tensor<1xi32>) dimensions = [1] reverse = true inclusive = true {
+  // CHECK-NEXT: ^bb0(%[[IN0:.*]]: i32, %[[IN1:.*]]: i32, %[[OUTPUT0:.*]]: i32, %[[OUTPUT1:.*]]: i32, %[[INIT0:.*]]: i32, %[[INIT1:.*]]: i32):
+  // CHECK-NEXT: %[[ADD:.*]] = arith.addi %[[IN0]], %[[INIT0]] : i32
+  // CHECK-NEXT: %[[SUB:.*]] = arith.subi %[[IN1]], %[[INIT1]] : i32
+  // CHECK-NEXT: linalg_ext.yield %[[ADD]], %[[SUB]], %[[ADD]], %[[SUB]] : i32, i32, i32, i32
+  // CHECK-NEXT: } -> tensor<1x2047xi32>, tensor<1x2047xi32>, tensor<1xi32>, tensor<1xi32>
+  // CHECK-NEXT: %[[INERT_SLICE0:.*]] = tensor.insert_slice %[[SCAN]]#0 into %[[INPUT0]][0, 0] [1, 2047] [1, 1] : tensor<1x2047xi32> into tensor<1x2048xi32>
+  // CHECK-NEXT: %[[INERT_SLICE1:.*]] = tensor.insert_slice %[[SCAN]]#1 into %[[INPUT1]][0, 0] [1, 2047] [1, 1] : tensor<1x2047xi32> into tensor<1x2048xi32>
+  // CHECK-NEXT: return %[[INERT_SLICE0]], %[[INERT_SLICE1]] : tensor<1x2048xi32>, tensor<1x2048xi32>
+
+  %0:2 = "tt.scan" (%arg0, %arg1) ({
+  ^bb0(%arg2: i32, %arg3: i32, %arg4: i32, %arg5: i32):
+    %1 = arith.addi %arg2, %arg4 : i32
+    %2 = arith.subi %arg3, %arg5 : i32
+    tt.scan.return %1, %2 : i32, i32
+  }) {axis = 1 : i32, reverse = true} : (tensor<1x2048xi32>, tensor<1x2048xi32>) -> (tensor<1x2048xi32>, tensor<1x2048xi32>)
+  tt.return  %0#0, %0#1 : tensor<1x2048xi32>, tensor<1x2048xi32>
 }
 
 // -----
@@ -2001,6 +2104,12 @@ tt.func @histogram_i32(%0: tensor<8xi32>) {
 // CHECK: %[[ARG2:.*]] = linalg_ext.histogram ins(%[[ARG0]] : tensor<128xi64>) outs(%[[ARG1]] : tensor<32xi64>) -> tensor<32xi64>
 tt.func @histogram_i64(%0: tensor<128xi64>) {
   %1 = tt.histogram %0 : tensor<128xi64> -> tensor<32xi64>
+  tt.return
+}
+
+// -----
+// CHECK-LABEL: func.func @func_with_attr() attributes {cold = true}
+tt.func @func_with_attr() attributes {cold = true} {
   tt.return
 }
 

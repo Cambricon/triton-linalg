@@ -279,17 +279,17 @@ def Im2ColOp : LinalgStructuredBase_Op<"im2col", [AttrSizedOperandSegments]> {
 }
 
 //===----------------------------------------------------------------------===//
-// ArgMaxMinBase op.
+// NaiveReduceBase op.
 //===----------------------------------------------------------------------===//
 
-class ArgMaxMinBaseOp<string mnemonic, list<Trait> props>
+class NaiveReduceBaseOp<string mnemonic, list<Trait> props>
   : LinalgStructuredBase_Op<mnemonic, !listconcat([
     DeclareOpInterfaceMethods<OpAsmOpInterface, ["getAsmResultNames"]>,
     SameVariadicOperandSize], props)> {
-  let summary = "Argmax/Argmin base operator";
+  let summary = "Naive reduce base operator";
   let description = [{
     Executes `combiner` on the `dimensions` of `inputs` and returns the
-    argmax/min result. The `dimensions` attribute needs to list the reduction
+    results. The `dimensions` attribute needs to list the reduction
     dimensions in increasing order.
   }];
 
@@ -355,11 +355,36 @@ class ArgMaxMinBaseOp<string mnemonic, list<Trait> props>
     MutableOperandRange getDpsInitsMutable() { return getInitsMutable(); }
   }];
 
+  let extraClassDefinition = [{
+    void $cppClass::getEffects(
+        SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+            &effects) {
+      getGenericEffectsImpl(effects, cast<LinalgOp>(getOperation()));
+    }
+    void $cppClass::getAsmResultNames(
+        function_ref<void(Value, StringRef)> setNameFn) {
+      if (!getResults().empty())
+        setNameFn(getResults().front(), getOperation()->getName().stripDialect());
+    }
+    ParseResult $cppClass::parse(OpAsmParser &parser, OperationState &result) {
+      return parseNaiveReduceOp(parser, result);
+    }
+
+    void $cppClass::print(OpAsmPrinter &p) { printNaiveReduceOp(p, *this); }
+
+    LogicalResult $cppClass::verify() { return verifyNaiveReduceOp(*this); }
+
+    LogicalResult $cppClass::fold(FoldAdaptor,
+                                      SmallVectorImpl<OpFoldResult> &) {
+      return memref::foldMemRefCast(*this);
+    }
+  }];
+
   let hasCustomAssemblyFormat = 1;
   let hasVerifier = 1;
 }
 
-def ArgMaxOp : ArgMaxMinBaseOp<"argmax", []> {
+def ArgMaxOp : NaiveReduceBaseOp<"argmax", []> {
   let description = [{
     Example:
     ```
@@ -381,7 +406,7 @@ def ArgMaxOp : ArgMaxMinBaseOp<"argmax", []> {
   }];
 }
 
-def ArgMinOp : ArgMaxMinBaseOp<"argmin", []> {
+def ArgMinOp : NaiveReduceBaseOp<"argmin", []> {
   let description = [{
     Example:
     ```
@@ -398,6 +423,86 @@ def ArgMinOp : ArgMaxMinBaseOp<"argmin", []> {
             %5 = arith.select %4, %arg2, %arg4 : f32
             %6 = arith.select %4, %arg3, %arg5 : i32
             linalg.yield %5, %6 : f32, i32
+          }
+    ```
+  }];
+}
+
+def ReduceSumOp : NaiveReduceBaseOp<"reduce_sum", []> {
+  let description = [{
+    Example:
+    ```
+      %reduce_sum = linalg_ext.reduce_sum
+          ins(%input: tensor<16x32x64xf32>)
+          outs(%out: tensor<16x64xf32>)
+          dimensions = [1]
+          (%arg0: f32, %arg1: f32) {
+            %0 = arith.addf %arg0, %arg1 : f32
+            linalg.yield %0 : f32
+          }
+    ```
+  }];
+}
+
+def ReduceMaxOp : NaiveReduceBaseOp<"reduce_max", []> {
+  let description = [{
+    Example:
+    ```
+      %reduce_max = linalg_ext.reduce_max
+          ins(%input: tensor<16x32x64xf32>)
+          outs(%out: tensor<16x64xf32>)
+          dimensions = [1]
+          (%arg0: f32, %arg1: f32) {
+            %0 = arith.maxnumf %arg0, %arg1 : f32
+            linalg.yield %0 : f32
+          }
+    ```
+  }];
+}
+
+def ReduceMinOp : NaiveReduceBaseOp<"reduce_min", []> {
+  let description = [{
+    Example:
+    ```
+      %reduce_min = linalg_ext.reduce_min
+          ins(%input: tensor<16x32x64xf32>)
+          outs(%out: tensor<16x64xf32>)
+          dimensions = [1]
+          (%arg0: f32, %arg1: f32) {
+            %0 = arith.minnumf %arg0, %arg1 : f32
+            linalg.yield %0 : f32
+          }
+    ```
+  }];
+}
+
+def ReduceMaxNanOp : NaiveReduceBaseOp<"reduce_max_nan", []> {
+  let description = [{
+    Example:
+    ```
+      %reduce_max_nan = linalg_ext.reduce_max_nan
+          ins(%input: tensor<16x32x64xf32>)
+          outs(%out: tensor<16x64xf32>)
+          dimensions = [1]
+          (%arg0: f32, %arg1: f32) {
+            %0 = arith.maximumf %arg0, %arg1 : f32
+            linalg.yield %0 : f32
+          }
+    ```
+  }];
+}
+
+def ReduceMinNanOp : NaiveReduceBaseOp<"reduce_min_nan", []> {
+  let description = [{
+    Example:
+    ```
+      %reduce_min_nan = linalg_ext.reduce_min_nan
+          ins(%input: tensor<16x32x64xf32>)
+          outs(%out: tensor<16x64xf32>)
+          dimensions = [1]
+          (%arg0: f32, %arg1: f32) {
+            %0 = arith.minimumf %arg0, %arg1 : f32
+            linalg.yield %0 : f32
           }
     ```
   }];

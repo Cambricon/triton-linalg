@@ -1028,6 +1028,27 @@ func.func @argmax_out_of_range(%input_value: tensor<16x128xf32>, %input_index: t
 
 // -----
 
+func.func @argmax_unmatched_type(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<128xf32>, %output_index: tensor<128xi32>) {
+  // expected-error @+1 {{'linalg_ext.argmax' op input element type 'f32' does not match corresponding block argument type 'i32'}}
+  %argmax:2 = linalg_ext.argmax
+                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
+                  outs(%output_value, %output_index : tensor<128xf32>, tensor<128xi32>)
+                  dimensions = [0]
+                  (%arg2: i32, %arg3: i32, %arg4: i32, %arg5: i32) {
+                    %0 = arith.cmpi "eq", %arg2, %arg4 : i32
+                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
+                    %2 = arith.andi %0, %1 : i1
+                    %3 = arith.cmpi "sgt", %arg2, %arg4 : i32
+                    %4 = arith.ori %3, %2 : i1
+                    %5 = arith.select %4, %arg2, %arg4 : i32
+                    %6 = arith.select %4, %arg3, %arg5 : i32
+                    linalg.yield %5, %6 : i32, i32
+                  }
+  func.return
+}
+
+// -----
+
 func.func @argmin_unsorted_dim(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<16xf32>, %output_index: tensor<128xi32>) {
   // expected-error @+1 {{'linalg_ext.argmin' op expects all outputs to have the same shapes. Shape at output-index 1 is not equal to the shape at output-index 0.}}
   %argmin:2 = linalg_ext.argmin
@@ -1090,6 +1111,183 @@ func.func @argmin_out_of_range(%input_value: tensor<16x128xf32>, %input_index: t
 }
 
 // -----
+
+func.func @argmin_unmatched_type(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<128xf32>, %output_index: tensor<128xi32>) {
+  // expected-error @+1 {{'linalg_ext.argmin' op input element type 'f32' does not match corresponding block argument type 'i32'}}
+  %argmin:2 = linalg_ext.argmin
+                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
+                  outs(%output_value, %output_index : tensor<128xf32>, tensor<128xi32>)
+                  dimensions = [0]
+                  (%arg2: i32, %arg3: i32, %arg4: i32, %arg5: i32) {
+                    %0 = arith.cmpi "eq", %arg2, %arg4 : i32
+                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
+                    %2 = arith.andi %0, %1 : i1
+                    %3 = arith.cmpi "slt", %arg2, %arg4 : i32
+                    %4 = arith.ori %3, %2 : i1
+                    %5 = arith.select %4, %arg2, %arg4 : i32
+                    %6 = arith.select %4, %arg3, %arg5 : i32
+                    linalg.yield %5, %6 : i32, i32
+                  }
+  func.return
+}
+
+// -----
+
+func.func @reduce_sum_unmatched_dim(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  // expected-error @+1 {{'linalg_ext.reduce_sum' op init dimensions [128] doesn't match input dimensions after reduction [16]}}
+  %result = linalg_ext.reduce_sum ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [1]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.addf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
+  func.return
+}
+
+// -----
+
+func.func @reduce_sum_out_of_range(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  // expected-error @+1 {{'linalg_ext.reduce_sum' op dimensions for reduction should be in the range [0, 1].}}
+  %result = linalg_ext.reduce_sum ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [2]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.addf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
+  func.return
+}
+
+// -----
+
+func.func @reduce_sum_unmatched_type(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  // expected-error @+1 {{'linalg_ext.reduce_sum' op input element type 'f32' does not match corresponding block argument type 'i32'}}
+  %result = linalg_ext.reduce_sum ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [0]
+                (%arg0: i32, %arg1: i32) {
+                  %0 = arith.addi %arg0, %arg1 : i32
+                  linalg.yield %0 : i32
+                }
+  func.return
+}
+
+// -----
+
+func.func @reduce_max_unmatched_dim(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  // expected-error @+1 {{'linalg_ext.reduce_max' op init dimensions [128] doesn't match input dimensions after reduction [16]}}
+  %result = linalg_ext.reduce_max ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [1]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.maxnumf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
+  func.return
+}
+
+// -----
+
+func.func @reduce_max_out_of_range(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  // expected-error @+1 {{'linalg_ext.reduce_max' op dimensions for reduction should be in the range [0, 1].}}
+  %result = linalg_ext.reduce_max ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [2]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.maxnumf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
+  func.return
+}
+
+// -----
+
+func.func @reduce_max_unmatched_type(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  // expected-error @+1 {{'linalg_ext.reduce_max' op input element type 'f32' does not match corresponding block argument type 'i32'}}
+  %result = linalg_ext.reduce_max ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [0]
+                (%arg0: i32, %arg1: i32) {
+                  %0 = arith.maxsi %arg0, %arg1 : i32
+                  linalg.yield %0 : i32
+                }
+  func.return
+}
+
+// -----
+
+func.func @reduce_min_unmatched_dim(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  // expected-error @+1 {{'linalg_ext.reduce_min' op init dimensions [128] doesn't match input dimensions after reduction [16]}}
+  %result = linalg_ext.reduce_min ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [1]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.minnumf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
+  func.return
+}
+
+// -----
+
+func.func @reduce_min_out_of_range(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  // expected-error @+1 {{'linalg_ext.reduce_min' op dimensions for reduction should be in the range [0, 1].}}
+  %result = linalg_ext.reduce_min ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [2]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.minnumf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
+  func.return
+}
+
+// -----
+
+func.func @reduce_min_unmatched_type(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  // expected-error @+1 {{'linalg_ext.reduce_min' op input element type 'f32' does not match corresponding block argument type 'i32'}}
+  %result = linalg_ext.reduce_min ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [0]
+                (%arg0: i32, %arg1: i32) {
+                  %0 = arith.minsi %arg0, %arg1 : i32
+                  linalg.yield %0 : i32
+                }
+  func.return
+}
+
+// -----
+
+func.func @reduce_max_nan_unmatched_dim(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  // expected-error @+1 {{'linalg_ext.reduce_max_nan' op init dimensions [128] doesn't match input dimensions after reduction [16]}}
+  %result = linalg_ext.reduce_max_nan ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [1]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.maximumf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
+  func.return
+}
+
+// -----
+
+func.func @reduce_max_nan_out_of_range(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  // expected-error @+1 {{'linalg_ext.reduce_max_nan' op dimensions for reduction should be in the range [0, 1].}}
+  %result = linalg_ext.reduce_max_nan ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [2]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.maximumf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
+  func.return
+}
+
+// -----
+
+func.func @reduce_min_nan_unmatched_dim(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  // expected-error @+1 {{'linalg_ext.reduce_min_nan' op init dimensions [128] doesn't match input dimensions after reduction [16]}}
+  %result = linalg_ext.reduce_min_nan ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [1]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.minimumf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
+  func.return
+}
+
+// -----
+
+func.func @reduce_min_nan_out_of_range(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  // expected-error @+1 {{'linalg_ext.reduce_min_nan' op dimensions for reduction should be in the range [0, 1].}}
+  %result = linalg_ext.reduce_min_nan ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [2]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.minimumf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
+  func.return
+}
+
+// -----
 func.func @scan_unmatched_output_and_init_num(%input: tensor<16x32x64xf32>,
                                               %output0: tensor<16x32x64xf32>,
                                               %output1: tensor<16x32x64xf32>,
@@ -1100,6 +1298,7 @@ func.func @scan_unmatched_output_and_init_num(%input: tensor<16x32x64xf32>,
       outs(%output0, %output1, %init: tensor<16x32x64xf32>, tensor<16x32x64xf32>, tensor<16x64xf32>)
       dimensions = [1]
       reverse = false
+      inclusive = true
       {
       ^bb0(%in: f32, %out0: f32, %out1: f32, %ini: f32):
         %0 = arith.addf %ini, %in: f32
@@ -1118,6 +1317,7 @@ func.func @scan_unmatched_dim(%input: tensor<16x32x64xf32>,
       outs(%output, %init: tensor<16x64xf32>, tensor<16xf32>)
       dimensions = [1]
       reverse = false
+      inclusive = true
       {
       ^bb0(%in: f32, %out: f32, %ini: f32):
         %0 = arith.addf %ini, %in: f32
@@ -1136,6 +1336,7 @@ func.func @scan_out_of_range(%input: tensor<16x32x64xf32>,
       outs(%output, %init: tensor<16x32x64xf32>, tensor<32x64xf32>)
       dimensions = [4]
       reverse = false
+      inclusive = true
       {
       ^bb0(%in: f32, %out: f32, %ini: f32):
         %0 = arith.addf %ini, %in: f32
@@ -1157,6 +1358,7 @@ func.func @scan_unmatched_input_and_output_shape(%input0: tensor<16x32x64xf32>,
       outs(%output0, %output1, %init0, %init1: tensor<32x64xf32>, tensor<32x64xf32>, tensor<32x64xf32>, tensor<32x64xf32>)
       dimensions = [0]
       reverse = false
+      inclusive = true
       {
       ^bb0(%in0: f32, %in1: f32, %out0: f32, %out1: f32, %ini0: f32, %ini1: f32):
         %0 = arith.addf %ini0, %in0: f32
@@ -1179,6 +1381,7 @@ func.func @scan_unmatched_inputs_shape(%input0: tensor<16x32x64xf32>,
       outs(%output0, %output1, %init0, %init1: tensor<16x32x64xf32>, tensor<16x32x64xf32>, tensor<32x64xf32>, tensor<32x64xf32>)
       dimensions = [0]
       reverse = false
+      inclusive = true
       {
       ^bb0(%in0: f32, %in1: f32, %out0: f32, %out1: f32, %ini0: f32, %ini1: f32):
         %0 = arith.addf %ini0, %in0: f32
@@ -1201,6 +1404,7 @@ func.func @scan_unmatched_outputs_shape(%input0: tensor<16x32x64xf32>,
       outs(%output0, %output1, %init0, %init1: tensor<16x32x64xf32>, tensor<32x64xf32>, tensor<32x64xf32>, tensor<32x64xf32>)
       dimensions = [0]
       reverse = false
+      inclusive = true
       {
       ^bb0(%in0: f32, %in1: f32, %out0: f32, %out1: f32, %ini0: f32, %ini1: f32):
         %0 = arith.addf %ini0, %in0: f32
@@ -1223,6 +1427,7 @@ func.func @scan_unmatched_inits_shape(%input0: tensor<16x32x64xf32>,
       outs(%output0, %output1, %init0, %init1: tensor<16x32x64xf32>, tensor<16x32x64xf32>, tensor<32x64xf32>, tensor<16x64xf32>)
       dimensions = [0]
       reverse = false
+      inclusive = true
       {
       ^bb0(%in0: f32, %in1: f32, %out0: f32, %out1: f32, %ini0: f32, %ini1: f32):
         %0 = arith.addf %ini0, %in0: f32
@@ -1245,6 +1450,7 @@ func.func @scan_unexpected_inits_shape(%input0: tensor<16x32x64xf32>,
       outs(%output0, %output1, %init0, %init1: tensor<16x32x64xf32>, tensor<16x32x64xf32>, tensor<16x64xf32>, tensor<16x64xf32>)
       dimensions = [0]
       reverse = false
+      inclusive = true
       {
       ^bb0(%in0: f32, %in1: f32, %out0: f32, %out1: f32, %ini0: f32, %ini1: f32):
         %0 = arith.addf %ini0, %in0: f32
@@ -1264,6 +1470,7 @@ func.func @scan_unmatched_block_args_num(%input: tensor<16xf32>,
       outs(%output, %init: tensor<16xf32>, tensor<f32>)
       dimensions = [0]
       reverse = false
+      inclusive = true
       {
       ^bb0(%in: f32, %out0: f32,  %out1: f32, %ini: f32):
         %0 = arith.addf %ini, %in: f32
@@ -1282,6 +1489,7 @@ func.func @scan_unmatched_element_type(%input: tensor<16xf32>,
       outs(%output, %init: tensor<16xf32>, tensor<f32>)
       dimensions = [0]
       reverse = false
+      inclusive = true
       {
       ^bb0(%in: i32, %out: i32, %ini: i32):
         %0 = arith.addi %ini, %in: i32
@@ -1297,12 +1505,13 @@ func.func @scan_multi_operands(%input0: tensor<16x32x64xf32>,
                                %output1: tensor<16x32x64xf32>,
                                %init0: tensor<32x64xf32>,
                                %init1: tensor<32x64xf32>) {
-  // expected-error @+1 {{'linalg_ext.scan' op only support single dimension.}}
+  // expected-error @+1 {{'linalg_ext.scan' op expects number dimensions less than 2. but got 2.}}
   linalg_ext.scan
       ins(%input0, %input1: tensor<16x32x64xf32>, tensor<16x32x64xf32>)
       outs(%output0, %output1, %init0, %init1: tensor<16x32x64xf32>, tensor<16x32x64xf32>, tensor<32x64xf32>, tensor<32x64xf32>)
       dimensions = [0, 1]
       reverse = false
+      inclusive = true
       {
       ^bb0(%in0: f32, %in1: f32, %out0: f32, %out1: f32, %ini0: f32, %ini1: f32):
         %0 = arith.addf %ini0, %in0: f32
@@ -1438,6 +1647,27 @@ func.func @argmax_out_of_range(%input_value: tensor<16x128xf32>, %input_index: t
                     %5 = arith.select %4, %arg2, %arg4 : f32
                     %6 = arith.select %4, %arg3, %arg5 : i32
                     linalg.yield %5, %6 : f32, i32
+                  }
+  func.return
+}
+
+// -----
+
+func.func @argmax_unmatched_type(%input_value: tensor<16x128xf32>, %input_index: tensor<16x128xi32>, %output_value: tensor<128xf32>, %output_index: tensor<128xi32>) {
+  // expected-error @+1 {{'linalg_ext.argmax' op input element type 'f32' does not match corresponding block argument type 'i32'}}
+  %argmax:2 = linalg_ext.argmax
+                  ins(%input_value, %input_index : tensor<16x128xf32>, tensor<16x128xi32>)
+                  outs(%output_value, %output_index : tensor<128xf32>, tensor<128xi32>)
+                  dimensions = [0]
+                  (%arg2: i32, %arg3: i32, %arg4: i32, %arg5: i32) {
+                    %0 = arith.cmpi "eq", %arg2, %arg4 : i32
+                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
+                    %2 = arith.andi %0, %1 : i1
+                    %3 = arith.cmpi "sgt", %arg2, %arg4 : i32
+                    %4 = arith.ori %3, %2 : i1
+                    %5 = arith.select %4, %arg2, %arg4 : i32
+                    %6 = arith.select %4, %arg3, %arg5 : i32
+                    linalg.yield %5, %6 : i32, i32
                   }
   func.return
 }

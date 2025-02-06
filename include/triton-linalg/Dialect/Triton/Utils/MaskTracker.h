@@ -22,6 +22,7 @@
 namespace mlir {
 namespace triton {
 class MaskTracker;
+
 raw_ostream &operator<<(raw_ostream &os, const MaskTracker &tracker);
 //===--------------------------------------------------------------------===//
 // The main code is modified from triton-to-linalg branch in triton repo.
@@ -59,7 +60,7 @@ public:
   ArrayRef<OpFoldResult> getStarts() const { return starts; }
   void dump() const { llvm::errs() << *this << "\n"; }
 
-  /// Recursively parse a Value; call the coresponding function based on the
+  /// Recursively parse a Value; call the corresponding function based on the
   /// defining operation and Value type.
   void parse(Value operand, Location loc, RewriterBase &rewriter);
   void setDimensionStatus(int64_t dim, OpFoldResult start, OpFoldResult end,
@@ -79,6 +80,28 @@ inline raw_ostream &operator<<(raw_ostream &os, const MaskTracker &tracker) {
   }
   return os << "}";
 }
+
+/// Data structure used to decode range cmp pattern to get start, end and axis.
+/// start and end field represent the start and end index of a range (produced
+/// by make_range, addi, etc.).
+///
+/// Example of creating 2D range:
+///  range = rows[:, None]
+class RangeTracker {
+public:
+  /// Recursively parse a Value; call the corresponding function based on the
+  /// defining operation and Value type.
+  LogicalResult parse(Value operand, Location loc, RewriterBase &rewriter);
+
+  int64_t getAxis() const { return axis; }
+  OpFoldResult getStart() const { return start; }
+  OpFoldResult getEnd() const { return end; }
+
+private:
+  OpFoldResult start, end;
+  int64_t axis = -1;
+};
+
 } // namespace triton
 } // namespace mlir
 

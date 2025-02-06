@@ -173,7 +173,7 @@ tt.func @load_2d(%arg0: i32, %arg1: i32, %arg2: !tt.ptr<f32>) {
 }
 
 // -----
-// CHECK: #map = affine_map<(d0, d1, d2)[s0, s1] -> (d0 * s1 + s0 + d1 + d2)>
+// CHECK: #map = affine_map<(d0, d1)[s0, s1] -> (d0 * s1 + s0 + d1)>
 // CHECK-LABEL: @load_3d_with_dim_1
 // CHECK-SAME: %[[ARG0:.*]]: i32, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i64
 tt.func @load_3d_with_dim_1(%arg0: i32, %arg1: i32, %arg2: !tt.ptr<f32>) {
@@ -200,10 +200,10 @@ tt.func @load_3d_with_dim_1(%arg0: i32, %arg1: i32, %arg2: !tt.ptr<f32>) {
   // CHECK-NEXT: %[[STRIDE0_INDEX:.*]] = arith.index_cast %[[STRIDE0]]
   // CHECK: %[[OFFSET_INDEX:.*]] = arith.index_cast %[[OFFSET]]
   // CHECK-NEXT: %[[PTR:.*]] = llvm.inttoptr %[[ARG2]] : i64 to !llvm.ptr
-  // CHECK-NEXT: %[[VIEW_MEMREF:.*]] = aux.view %[[PTR]] to offset: [%[[OFFSET_INDEX]]], sizes: [64, 1, 64], strides: [%[[STRIDE0_INDEX]], 1, 1] : !llvm.ptr to memref<64x1x64xf32, #map>
-  // CHECK-NEXT: %[[TO_TENSOR:.*]] = bufferization.to_tensor %[[VIEW_MEMREF]] restrict writable : memref<64x1x64xf32, #map>
-  // CHECK: %[[COPY:.*]] = linalg.copy ins(%[[TO_TENSOR]] : tensor<64x1x64xf32>)
-  // CHECK-NOT: linalg.broadcast
+  // CHECK-NEXT: %[[VIEW_MEMREF:.*]] = aux.view %[[PTR]] to offset: [%[[OFFSET_INDEX]]], sizes: [64, 64], strides: [%[[STRIDE0_INDEX]], 1] : !llvm.ptr to memref<64x64xf32, #map>
+  // CHECK-NEXT: %[[TO_TENSOR:.*]] = bufferization.to_tensor %[[VIEW_MEMREF]] restrict writable : memref<64x64xf32, #map>
+  // CHECK: %[[COPY:.*]] = linalg.copy ins(%[[TO_TENSOR]] : tensor<64x64xf32>)
+  // CHECK: %[[BROADCAST:.*]] = linalg.broadcast ins(%[[COPY]] : tensor<64x64xf32>) {{.*}} dimensions = [1]
   %data = tt.load %12 {cache = 1 : i32, evict = 1 : i32, isVolatile = false} : tensor<64x1x64x!tt.ptr<f32>>
   tt.return
 }
@@ -247,9 +247,12 @@ tt.func @load_transpose_2d(%arg0: i32, %arg1: i32, %arg2: !tt.ptr<f32>) {
 // CHECK-SAME: %[[ARG0:.*]]: i64, %[[ARG1:.*]]: i32
 tt.func @load_scalar(%arg0: !tt.ptr<f32>, %arg1: i32) {
   %0 = tt.addptr %arg0, %arg1 : !tt.ptr<f32>, i32
-  // CHECK: %[[PTR:.*]] = llvm.inttoptr %[[PTR_AS_INT:.*]] : i64 to !llvm.ptr
-  // CHECK-NEXT: %[[MEMREF:.*]] = aux.view %[[PTR]] to offset: [0], sizes: [1], strides: [1]
-  // CHECK: memref.load %[[MEMREF]][%c0]
+  // CHECK: %[[PTR:.*]] = llvm.inttoptr %[[ARG0]] : i64 to !llvm.ptr
+  // CHECK-NEXT: %[[PTR2:.*]] = llvm.getelementptr %[[PTR]][%[[ARG1]]] : (!llvm.ptr, i32) -> !llvm.ptr, f32
+  // CHECK-NEXT: %[[INT:.*]] = llvm.ptrtoint %[[PTR2]] : !llvm.ptr to i64
+  // CHECK-NEXT: %[[PTR3:.*]] = llvm.inttoptr %[[INT]] : i64 to !llvm.ptr
+  // CHECK-NEXT: %[[MEMREF:.*]] = aux.view %[[PTR3]] to offset: [0], sizes: [1], strides: [1] : !llvm.ptr to memref<1xf32>
+  // CHECK: memref.load %[[MEMREF]][%c0] : memref<1xf32>
   %1 = tt.load %0 {cache = 1 : i32, evict = 1 : i32, isVolatile = false} : !tt.ptr<f32>
   tt.return
 }
@@ -259,8 +262,11 @@ tt.func @load_scalar(%arg0: !tt.ptr<f32>, %arg1: i32) {
 // CHECK-SAME: %[[ARG0:.*]]: i64, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i1
 tt.func @load_scalar_masked(%arg0: !tt.ptr<f32>, %arg1: i32, %arg2: i1) {
   %0 = tt.addptr %arg0, %arg1 : !tt.ptr<f32>, i32
-  // CHECK: %[[PTR:.*]] = llvm.inttoptr %[[PTR_AS_INT:.*]] : i64 to !llvm.ptr
-  // CHECK-NEXT: %[[MEMREF:.*]] = aux.view %[[PTR]] to offset: [0], sizes: [1], strides: [1]
+  // CHECK: %[[PTR:.*]] = llvm.inttoptr %[[ARG0]] : i64 to !llvm.ptr
+  // CHECK-NEXT: %[[PTR2:.*]] = llvm.getelementptr %[[PTR]][%[[ARG1]]] : (!llvm.ptr, i32) -> !llvm.ptr, f32
+  // CHECK-NEXT: %[[INT:.*]] = llvm.ptrtoint %[[PTR2]] : !llvm.ptr to i64
+  // CHECK-NEXT: %[[PTR3:.*]] = llvm.inttoptr %[[INT]] : i64 to !llvm.ptr
+  // CHECK-NEXT: %[[MEMREF:.*]] = aux.view %[[PTR3]] to offset: [0], sizes: [1], strides: [1]
   // CHECK: %[[DATA:.*]] = memref.load %[[MEMREF]][%c0]
   // CHECK-NEXT: scf.if %[[ARG2]] -> (f32) {
   // CHECK-NEXT: scf.yield %[[DATA]]
@@ -275,8 +281,11 @@ tt.func @load_scalar_masked(%arg0: !tt.ptr<f32>, %arg1: i32, %arg2: i1) {
 // CHECK-SAME: %[[ARG0:.*]]: i64, %[[ARG1:.*]]: i32, %[[ARG2:.*]]: i1, %[[ARG3:.*]]: f32
 tt.func @load_scalar_masked_other(%arg0: !tt.ptr<f32>, %arg1: i32, %arg2: i1, %arg3: f32) {
   %0 = tt.addptr %arg0, %arg1 : !tt.ptr<f32>, i32
-  // CHECK: %[[PTR:.*]] = llvm.inttoptr %[[PTR_AS_INT:.*]] : i64 to !llvm.ptr
-  // CHECK-NEXT: %[[MEMREF:.*]] = aux.view %[[PTR]] to offset: [0], sizes: [1], strides: [1]
+  // CHECK: %[[PTR:.*]] = llvm.inttoptr %[[ARG0]] : i64 to !llvm.ptr
+  // CHECK-NEXT: %[[PTR2:.*]] = llvm.getelementptr %[[PTR]][%[[ARG1]]] : (!llvm.ptr, i32) -> !llvm.ptr, f32
+  // CHECK-NEXT: %[[INT:.*]] = llvm.ptrtoint %[[PTR2]] : !llvm.ptr to i64
+  // CHECK-NEXT: %[[PTR3:.*]] = llvm.inttoptr %[[INT]] : i64 to !llvm.ptr
+  // CHECK-NEXT: %[[MEMREF:.*]] = aux.view %[[PTR3]] to offset: [0], sizes: [1], strides: [1]
   // CHECK: %[[DATA:.*]] = memref.load %[[MEMREF]][%c0]
   // CHECK-NEXT: scf.if %[[ARG2]] -> (f32) {
   // CHECK-NEXT: scf.yield %[[DATA]]
@@ -313,16 +322,13 @@ tt.func @load_from_constant_masked(%arg0: !tt.ptr<f32>, %arg1: i32) {
   %2 = tt.splat %arg1 : i32 -> tensor<128xi32>
   %mask = arith.cmpi slt, %1, %2 : tensor<128xi32>
   %others = arith.constant dense<1.0> : tensor<128xf32>
-  // CHECK: linalg_ext.pad
-  // CHECK: %[[FILL:.*]] = linalg.fill ins(%[[C0:.*]]: i32)
-  // CHECK: %[[OFFSET:.*]] = tensor.extract %[[FILL]][%[[C0:.*]]]
-  // CHECK: %[[OFFSET_INDEX:.*]] = arith.index_cast %[[OFFSET]]
-  // CHECK: %[[PTR:.*]] = llvm.inttoptr %[[ARG0]] : i64 to !llvm.ptr
-  // CHECK-NEXT: %[[MEMREF:.*]] = aux.view %[[PTR]] to offset: [%[[OFFSET_INDEX]]], sizes: [], strides: []
-  // CHECK: %[[TENSOR:.*]] = bufferization.to_tensor %[[MEMREF]]
-  // CHECK-NEXT: %[[EMPTY:.*]] = tensor.empty()
-  // CHECK-NEXT: %[[NEW_TENSOR:.*]] = linalg.copy ins(%[[TENSOR]] : tensor<f32>) outs(%[[EMPTY]] : tensor<f32>) -> tensor<f32>
-  // CHECK: linalg.broadcast ins(%[[NEW_TENSOR]]
+  // CHECK: %[[MASK:.*]] = linalg_ext.pad ins({{.*}} : tensor<?xi1>)
+  // CHECK: %[[ZEROS:.*]] = linalg.fill ins(%{{.*}} : i32) outs(%{{.*}} : tensor<128xi32>) -> tensor<128xi32>
+  // CHECK-DAG: %[[INDICES:.*]] = tensor.expand_shape %[[ZEROS]] {{\[\[}}0, 1]] output_shape [128, 1] : tensor<128xi32> into tensor<128x1xi32>
+  // CHECK-DAG: %[[PTR:.*]] = llvm.inttoptr %[[ARG0]] : i64 to !llvm.ptr
+  // CHECK-DAG: %[[MEMREF:.*]] = aux.view %[[PTR]] to offset: [0], sizes: [9223372036854775807], strides: [1]
+  // CHECK-DAG: %[[TENSOR:.*]] = bufferization.to_tensor %[[MEMREF]]
+  // CHECK: linalg_ext.gather dimension_map = [0] ranged_data(false) signed_indice(true) ins(%[[TENSOR]], %[[INDICES]], %[[MASK]] : tensor<9223372036854775807xf32>, tensor<128x1xi32>, tensor<128xi1>)
   %buff = tt.load %0, %mask, %others {cache = 1 : i32, evict = 1 : i32, isVolatile = false} : tensor<128x!tt.ptr<f32>>
   tt.return
 }
@@ -384,8 +390,8 @@ tt.func @load_gather_2d(%arg0: !tt.ptr<f32>, %arg1: tensor<128x64xi32>) {
   %1 = tt.addptr %0, %arg1 : tensor<128x64x!tt.ptr<f32>>, tensor<128x64xi32>
 
   // CHECK-DAG: %[[ADD:.*]] = linalg.map { arith.addi {overflowFlags = #arith.overflow<none>} }
-  // CHECK-DAG: %[[INDICES0:.*]] = tensor.collapse_shape %[[ADD]] {{\[\[}}0, 1]] : tensor<128x64xi32> into tensor<8192xi32>
-  // CHECK-DAG: %[[INDICES:.*]] = tensor.expand_shape %[[INDICES0]] {{\[\[}}0, 1]] output_shape [8192, 1] : tensor<8192xi32> into tensor<8192x1xi32>
+  // CHECK-DAG: %[[INDIECS_COLLAPSE:.*]] = tensor.collapse_shape %[[ADD]] {{\[\[}}0, 1]] : tensor<128x64xi32> into tensor<8192xi32>
+  // CHECK-DAG: %[[INDICES:.*]] = tensor.expand_shape %[[INDIECS_COLLAPSE]] {{\[\[}}0, 1]] output_shape [8192, 1] : tensor<8192xi32> into tensor<8192x1xi32>
 
   // CHECK-DAG: %[[PTR:.*]] = llvm.inttoptr %[[ARG]] : i64 to !llvm.ptr
   // CHECK-DAG: %[[MEMREF:.*]] = aux.view %[[PTR]] to offset: [0], sizes: [9223372036854775807], strides: [1]
@@ -430,6 +436,7 @@ tt.func @load_gather_1d_mask_other(%arg0: !tt.ptr<f32>, %arg1: tensor<128xi32>, 
   // CHECK-DAG: %[[PTR:.*]] = llvm.inttoptr %[[ARG]] : i64 to !llvm.ptr
   // CHECK-DAG: %[[MEMREF:.*]] = aux.view %[[PTR]] to offset: [0], sizes: [9223372036854775807], strides: [1]
   // CHECK-DAG: %[[TENSOR:.*]] = bufferization.to_tensor %[[MEMREF]]
+
   // CHECK: %[[GATHER_RES:.*]] = linalg_ext.gather dimension_map = [0] ranged_data(false) signed_indice(true) ins(%[[TENSOR]], %[[INDICES]], %[[ARG2]] : tensor<9223372036854775807xf32>, tensor<128x1xi32>, tensor<128xi1>)
   // CHECK: %[[COLLAPSED_RES:.*]] = tensor.collapse_shape %[[GATHER_RES:.*]] {{\[\[}}0, 1]] : tensor<128x1xf32> into tensor<128xf32>
   %2 = tt.load %1, %arg2, %arg3 {cache = 1 : i32, evict = 1 : i32, isVolatile = false} : tensor<128x!tt.ptr<f32>>

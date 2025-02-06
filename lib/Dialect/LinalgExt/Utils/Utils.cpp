@@ -110,8 +110,8 @@ std::optional<ReductionMode> triton::getReductionMode(triton::ReduceOp op) {
   return std::nullopt;
 }
 
-/// Check whether the reduce op can convert to argmax/min operation.
-std::optional<ReductionMode> triton::matchArgMaxMinPattern(Region *region) {
+template <class CmpOp>
+static std::optional<ReductionMode> matchArgMaxMinPatternImpl(Region *region) {
   // We're looking for an op that looks like this:
   //
   // %9:2 = "tt.reduce"(%8, %3) <{axis = 0 : i32}> ({
@@ -172,16 +172,16 @@ std::optional<ReductionMode> triton::matchArgMaxMinPattern(Region *region) {
     return std::nullopt;
   }
 
-  auto oriOp = lineOut0[2];
+  auto *oriOp = lineOut0[2];
   //   %14 = arith.cmpf ogt, %arg9, %arg11 : f32
   //   %15 = arith.ori %14, %13 : i1
   SmallVector<Operation *> lineOut2;
   SmallVector<int> inputIndex2 = {0};
-  Operation *result2 = UpstreamMatcher<arith::OrIOp, arith::CmpFOp>::matchLine(
+  Operation *result2 = UpstreamMatcher<arith::OrIOp, CmpOp>::matchLine(
       lineOut2, oriOp, inputIndex2, inputIndex2.size(), false);
   if (result2 == nullptr ||
-      cast<arith::CmpFOp>(lineOut2[1]).getLhs() != block.getArgument(0) ||
-      cast<arith::CmpFOp>(lineOut2[1]).getRhs() != block.getArgument(2)) {
+      cast<CmpOp>(lineOut2[1]).getLhs() != block.getArgument(0) ||
+      cast<CmpOp>(lineOut2[1]).getRhs() != block.getArgument(2)) {
     return std::nullopt;
   }
 
@@ -195,18 +195,26 @@ std::optional<ReductionMode> triton::matchArgMaxMinPattern(Region *region) {
     return std::nullopt;
   }
 
-  auto andiOp = lineOut3[1];
+  auto *andiOp = lineOut3[1];
   //   %11 = arith.cmpf oeq, %arg9, %arg11 : f32
   //   %13 = arith.andi %11, %12 : i1
   SmallVector<Operation *> lineOut4;
   SmallVector<int> inputIndex4 = {0};
-  Operation *result4 = UpstreamMatcher<arith::AndIOp, arith::CmpFOp>::matchLine(
+  Operation *result4 = UpstreamMatcher<arith::AndIOp, CmpOp>::matchLine(
       lineOut4, andiOp, inputIndex4, inputIndex4.size(), false);
   if (result4 == nullptr ||
-      cast<arith::CmpFOp>(lineOut4[1]).getPredicate() !=
-          arith::CmpFPredicate::OEQ ||
-      cast<arith::CmpFOp>(lineOut4[1]).getLhs() != block.getArgument(0) ||
-      cast<arith::CmpFOp>(lineOut4[1]).getRhs() != block.getArgument(2)) {
+      cast<CmpOp>(lineOut4[1]).getLhs() != block.getArgument(0) ||
+      cast<CmpOp>(lineOut4[1]).getRhs() != block.getArgument(2)) {
+    return std::nullopt;
+  }
+
+  if constexpr (std::is_same_v<CmpOp, arith::CmpFOp>) {
+    if (cast<CmpOp>(lineOut4[1]).getPredicate() != arith::CmpFPredicate::OEQ)
+      return std::nullopt;
+  } else if constexpr (std::is_same_v<CmpOp, arith::CmpIOp>) {
+    if (cast<CmpOp>(lineOut4[1]).getPredicate() != arith::CmpIPredicate::eq)
+      return std::nullopt;
+  } else {
     return std::nullopt;
   }
 
@@ -224,14 +232,33 @@ std::optional<ReductionMode> triton::matchArgMaxMinPattern(Region *region) {
     return std::nullopt;
   }
 
-  auto cmpfOp = cast<arith::CmpFOp>(lineOut2[1]);
-  if (cmpfOp.getPredicate() == arith::CmpFPredicate::OGT) {
-    return ReductionMode::ARGMAX;
-  } else if (cmpfOp.getPredicate() == arith::CmpFPredicate::OLT) {
-    return ReductionMode::ARGMIN;
+  auto cmpfOp = cast<CmpOp>(lineOut2[1]);
+  if constexpr (std::is_same_v<CmpOp, arith::CmpFOp>) {
+    if (cmpfOp.getPredicate() == arith::CmpFPredicate::OGT) {
+      return ReductionMode::ARGMAX;
+    }
+    if (cmpfOp.getPredicate() == arith::CmpFPredicate::OLT) {
+      return ReductionMode::ARGMIN;
+    }
+  }
+  if constexpr (std::is_same_v<CmpOp, arith::CmpIOp>) {
+    if (cmpfOp.getPredicate() == arith::CmpIPredicate::sgt) {
+      return ReductionMode::ARGMAX;
+    }
+    if (cmpfOp.getPredicate() == arith::CmpIPredicate::slt) {
+      return ReductionMode::ARGMIN;
+    }
   }
 
   return std::nullopt;
+}
+
+/// Check whether the reduce op can convert to argmax/min operation.
+std::optional<ReductionMode> triton::matchArgMaxMinPattern(Region *region) {
+  auto result = matchArgMaxMinPatternImpl<arith::CmpFOp>(region);
+  if (result != std::nullopt)
+    return result;
+  return matchArgMaxMinPatternImpl<arith::CmpIOp>(region);
 }
 
 /// Identify the pattern of the reduce operator.

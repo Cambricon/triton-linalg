@@ -37,7 +37,9 @@
 #include "triton-linalg/Dialect/Triton/Transforms/PassDetail.h" // IWYU pragma: keep
 #include "triton-linalg/Dialect/Triton/Transforms/Passes.h"
 #include "triton-linalg/Dialect/Triton/Utils/MaskTracker.h"
+#include "triton-linalg/Dialect/Triton/Utils/PointerInfo.h"
 #include "triton-linalg/Dialect/Utils/ArithUtils.h"
+#include "triton-linalg/Dialect/Utils/ShapeUtils.h"
 #include "triton/Dialect/Triton/IR/Dialect.h"
 #include "triton/Dialect/Triton/IR/Types.h"
 #include "llvm/ADT/APFloat.h"
@@ -67,7 +69,7 @@ static bool isAllOneSizeType(ShapedType inputType) {
                       [](int64_t size) { return size == int64_t(1); });
 }
 
-// Extract cond value from mask.
+/// Extract cond value from mask.
 static Value extractCondFromShapeMask(Value mask, PatternRewriter &rewriter) {
   if (!mask)
     return mask;
@@ -125,6 +127,58 @@ static Value getCondVal(Value mask, PatternRewriter &rewriter) {
         });
   }
   return extractCondFromShapeMask(scalarMask, rewriter);
+}
+
+/// Check if any dimension's size equals to one and skip to coalesce if any
+/// coalescable dimension needs boundary checking.
+template <typename OpTy>
+static SmallVector<int64_t>
+getDegeneratableDimensions(OpTy op, const ArrayRef<int64_t> degeneratedDims) {
+  RankedTensorType tensorType;
+  auto loadOp = dyn_cast<triton::LoadOp>(*op);
+  auto storeOp = dyn_cast<triton::StoreOp>(*op);
+  if (loadOp) {
+    tensorType =
+        dyn_cast_if_present<RankedTensorType>(loadOp.getResult().getType());
+  } else if (storeOp) {
+    tensorType =
+        dyn_cast_if_present<RankedTensorType>(storeOp.getValue().getType());
+  } else {
+    return {};
+  }
+  if (!tensorType || degeneratedDims.empty())
+    return {};
+
+  SmallVector<int64_t> degeneratableDims;
+  std::optional<ArrayRef<int32_t>> boundaryCheck = op.getBoundaryCheck();
+  if (!boundaryCheck || boundaryCheck->empty()) {
+    degeneratableDims.append(degeneratedDims.begin(), degeneratedDims.end());
+  } else {
+    for (auto dim : degeneratedDims) {
+      if (llvm::find(boundaryCheck.value(), dim) ==
+          boundaryCheck.value().end()) {
+        degeneratableDims.push_back(dim);
+      }
+    }
+  }
+
+  return degeneratableDims;
+}
+
+/// Calculate degenerated boundary check by the degeneratable dimensions.
+template <typename OpTy>
+static SmallVector<int32_t>
+getDegeneratedBoundaryCheck(OpTy op,
+                            const ArrayRef<int64_t> degeneratableDims) {
+  SmallVector<int32_t> degeneratedBoundaryCheck(op.getBoundaryCheck());
+  for (int64_t dim : llvm::reverse(degeneratableDims)) {
+    llvm::for_each(llvm::enumerate(degeneratedBoundaryCheck),
+                   [&dim, &degeneratedBoundaryCheck](auto bc) {
+                     if (bc.value() > dim)
+                       --degeneratedBoundaryCheck[bc.index()];
+                   });
+  }
+  return degeneratedBoundaryCheck;
 }
 
 /// Donate the MaskInfo extract from mask.
@@ -473,8 +527,7 @@ public:
     auto ptrType = op.getPtr().getType();
     // For op with tnesor pointer type, append `PAD_ZERO` as the padding option.
     if (triton::isTensorPointerType(ptrType)) {
-      std::optional<llvm::ArrayRef<int32_t>> boundaryCheck =
-          op.getBoundaryCheck();
+      std::optional<ArrayRef<int32_t>> boundaryCheck = op.getBoundaryCheck();
       // Only append attribute when boundary check is not empty and padding
       // option attribute does not exist.
       if (!boundaryCheck || boundaryCheck->empty() || op.getPadding())
@@ -511,6 +564,452 @@ public:
         op, op.getPtr(), op.getMask(), defaultOther, op.getCache(),
         op.getEvict(), op.getIsVolatile());
     return success();
+  }
+};
+
+/// Insert `tensor.collapse_shape` to degenerate the dimensions of `tt.load` or
+/// `tt.store` whose pointer shape contains one, for example: tensor<128x1xi32>
+/// -> tensor<128xi32>.
+template <typename OpTy>
+class CanonicalizeTtPtrDimDegerationPattern : public OpRewritePattern<OpTy> {
+  using OpRewritePattern<OpTy>::OpRewritePattern;
+  LogicalResult matchAndRewrite(OpTy op,
+                                PatternRewriter &rewriter) const override {
+    RankedTensorType tensorType;
+    auto loadOp = dyn_cast<triton::LoadOp>(*op);
+    auto storeOp = dyn_cast<triton::StoreOp>(*op);
+    if (loadOp) {
+      tensorType =
+          dyn_cast_if_present<RankedTensorType>(loadOp.getResult().getType());
+    } else if (storeOp) {
+      tensorType =
+          dyn_cast_if_present<RankedTensorType>(storeOp.getValue().getType());
+    } else {
+      return failure();
+    }
+    if (!tensorType)
+      return failure();
+
+    Value ptr = op.getPtr();
+    if (triton::isTensorPointerType(ptr.getType()))
+      return failure();
+
+    auto ptrType = dyn_cast_if_present<RankedTensorType>(ptr.getType());
+    if (!ptrType)
+      return failure();
+
+    // Do NOT degenerate one size dimension when `%mask` exist because it will
+    // cause lossing mask info and mask tracking failure.
+    if (op.getMask())
+      return failure();
+
+    SmallVector<int64_t> oneSizeDims =
+        getOneSizeDimIndices(tensorType.getShape());
+    SmallVector<int64_t> degeneratedDims =
+        getDegeneratableDimensions(op, oneSizeDims);
+    if (degeneratedDims.empty())
+      return failure();
+
+    // Do NOT degenerate `tensor<1xT> or tensor<T>` into `T` as scalar math op
+    // lowering is not yet supported perfectly.
+    if ((tensorType.getRank() == oneSizeDims.size()) ||
+        tensorType.getRank() == 0)
+      return failure();
+
+    SmallVector<int64_t> degeneratedShape(tensorType.getShape());
+    for (auto dim : llvm::reverse(degeneratedDims)) {
+      degeneratedShape.erase(degeneratedShape.begin() + dim);
+    }
+
+    Location loc = op.getLoc();
+    if (degeneratedShape.empty()) {
+      Value zeroValue =
+          rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(0));
+      SmallVector<Value> zeroIdx(tensorType.getRank(), zeroValue);
+      ptr = rewriter.create<tensor::ExtractOp>(loc, ptrType.getElementType(),
+                                               ptr, zeroIdx);
+      if (loadOp) {
+        auto newLoadOp = rewriter.create<triton::LoadOp>(
+            loc, ptr, loadOp.getCache(), loadOp.getEvict(),
+            loadOp.getIsVolatile());
+        auto splatOp =
+            rewriter.create<triton::SplatOp>(loc, tensorType, newLoadOp);
+        rewriter.replaceAllUsesWith(loadOp, splatOp);
+        return success();
+      } else if (storeOp) {
+        auto value = rewriter.create<tensor::ExtractOp>(
+            loc, tensorType.getElementType(), storeOp.getValue(), zeroIdx);
+        rewriter.create<triton::StoreOp>(loc, ptr, value, storeOp.getCache(),
+                                         storeOp.getEvict());
+        rewriter.eraseOp(storeOp);
+        return success();
+      }
+    }
+
+    // Replace by new `tt.load` or `tt.store`.
+    SmallVector<ReassociationIndices> reassocIndices =
+        getReassociationsForFoldOneSizeDim(tensorType.getRank(),
+                                           degeneratedDims);
+    if (loadOp) {
+      // Load degenerated shape then expand it to original shape of `tt.load`.
+      SmallVector<Value, 3> newLoadOperands;
+      for (auto opr : op->getOperands()) {
+        auto oprType = cast<RankedTensorType>(opr.getType());
+        auto newOprType =
+            RankedTensorType::get(degeneratedShape, oprType.getElementType());
+        newLoadOperands.emplace_back(rewriter.create<tensor::CollapseShapeOp>(
+            loc, newOprType, opr, reassocIndices));
+      }
+      ptr = newLoadOperands[0];
+      Value newLoadOp = rewriter.create<triton::LoadOp>(
+          loc, ptr, loadOp.getCache(), loadOp.getEvict(),
+          loadOp.getIsVolatile());
+      auto expandShapeOp = rewriter.create<tensor::ExpandShapeOp>(
+          loc, tensorType, newLoadOp, reassocIndices);
+      rewriter.replaceAllUsesWith(loadOp, expandShapeOp);
+      return success();
+    }
+    if (storeOp) {
+      // Collapse the shape of `%value` of `tt.store` then store it.
+      SmallVector<Value, 3> newStoreOperands;
+      for (auto opr : op->getOperands()) {
+        auto oprType = cast<RankedTensorType>(opr.getType());
+        auto newOprType =
+            RankedTensorType::get(degeneratedShape, oprType.getElementType());
+        newStoreOperands.emplace_back(rewriter.create<tensor::CollapseShapeOp>(
+            loc, newOprType, opr, reassocIndices));
+      }
+      ptr = newStoreOperands[0];
+      Value value = newStoreOperands[1];
+      rewriter.create<triton::StoreOp>(loc, ptr, value, op.getCache(),
+                                       op.getEvict());
+      rewriter.eraseOp(storeOp);
+      return success();
+    }
+
+    // Default return if neither `tt.load` nor `tt.store`.
+    return failure();
+  }
+};
+
+/// Replace tensor pointer's shape of `tt.load` or `tt.store` to degenerate the
+/// one size dimension. For example:
+/// ``` mlir
+///  %ptr = tt.make_tensor_ptr [...], [...], [...] : !tt.ptr<tensor<128x1xi32>>
+///  %res = tt.load %ptr : !tt.ptr<tensor<128x1xi32>>
+/// ```
+/// is converted to:
+/// ``` mlir
+///  %ptr = tt.make_tensor_ptr [...], [...], [...] : !tt.ptr<tensor<128xi32>>
+///  %res = tt.load %ptr : !tt.ptr<tensor<128xi32>>
+///  %eps = tensor.expand_shape [...] : tensor<128xi32> into tensor<128x1xi32>
+/// ```
+template <typename OpTy>
+class CanonicalizeTtTensorPtrDimDegerationPattern
+    : public OpRewritePattern<OpTy> {
+  using OpRewritePattern<OpTy>::OpRewritePattern;
+  LogicalResult matchAndRewrite(OpTy op,
+                                PatternRewriter &rewriter) const override {
+    auto loadOp = dyn_cast<triton::LoadOp>(*op);
+    auto storeOp = dyn_cast<triton::StoreOp>(*op);
+    if (!loadOp && !storeOp) {
+      return failure();
+    }
+
+    Value ptr = op.getPtr();
+    if (!triton::isTensorPointerType(ptr.getType()))
+      return failure();
+    Type pointeeType =
+        dyn_cast<triton::PointerType>(ptr.getType()).getPointeeType();
+    RankedTensorType tensorType =
+        dyn_cast_if_present<RankedTensorType>(pointeeType);
+    if (!tensorType)
+      return failure();
+
+    // No need to handle `tt.advance` because `ptr-strength-reduction` pass will
+    // eliminate it.
+    auto makeTensorPtrOp = ptr.getDefiningOp<triton::MakeTensorPtrOp>();
+    if (!makeTensorPtrOp || op.getMask())
+      return failure();
+
+    SmallVector<int64_t> oneSizeDims =
+        getOneSizeDimIndices(tensorType.getShape());
+    SmallVector<int64_t> degeneratedDims =
+        getDegeneratableDimensions(op, oneSizeDims);
+
+    // Do NOT degenerate `tensor<1xT> or tensor<T>` into `T` as scalar math op
+    // lowering is not yet supported perfectly.
+    if ((tensorType.getRank() == oneSizeDims.size()) ||
+        tensorType.getRank() == 0)
+      return failure();
+
+    SmallVector<Value> strides(makeTensorPtrOp.getStrides());
+    SmallVector<Value> offsets(makeTensorPtrOp.getOffsets());
+
+    // The `offset` is required for calculating the base address offset, so it
+    // cannot be removed. The division of this dimension has no effect on the
+    // base address offset, meaning the `stride` or `offset` for this dimension
+    // is 0.
+    const auto checkNotDegeneratedDim = [&offsets, &strides](const int idx) {
+      auto offset = getConstantIntValue(offsets[idx]);
+      auto stride = getConstantIntValue(strides[idx]);
+      return (!offset.has_value() || *offset != 0) &&
+             (!stride.has_value() || *stride != 0);
+    };
+    degeneratedDims.erase(std::remove_if(degeneratedDims.begin(),
+                                         degeneratedDims.end(),
+                                         checkNotDegeneratedDim),
+                          degeneratedDims.end());
+    if (degeneratedDims.empty())
+      return failure();
+
+    SmallVector<int64_t> degeneratedShape(tensorType.getShape());
+    for (auto dim : llvm::reverse(degeneratedDims)) {
+      degeneratedShape.erase(degeneratedShape.begin() + dim);
+    }
+
+    SmallVector<int32_t> degeneratedBoundaryCheck =
+        getDegeneratedBoundaryCheck(op, degeneratedDims);
+
+    // Load one element block ptr then splat it to a tensor whose shape looks
+    // like `tensor<1x1x...1xT>`, otherwise create a new degenerated ptr.
+    Location loc = op.getLoc();
+    Value base = makeTensorPtrOp.getBase();
+    if (degeneratedShape.empty()) {
+      Value zeroValue =
+          rewriter.create<arith::ConstantOp>(loc, rewriter.getIndexAttr(0));
+      SmallVector<Value> zeroIdx(tensorType.getRank(), zeroValue);
+      if (loadOp) {
+        Value newLoadOp = rewriter.create<triton::LoadOp>(
+            loc, base, degeneratedBoundaryCheck, loadOp.getPadding(),
+            loadOp.getCache(), loadOp.getEvict(), loadOp.getIsVolatile());
+        Value splatOp =
+            rewriter.create<triton::SplatOp>(loc, tensorType, newLoadOp);
+        rewriter.replaceAllUsesWith(loadOp, splatOp);
+        return success();
+      } else if (storeOp) {
+        Value value = storeOp.getValue();
+        value = rewriter.create<tensor::ExtractOp>(
+            loc, tensorType.getElementType(), value, zeroIdx);
+        rewriter.create<triton::StoreOp>(
+            loc, base, value, degeneratedBoundaryCheck, storeOp.getCache(),
+            storeOp.getEvict());
+        rewriter.eraseOp(storeOp);
+        return success();
+      }
+    }
+
+    // Create new dimension degenerated `tt.make_tensor_ptr`. Here we only need
+    // to handle the `tt.make_tensor_ptr` pointer because
+    // `ptr-strength-reduction` pass will eliminate `tt.advance`.
+    SmallVector<Value> shape(makeTensorPtrOp.getShape());
+    SmallVector<int32_t> order(makeTensorPtrOp.getOrder());
+    for (auto dim : llvm::reverse(degeneratedDims)) {
+      shape.erase(shape.begin() + dim);
+      strides.erase(strides.begin() + dim);
+      offsets.erase(offsets.begin() + dim);
+      order.erase(llvm::find(order, dim));
+      for (uint64_t idx = 0; idx < order.size(); ++idx) {
+        if (order[idx] > dim)
+          order[idx] = order[idx] - 1;
+      }
+    }
+    auto newTensorType =
+        RankedTensorType::get(degeneratedShape, tensorType.getElementType());
+    uint32_t ptrAddrSpace =
+        cast<triton::PointerType>(ptr.getType()).getAddressSpace();
+    Type makeTensorPtrType =
+        triton::PointerType::get(newTensorType, ptrAddrSpace);
+    ptr = rewriter.create<triton::MakeTensorPtrOp>(
+        loc, makeTensorPtrType, base, shape, strides, offsets, order);
+
+    // Replace by new `tt.load` or `tt.store`.
+    SmallVector<ReassociationIndices> reassocIndices =
+        getReassociationsForFoldOneSizeDim(tensorType.getRank(),
+                                           degeneratedDims);
+    if (loadOp) {
+      // Load degenerated shape then expand it to original shape of `tt.load`.
+      Value mask = loadOp.getMask();
+      if (mask) {
+        auto maskType = dyn_cast_if_present<RankedTensorType>(mask.getType());
+        auto collapsedMaskType =
+            RankedTensorType::get(degeneratedShape, maskType.getElementType());
+        mask = rewriter.create<tensor::CollapseShapeOp>(loc, collapsedMaskType,
+                                                        mask, reassocIndices);
+      }
+      Value other = loadOp.getOther();
+      if (other) {
+        other = rewriter.create<tensor::CollapseShapeOp>(loc, newTensorType,
+                                                         other, reassocIndices);
+      }
+      Value newLoadOp = rewriter.create<triton::LoadOp>(
+          loc, ptr, mask, other, degeneratedBoundaryCheck, loadOp.getPadding(),
+          loadOp.getCache(), loadOp.getEvict(), loadOp.getIsVolatile());
+      auto expandShapeOp = rewriter.create<tensor::ExpandShapeOp>(
+          loc, tensorType, newLoadOp, reassocIndices);
+      rewriter.replaceAllUsesWith(loadOp, expandShapeOp);
+      return success();
+    }
+    if (storeOp) {
+      // Collapse the shape of `%value` of `tt.store` then store it.
+      Value value = storeOp.getValue();
+      auto collapsedValueType =
+          RankedTensorType::get(degeneratedShape, tensorType.getElementType());
+      value = rewriter.create<tensor::CollapseShapeOp>(loc, collapsedValueType,
+                                                       value, reassocIndices);
+      rewriter.create<triton::StoreOp>(loc, ptr, value,
+                                       degeneratedBoundaryCheck, op.getCache(),
+                                       op.getEvict());
+      rewriter.eraseOp(storeOp);
+      return success();
+    }
+    // Default return if neither `tt.load` nor `tt.store`.
+    return failure();
+  }
+};
+
+/// Create a smaller shape `tt.make_tensor_ptr` to degenerate the constancy of
+/// the block pointer then broadcast the smaller result of `tt.load` to
+/// original shape. For example:
+/// ``` mlir
+/// %0 = tt.make_tensor_ptr %arg0, [%c64_i64, %c64_i64, %c64_i64],
+///                                [%c0_i64, %c8_i64, %c0_i64],
+///                                [%c0_i32, %c0_i32, %c0_i32]
+///      {order = array<i32: 2, 0, 1>} : !tt.ptr<tensor<64x64x64xf32>>
+/// %1 = tt.load %0 : !tt.ptr<tensor<64x64x64xf32>>
+/// ```
+/// is converted to:
+/// ``` mlir
+/// %0 = tt.make_tensor_ptr %arg0, [%c64_i64],
+///                                [%c8_i64],
+///                                [%c0_i32]
+///      {order = array<i32: 0>} : !tt.ptr<tensor<64xf32>>
+/// %1 = tt.load %0 : !tt.ptr<tensor<64xf32>>
+/// %expanded = tensor.expand_shape %1 [[0, 1, 2]] : tensor<64xf32> into
+///             tensor<1x64x1xf32>
+/// %2 = tt.broadcast %expanded : tensor<1x64x1xf32> -> tensor<64x64x64xf32>
+/// ```
+///
+/// If boundary check is necessary, set the stride's value to one after
+/// constancy coalesced. This pattern is pre-requisite for `triton-to-linalg`
+/// conversion as the conversion will treat one size dimension without boundary
+/// check as broadcastable. For Example:
+/// ``` mlir
+///  %ptr = tt.make_tensor_ptr [...], [0, 0], [...] : !tt.ptr<tensor<16x16xi32>>
+///  %res = tt.load %ptr {boundaryCheck = <1>} : !tt.ptr<tensor<16x16xi32>>
+/// ```
+/// is converted to:
+/// ``` mlir
+///  %ptr = tt.make_tensor_ptr [...], [0, 1], [...] : !tt.ptr<tensor<1x1xi32>>
+///  %res = tt.load %ptr {boundaryCheck = <1>} : !tt.ptr<tensor<1x1xi32>>
+///  %bct = tt.broadcast %res : tensor<1x1xi32> -> tensor<16x16xi32>
+/// ```
+template <typename OpTy>
+class CanonicalizeTtTensorPtrConstancyDegerationPattern
+    : public OpRewritePattern<OpTy> {
+  using OpRewritePattern<OpTy>::OpRewritePattern;
+  LogicalResult matchAndRewrite(OpTy op,
+                                PatternRewriter &rewriter) const override {
+    auto loadOp = dyn_cast<triton::LoadOp>(*op);
+    auto storeOp = dyn_cast<triton::StoreOp>(*op);
+    if (!loadOp && !storeOp) {
+      return failure();
+    }
+
+    Value ptr = op.getPtr();
+    if (!triton::isTensorPointerType(ptr.getType()))
+      return failure();
+    Type pointeeType =
+        dyn_cast<triton::PointerType>(ptr.getType()).getPointeeType();
+    RankedTensorType tensorType =
+        dyn_cast_if_present<RankedTensorType>(pointeeType);
+    if (!tensorType)
+      return failure();
+
+    // No need to handle `tt.advance` because `ptr-strength-reduction` pass will
+    // eliminate it.
+    auto makeTensorPtrOp = ptr.getDefiningOp<triton::MakeTensorPtrOp>();
+    if (!makeTensorPtrOp || op.getMask())
+      return failure();
+
+    // Check if `%ptr` is coalescable and calculate the coalesced shape.
+    ArrayRef<int64_t> tensorShape = tensorType.getShape();
+    SmallVector<int64_t> coalescedShape(tensorShape);
+    SmallVector<int64_t> coalescedDims;
+    SmallVector<Value> blockPtrStrides = makeTensorPtrOp.getStrides();
+    for (int64_t dim = 0; dim < tensorType.getRank(); ++dim) {
+      llvm::APInt strideVal;
+      if (!matchPattern(blockPtrStrides[dim], m_ConstantInt(&strideVal)))
+        continue;
+      if (strideVal.getSExtValue() == 0 && tensorShape[dim] != 1) {
+        coalescedDims.push_back(dim);
+        coalescedShape[dim] = 1;
+      }
+    }
+    if (coalescedDims.empty())
+      return failure();
+
+    // Set boundary checked dimension's stride value to one.
+    Location loc = op.getLoc();
+    std::optional<ArrayRef<int32_t>> boundaryCheck = op.getBoundaryCheck();
+    if (boundaryCheck.has_value() && !boundaryCheck.value().empty()) {
+      for (int64_t dim : coalescedDims) {
+        if (llvm::any_of(boundaryCheck.value(),
+                         [&dim](int32_t bc) { return dim == bc; })) {
+          blockPtrStrides[dim] = rewriter.create<arith::ConstantIntOp>(
+              loc, 1, rewriter.getI64Type());
+        }
+      }
+    }
+
+    // Create new `tt.make_tensor_ptr` to coalesce the constancy shape.
+    uint32_t ptrAddrSpace =
+        cast<triton::PointerType>(ptr.getType()).getAddressSpace();
+    auto newPtrType =
+        RankedTensorType::get(coalescedShape, tensorType.getElementType());
+    Type newMakeTensorPtrType =
+        triton::PointerType::get(newPtrType, ptrAddrSpace);
+    ptr = rewriter.create<triton::MakeTensorPtrOp>(
+        loc, newMakeTensorPtrType, makeTensorPtrOp.getBase(),
+        makeTensorPtrOp.getShape(), blockPtrStrides,
+        makeTensorPtrOp.getOffsets(), makeTensorPtrOp.getOrder());
+
+    // Create new coalesced shape `tt.load` or `tt.store`.
+    if (loadOp) {
+      // Load coalesced shape then expand it to original shape of `tt.load`.
+      auto newLoadOp = rewriter.create<triton::LoadOp>(
+          loc, ptr, boundaryCheck.value(), loadOp.getPadding(),
+          loadOp.getCache(), loadOp.getEvict(), loadOp.getIsVolatile());
+      auto broadcastOp =
+          rewriter.create<triton::BroadcastOp>(loc, tensorType, newLoadOp);
+      rewriter.replaceAllUsesWith(loadOp, broadcastOp);
+      return success();
+    }
+    if (storeOp) {
+      // Coalesce the shape of `%value` of `tt.store` then store it.
+      Value value = storeOp.getValue();
+      IntegerAttr zeroAttr = rewriter.getIndexAttr(0);
+      IntegerAttr oneAttr = rewriter.getIndexAttr(1);
+      SmallVector<OpFoldResult> offsets(tensorType.getRank(), zeroAttr);
+      SmallVector<OpFoldResult> sizes(tensorType.getRank(), oneAttr);
+      SmallVector<OpFoldResult> strides(tensorType.getRank(), oneAttr);
+      for (auto [idx, size] : llvm::enumerate(sizes)) {
+        sizes[idx] = rewriter.getIndexAttr(coalescedShape[idx]);
+      }
+      for (int64_t dim = 0; dim < tensorType.getRank(); ++dim) {
+        strides[dim] = rewriter.getIndexAttr(tensorType.getShape()[dim] /
+                                             coalescedShape[dim]);
+      }
+      value = rewriter.create<tensor::ExtractSliceOp>(loc, value, offsets,
+                                                      sizes, strides);
+      rewriter.create<triton::StoreOp>(loc, ptr, value, boundaryCheck.value(),
+                                       op.getCache(), op.getEvict());
+      rewriter.eraseOp(storeOp);
+      return success();
+    }
+
+    // Default return if neither `tt.load` nor `tt.store`.
+    return failure();
   }
 };
 
@@ -753,11 +1252,18 @@ struct CanonicalizeTritonPass
     });
 
     RewritePatternSet patterns(&ctx);
-    patterns.insert<CanonicalizeTtBroadCastPattern, CanonicalizeTtLoadPattern,
-                    CanonicalizeTtMaskAccessPattern<triton::LoadOp>,
-                    CanonicalizeTtMaskAccessPattern<triton::StoreOp>,
-                    CanonicalizeTtMaskAccessPattern<triton::AtomicRMWOp>,
-                    CanonicalizeTtAssertPattern>(&ctx);
+    patterns.insert<
+        CanonicalizeTtBroadCastPattern, CanonicalizeTtLoadPattern,
+        CanonicalizeTtMaskAccessPattern<triton::LoadOp>,
+        CanonicalizeTtMaskAccessPattern<triton::StoreOp>,
+        CanonicalizeTtMaskAccessPattern<triton::AtomicRMWOp>,
+        CanonicalizeTtAssertPattern,
+        CanonicalizeTtPtrDimDegerationPattern<triton::LoadOp>,
+        CanonicalizeTtPtrDimDegerationPattern<triton::StoreOp>,
+        CanonicalizeTtTensorPtrConstancyDegerationPattern<triton::LoadOp>,
+        CanonicalizeTtTensorPtrConstancyDegerationPattern<triton::StoreOp>,
+        CanonicalizeTtTensorPtrDimDegerationPattern<triton::LoadOp>,
+        CanonicalizeTtTensorPtrDimDegerationPattern<triton::StoreOp>>(&ctx);
 
     if (failed(applyPatternsAndFoldGreedily(getOperation(),
                                             std::move(patterns)))) {

@@ -364,3 +364,55 @@ func.func @math_tanh_tensor_partial_static(%arg0: tensor<128x?xf32>) {
   %0 = math.tanh %arg0 : tensor<128x?xf32>
   return
 }
+
+// -----
+func.func @math_powf_scalar(%arg0: f32, %arg1: f32) {
+  // CHECK: math.powf %arg0, %arg1 : f32
+  // CHECK-NOT: linalg.map
+  %0 = math.powf %arg0, %arg1 : f32
+  return
+}
+
+// -----
+func.func @math_fpowi_scalar(%arg0: f32, %arg1: i32) {
+  // CHECK: math.fpowi %arg0, %arg1 : f32, i32
+  // CHECK-NOT: linalg.map
+  %0 = math.fpowi %arg0, %arg1 : f32, i32
+  return
+}
+
+// -----
+func.func @math_powf_tensor_staic(%arg0: tensor<128xf32>, %arg1: tensor<128xf32>) {
+  // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<128xf32>
+  // CHECK: %[[MAPPED:.*]] = linalg.map { math.powf } ins(%arg0, %arg1 : tensor<128xf32>, tensor<128xf32>) outs(%[[INIT]] : tensor<128xf32>)
+  %0 = math.powf %arg0, %arg1 : tensor<128xf32>
+  return
+}
+
+// -----
+func.func @math_fpowi_tensor_staic(%arg0: tensor<128xf32>, %arg1: tensor<128xi32>) {
+  // CHECK: %[[INIT:.*]] = tensor.empty() : tensor<128xf32>
+  // CHECK: %[[MAPPED:.*]] = linalg.map { math.fpowi } ins(%arg0, %arg1 : tensor<128xf32>, tensor<128xi32>) outs(%[[INIT]] : tensor<128xf32>)
+  %0 = math.fpowi %arg0, %arg1 : tensor<128xf32>, tensor<128xi32>
+  return
+}
+
+// -----
+func.func @math_powf_tensor_partial_static(%arg0: tensor<128x?xf32>, %arg1: tensor<128x?xf32>) {
+  // CHECK: %[[CST:.*]] = arith.constant 1 : index
+  // CHECK: %[[DYNAMIC_DIM:.*]] = tensor.dim %arg0, %[[CST]] : tensor<128x?xf32>
+  // CHECK: %[[INIT:.*]] = tensor.empty(%[[DYNAMIC_DIM]]) : tensor<128x?xf32>
+  // CHECK: %[[MAPPED:.*]] = linalg.map { math.powf } ins(%arg0, %arg1 : tensor<128x?xf32>, tensor<128x?xf32>) outs(%[[INIT]] : tensor<128x?xf32>)
+  %0 = math.powf %arg0, %arg1 : tensor<128x?xf32>
+  return
+}
+
+// -----
+func.func @math_fpowi_tensor_partial_static(%arg0: tensor<128x?xf32>, %arg1: tensor<128x?xi32>) {
+  // CHECK: %[[CST:.*]] = arith.constant 1 : index
+  // CHECK: %[[DYNAMIC_DIM:.*]] = tensor.dim %arg0, %[[CST]] : tensor<128x?xf32>
+  // CHECK: %[[INIT:.*]] = tensor.empty(%[[DYNAMIC_DIM]]) : tensor<128x?xf32>
+  // CHECK: %[[MAPPED:.*]] = linalg.map { math.fpowi } ins(%arg0, %arg1 : tensor<128x?xf32>, tensor<128x?xi32>) outs(%[[INIT]] : tensor<128x?xf32>)
+  %0 = math.fpowi %arg0, %arg1 : tensor<128x?xf32>, tensor<128x?xi32>
+  return
+}

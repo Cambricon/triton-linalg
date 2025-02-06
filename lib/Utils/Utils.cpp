@@ -71,6 +71,12 @@ bool mlir::triton::createReassociationMaps(
         }
       }
     }
+    // If the reassociationMap for the currCollapseDim is empty, clear all
+    // mappings and return false.
+    if (reassociationMap[currCollapseDim].empty()) {
+      reassociationMap.clear();
+      return false;
+    }
     currCollapseDim++;
   }
   // If both iterators didn't reach the end, we have leftover dimentions which
@@ -183,6 +189,32 @@ OpFoldResult triton::mulOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
   auto lhsValue = castToIndexType(builder, loc, lhs);
   auto rhsValue = castToIndexType(builder, loc, rhs);
   return builder.create<arith::MulIOp>(loc, lhsValue, rhsValue).getResult();
+}
+
+OpFoldResult triton::divOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
+                             OpBuilder &builder) {
+  auto lhsIntAttr = getConstantIntValue(lhs);
+  auto rhsIntAttr = getConstantIntValue(rhs);
+
+  // Shortcuts for special cases.
+  if (lhsIntAttr) {
+    if (lhsIntAttr.value() == 0)
+      return lhs;
+  }
+  if (rhsIntAttr) {
+    assert(rhsIntAttr.value() != 0 && "the divisor cannot be 0");
+    if (rhsIntAttr == 1)
+      return lhs;
+  }
+
+  // Both lhs and rhs are constants.
+  if (lhsIntAttr && rhsIntAttr)
+    return builder.getIndexAttr(lhsIntAttr.value() / rhsIntAttr.value());
+
+  // Otherwise, need to create instructions to calculate new attribute value.
+  auto lhsValue = castToIndexType(builder, loc, lhs);
+  auto rhsValue = castToIndexType(builder, loc, rhs);
+  return builder.create<arith::DivSIOp>(loc, lhsValue, rhsValue).getResult();
 }
 
 OpFoldResult triton::maxOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,

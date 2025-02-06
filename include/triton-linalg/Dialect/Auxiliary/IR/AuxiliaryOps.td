@@ -246,7 +246,7 @@ def PrintOp : Aux_Op<"print", [DeclareOpInterfaceMethods<MemoryEffectsOpInterfac
     ```
     %0 = aux.print(%data : tensor<128xi8>) -> (tensor<128xi8>)
     %1 = aux.print(%data : tensor<128xi8>) {format = "%d"} -> (tensor<128xi8>)
-    
+
     aux.print(%src: memref<128x16xf16, 101>) {format = "src: %hf\n"}
     aux.print(%src: memref<128x16xf32>)
 
@@ -268,7 +268,7 @@ def PrintOp : Aux_Op<"print", [DeclareOpInterfaceMethods<MemoryEffectsOpInterfac
           return isa<::mlir::MemRefType>(opOperand.getType());
         });
     }
-    
+
     ShapedType getInitType() {
       return cast<ShapedType>(getOperands()[0].getType());;
     }
@@ -293,7 +293,7 @@ def ScalarPrintOp : Aux_Op<"scalar.print", [DeclareOpInterfaceMethods<MemoryEffe
     Example:
     ```
     aux.scalar.print {format = "print test"}
-    
+
     aux.scalar.print(%data : i32)
     aux.scalar.print(%data : i32) {format = "data: %d\n"}
     aux.scalar.print(%data : i32) {format = "data: "}
@@ -304,6 +304,38 @@ def ScalarPrintOp : Aux_Op<"scalar.print", [DeclareOpInterfaceMethods<MemoryEffe
   let assemblyFormat = [{
     (`(` $values^ `:` type($values) `)` )?
     attr-dict
+  }];
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// BitcastExtOp
+//===----------------------------------------------------------------------===//
+
+def TensorOrMemref :
+    AnyTypeOf<[AnyMemRef, AnyRankedTensor], "", "::mlir::ShapedType">;
+
+// BitcastExt operation can support conversion between data types with different bit widths without
+// performing an actual data type conversion. It simply reinterprets the data as another type.
+def BitcastExtOp : Aux_Op<"bitcast_ext", [
+        DeclareOpInterfaceMethods<MemoryEffectsOpInterface>,
+        DestinationStyleOpInterface]> {
+  let summary = "bitcast between values of not equal bit width";
+  let description = [{
+    Bitcast an integer or floating point value to an integer or floating point
+    value of not equal bit width.
+  }];
+
+  let arguments = (ins TensorOrMemref:$in, TensorOrMemref:$out);
+  let results = (outs Variadic<AnyTensor>:$result);
+  let assemblyFormat = [{
+    $in `,` $out `:`
+    type($in) `to` type($out)
+    attr-dict
+    (`->` type($result)^)?
+  }];
+  let extraClassDeclaration = [{
+    MutableOperandRange getDpsInitsMutable() { return getOutMutable(); }
   }];
   let hasVerifier = 1;
 }

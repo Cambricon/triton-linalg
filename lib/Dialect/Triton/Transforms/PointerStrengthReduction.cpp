@@ -134,8 +134,7 @@ static SmallVector<Value> reconstructPtrInBlock(Block *block, unsigned argIdx,
       offsets.push_back(val);
     }
     auto newPtr = rewriter.create<triton::MakeTensorPtrOp>(
-        loc, rawArgVal.getType(), info.ptr(), sizes, strides, offsets,
-        info.order());
+        loc, rawArgVal.getType(), ptr, sizes, strides, offsets, info.order());
     rewriter.replaceAllUsesWith(rawArgVal, newPtr);
   }
   return ret;
@@ -569,6 +568,7 @@ private:
   createOpWithNewResultTypes(PatternRewriter &rewriter, Operation *branchOp,
                              ValueRange valueRange = {},
                              TypeRange resultTypes = {}) const {
+    rewriter.setInsertionPointAfter(branchOp);
     return llvm::TypeSwitch<Operation *, FailureOr<Operation *>>(branchOp)
         .Case([&](scf::ForOp op) {
           auto newOp = rewriter.create<scf::ForOp>(
@@ -794,6 +794,7 @@ private:
           newOperands.push_back(branchOp->getOperand(tempIdx));
           if (resultIdx == idx) {
             auto packedInfo = packPtrInfo(*info, /* ignorePtr = */ true);
+            newOperands.push_back((*info).ptr());
             for (auto val : packedInfo) {
               newOperands.push_back(val);
             }
@@ -806,7 +807,7 @@ private:
         unsigned stepSize = 0;
         for (auto &block : (*newBranchOp)->getRegion(0).getBlocks()) {
           auto rets = reconstructPtrInBlock(&block, argIdx, argIdx + 1, *info,
-                                            rewriter, /*hasPtr=*/false);
+                                            rewriter, /*hasPtr=*/true);
           stepSize = rets.size();
           auto terminatorOp = block.getTerminator();
           assert(terminatorOp);
@@ -862,7 +863,7 @@ private:
           assert(terminatorOp);
           auto info = ptrInfoCache[cacheIdx++];
           block.eraseArgument(argIdx);
-          auto packedInfo = packPtrInfo(info, /* ignorePtr = */ true);
+          auto packedInfo = packPtrInfo(info, /* ignorePtr = */ false);
           packedInfoSize = packedInfo.size();
           terminatorOp->setOperands(resultIdx + 1, packedInfoSize, packedInfo);
           terminatorOp->eraseOperand(resultIdx);
@@ -884,7 +885,7 @@ private:
         auto rawPtr = branchOp->getResult(resultIdx);
         reconstructAfterOp(*newBranchOp, rawPtr,
                            /* startIdx = */ resultIdx,
-                           /* hasPtr = */ false, info, rewriter);
+                           /* hasPtr = */ true, info, rewriter);
 
         for (unsigned retIdx = 0; retIdx < branchOp->getNumResults();
              retIdx++) {
@@ -1145,13 +1146,12 @@ LogicalResult PtrWithCFGStrengthReductionPattern<RegionBranchOpInterface>::
     if (isTritonPtrWithTensor(argVal.getType())) {
       auto info = getPreviousPtrInfo(argVal, rewriter);
       if (!failed(info) && regionArgHasUse(&op.getBefore(), initIter)) {
-        auto packedInfo = packPtrInfo(*info, /* ignorePtr = */ true);
+        auto packedInfo = packPtrInfo(*info, /* ignorePtr = */ false);
         op->insertOperands(initIter + 1, packedInfo);
         // Change before region.
         auto &blockBefore = op.getBefore().front();
-        auto rets =
-            reconstructPtrInBlock(&blockBefore, initIter, initIter + 1, *info,
-                                  rewriter, /* hasPtr = */ false);
+        auto rets = reconstructPtrInBlock(&blockBefore, initIter, initIter + 1,
+                                          *info, rewriter, /* hasPtr = */ true);
         // Change after region.
         auto yieldOp = op.getYieldOp();
         yieldOp->insertOperands(initIter + 1, rets);
@@ -1163,7 +1163,7 @@ LogicalResult PtrWithCFGStrengthReductionPattern<RegionBranchOpInterface>::
         auto yieldInfo =
             getPreviousPtrInfo(yieldOp->getOperand(initIter), rewriter);
         if (!failed(yieldInfo)) {
-          auto packedInfo = packPtrInfo(*yieldInfo, /* ignorePtr = */ true);
+          auto packedInfo = packPtrInfo(*yieldInfo, /* ignorePtr = */ false);
           yieldOp->eraseOperands(initIter, 1 + packedInfo.size());
           yieldOp->insertOperands(initIter, packedInfo);
           // Remove ptr in before block and operands.
@@ -1184,7 +1184,7 @@ LogicalResult PtrWithCFGStrengthReductionPattern<RegionBranchOpInterface>::
       if (!failed(info)) {
         // Remove redundant operand and result.
         SmallVector<Type, 4> newRetTypes;
-        auto packedInfo = packPtrInfo(*info, /* ignorePtr = */ true);
+        auto packedInfo = packPtrInfo(*info, /* ignorePtr = */ false);
         for (unsigned idx = 1; idx < condOp->getNumOperands(); idx++) {
           if (argIter == idx) {
             for (auto val : packedInfo) {
@@ -1204,15 +1204,14 @@ LogicalResult PtrWithCFGStrengthReductionPattern<RegionBranchOpInterface>::
         // Process after region.
         unsigned bArgIdx = argIter - 1; // Minus first cond arg.
         auto &afterBlock = newWhileOp.getAfter().front();
-        auto rets =
-            reconstructPtrInBlock(&afterBlock, bArgIdx, bArgIdx + 1, *info,
-                                  rewriter, /* hasPtr = */ false);
+        auto rets = reconstructPtrInBlock(&afterBlock, bArgIdx, bArgIdx + 1,
+                                          *info, rewriter, /* hasPtr = */ true);
         afterBlock.eraseArgument(bArgIdx);
         // Reconstruct output ptr after op.
         auto rawRetPtr = op->getOpResult(bArgIdx);
         reconstructAfterOp(newWhileOp, rawRetPtr,
                            /* startIdx = */ bArgIdx,
-                           /* hasPtr = */ false, *info, rewriter);
+                           /* hasPtr = */ true, *info, rewriter);
         // Replace all uses after while op.
         for (unsigned retIdx = 0; retIdx < op->getNumResults(); retIdx++) {
           if (retIdx < bArgIdx) {

@@ -7,6 +7,7 @@
 #define TRITON_LINALG_DIALECT_UTILS_SHAPEUTILS_H
 #include <stdint.h>
 
+#include "mlir/Dialect/Utils/ReshapeOpsUtils.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/Location.h"
 #include "mlir/IR/OpDefinition.h"
@@ -195,6 +196,26 @@ Value dropUnitFirstDim(OpBuilder &b, Location loc, Value value);
 /// ```
 Value collapseLastNDimsToOneDim(OpBuilder &b, Location loc, Value value,
                                 int64_t n, bool exceptLastDim = false);
+
+/// Collect the one-size dim indices from shapeVec.
+///
+/// Example1:
+/// input shapeVec: [2, ?, 4, 3, ?],
+/// output oneSizeDimIndices: [].
+///
+/// Example2:
+/// input shapeVec: [2, ?, 1, 4, 1, 3, ?],
+/// output oneSizeDimIndices: [2, 4].
+SmallVector<int64_t> getOneSizeDimIndices(ArrayRef<int64_t> shapeVec);
+
+/// Get the reassociation to build collapseShapeOp, which is used to collapse
+/// all one-size dims in operand shape.
+/// For example, if the operand shape is <32x1x?x1x1x8x16x1x?x1>,
+/// input: operandRank = 10, oneSizeDimIndices = [1, 3, 4, 7, 9];
+/// output: resultIndices= [[0, 1], [2, 3, 4], [5], [6, 7], [8, 9]].
+SmallVector<ReassociationIndices>
+getReassociationsForFoldOneSizeDim(int64_t operandRank,
+                                   ArrayRef<int64_t> oneSizeDimIndices);
 
 } // namespace triton
 } // namespace mlir
