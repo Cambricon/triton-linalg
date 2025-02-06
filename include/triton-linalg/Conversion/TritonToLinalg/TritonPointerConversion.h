@@ -153,7 +153,7 @@ public:
   int64_t getBroadcastSize() const { return broadcastSize; }
   int64_t getDimSize() const { return dimSize; }
   bool isBroadcastDim() const {
-    return getContigSize() == 1 && getDimSize() != 1;
+    return getContigSize() == 1 && getKind() == Kind::BROADCAST;
   }
 
 private:
@@ -266,8 +266,10 @@ protected:
   TritonPtrLoadStoreOpConversionBase(mlir::DataFlowSolver &solver)
       : solver{solver} {}
 
-  SmallVector<DimInfo> getDimInfos(const triton::AxisInfoExt *axisInfo,
-                                   ArrayRef<int64_t> tensorShape) const;
+  SmallVector<DimInfo>
+  getDimInfos(const triton::AxisInfoExt *axisInfo,
+              ArrayRef<int64_t> tensorShape,
+              const triton::MaskTracker &maskTracker) const;
   const triton::AxisInfoExt *getAxisInfo(Value ptr) const;
   SmallVector<int64_t> getPermutations(const triton::AxisInfoExt *axisInfo,
                                        ArrayRef<int64_t> tensorShape) const;
@@ -374,8 +376,9 @@ protected:
                      const TensorPointerMetaInfoTracker &tracker,
                      ConversionPatternRewriter &rewriter) const;
 
-  SmallVector<DimInfo> getDimInfos(ArrayRef<OpFoldResult> strides,
-                                   ArrayRef<int64_t> tensorShape) const;
+  SmallVector<DimInfo>
+  getDimInfos(ArrayRef<OpFoldResult> strides, ArrayRef<int64_t> tensorShape,
+              std::optional<ArrayRef<int>> boundaryCheck = std::nullopt) const;
 };
 
 } // namespace triton

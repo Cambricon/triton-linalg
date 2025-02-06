@@ -552,6 +552,7 @@ func.func @scan_tensor(%input: tensor<16x32x64xf32>,
       outs(%output, %init: tensor<16x32x64xf32>, tensor<16x64xf32>)
       dimensions = [1]
       reverse = false
+      inclusive = true
       {
       ^bb0(%in: f32, %out: f32, %ini: f32):
         %0 = arith.addf %ini, %in: f32
@@ -570,11 +571,96 @@ func.func @scan_memref(%input: memref<16x32x64xf32>,
       outs(%output, %init: memref<16x32x64xf32>, memref<16x64xf32>)
       dimensions = [1]
       reverse = false
+      inclusive = true
       {
       ^bb0(%in: f32, %out: f32, %ini: f32):
         %0 = arith.addf %ini, %in: f32
         linalg_ext.yield %0, %0: f32, f32
       } -> memref<16x32x64xf32>, memref<16x64xf32>
+  func.return
+}
+
+// -----
+// CHECK: linalg_ext.scan
+func.func @scan_0dim_tensor(%input: tensor<f32>,
+                       %output: tensor<f32>,
+                       %init: tensor<f32>) -> tensor<f32> {
+  %scanned:2 = linalg_ext.scan
+      ins(%input: tensor<f32>)
+      outs(%output, %init: tensor<f32>, tensor<f32>)
+      dimensions = []
+      reverse = false
+      inclusive = true
+      {
+      ^bb0(%in: f32, %out: f32, %ini: f32):
+        %0 = arith.addf %ini, %in: f32
+        linalg_ext.yield %0, %0: f32, f32
+      } -> tensor<f32>, tensor<f32>
+  func.return %scanned#0 : tensor<f32>
+}
+
+// -----
+// CHECK: linalg_ext.scan
+func.func @scan_0dim_memref(%input: memref<f32>,
+                       %output: memref<f32>,
+                       %init: memref<f32>) {
+  linalg_ext.scan
+      ins(%input: memref<f32>)
+      outs(%output, %init: memref<f32>, memref<f32>)
+      dimensions = []
+      reverse = false
+      inclusive = true
+      {
+      ^bb0(%in: f32, %out: f32, %ini: f32):
+        %0 = arith.addf %ini, %in: f32
+        linalg_ext.yield %0, %0: f32, f32
+      } -> memref<f32>, memref<f32>
+  func.return
+}
+
+// -----
+// CHECK: linalg_ext.scan
+func.func @scan_multi_input_tensor(%input0: tensor<2x3xf32>,
+                                   %input1: tensor<2x3xf32>,
+                                   %output0: tensor<2x3xf32>,
+                                   %output1: tensor<2x3xf32>,
+                                   %init0: tensor<2xf32>,
+                                   %init1: tensor<2xf32>) -> (tensor<2x3xf32>, tensor<2x3xf32>) {
+  %scanned:4 = linalg_ext.scan
+      ins(%input0, %input1: tensor<2x3xf32>, tensor<2x3xf32>)
+      outs(%output0, %output1, %init0, %init1: tensor<2x3xf32>, tensor<2x3xf32>, tensor<2xf32>, tensor<2xf32>)
+      dimensions = [1]
+      reverse = false
+      inclusive = true
+      {
+      ^bb0(%in0: f32, %in1: f32, %out0: f32, %out1: f32, %ini0: f32, %ini1: f32):
+        %0 = arith.addf %ini0, %in0: f32
+        %1 = arith.subf %ini1, %in1: f32
+        linalg_ext.yield %0, %1, %0, %1: f32, f32, f32, f32
+      } -> tensor<2x3xf32>, tensor<2x3xf32>, tensor<2xf32>, tensor<2xf32>
+  func.return %scanned#0, %scanned#1 : tensor<2x3xf32>, tensor<2x3xf32>
+}
+
+// -----
+// CHECK: linalg_ext.scan
+func.func @scan_multi_input_memref(%input0: memref<2x3xf32>,
+                                   %input1: memref<2x3xf32>,
+                                   %output0: memref<2x3xf32>,
+                                   %output1: memref<2x3xf32>,
+                                   %init0: memref<2xf32>,
+                                   %init1: memref<2xf32>) {
+  %scanned:4 = linalg_ext.scan
+      ins(%input0, %input1: memref<2x3xf32>, memref<2x3xf32>)
+      outs(%output0, %output1, %init0, %init1: memref<2x3xf32>, memref<2x3xf32>, memref<2xf32>, memref<2xf32>)
+      dimensions = [1]
+      reverse = false
+      inclusive = true
+      {
+      ^bb0(%in0: f32, %in1: f32, %out0: f32, %out1: f32, %ini0: f32, %ini1: f32):
+        %0 = arith.addf %ini0, %in0: f32
+        %1 = arith.subf %ini1, %in1: f32
+        linalg_ext.yield %0, %1, %0, %1: f32, f32, f32, f32
+      } -> memref<2x3xf32>, memref<2x3xf32>, memref<2xf32>, memref<2xf32>
   func.return
 }
 
@@ -635,5 +721,122 @@ func.func @ext_argmin(%input_value: tensor<16x128xf32>, %input_index: tensor<16x
                     %6 = arith.select %4, %arg3, %arg5 : i32
                     linalg.yield %5, %6 : f32, i32
                   }
+  func.return
+}
+
+// -----
+// CHECK: linalg_ext.argmax
+func.func @ext_argmax_unsigned(%input_value: tensor<16x128xi32>, %input_index: tensor<16x128xi32>, %output_value: tensor<128xi32>, %output_index: tensor<128xi32>) {
+  %argmax:2 = linalg_ext.argmax
+                  ins(%input_value, %input_index : tensor<16x128xi32>, tensor<16x128xi32>)
+                  outs(%output_value, %output_index : tensor<128xi32>, tensor<128xi32>)
+                  dimensions = [0]
+                  (%arg2: i32, %arg3: i32, %arg4: i32, %arg5: i32) {
+                    %0 = arith.cmpi "eq", %arg2, %arg4 : i32
+                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
+                    %2 = arith.andi %0, %1 : i1
+                    %3 = arith.cmpi "sgt", %arg2, %arg4 : i32
+                    %4 = arith.ori %3, %2 : i1
+                    %5 = arith.select %4, %arg2, %arg4 : i32
+                    %6 = arith.select %4, %arg3, %arg5 : i32
+                    linalg.yield %5, %6 : i32, i32
+                  }
+  func.return
+}
+
+// -----
+// CHECK: linalg_ext.argmin
+func.func @ext_argmin_unsigned(%input_value: tensor<16x128xi32>, %input_index: tensor<16x128xi32>, %output_value: tensor<128xi32>, %output_index: tensor<128xi32>) {
+  %argmin:2 = linalg_ext.argmin
+                  ins(%input_value, %input_index : tensor<16x128xi32>, tensor<16x128xi32>)
+                  outs(%output_value, %output_index : tensor<128xi32>, tensor<128xi32>)
+                  dimensions = [0]
+                  (%arg2: i32, %arg3: i32, %arg4: i32, %arg5: i32) {
+                    %0 = arith.cmpi "eq", %arg2, %arg4 : i32
+                    %1 = arith.cmpi "slt", %arg3, %arg5 : i32
+                    %2 = arith.andi %0, %1 : i1
+                    %3 = arith.cmpi "slt", %arg2, %arg4 : i32
+                    %4 = arith.ori %3, %2 : i1
+                    %5 = arith.select %4, %arg2, %arg4 : i32
+                    %6 = arith.select %4, %arg3, %arg5 : i32
+                    linalg.yield %5, %6 : i32, i32
+                  }
+  func.return
+}
+
+// -----
+// CHECK: linalg_ext.reduce_sum
+func.func @ext_reduce_sum(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  %result = linalg_ext.reduce_sum ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [0]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.addf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
+  func.return
+}
+
+// -----
+// CHECK: linalg_ext.reduce_max
+func.func @ext_reduce_max(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  %result = linalg_ext.reduce_max ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [0]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.maxnumf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
+  func.return
+}
+
+// -----
+// CHECK: linalg_ext.reduce_min
+func.func @ext_reduce_min(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  %result = linalg_ext.reduce_min ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [0]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.minnumf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
+  func.return
+}
+
+// -----
+// CHECK: linalg_ext.reduce_max
+func.func @ext_reduce_max_unsigned(%input: tensor<16x128xi32>, %output: tensor<128xi32>) {
+  %result = linalg_ext.reduce_max ins(%input : tensor<16x128xi32>) outs(%output : tensor<128xi32>) dimensions = [0]
+                (%arg0: i32, %arg1: i32) {
+                  %0 = arith.maxsi %arg0, %arg1 : i32
+                  linalg.yield %0 : i32
+                }
+  func.return
+}
+
+// -----
+// CHECK: linalg_ext.reduce_min
+func.func @ext_reduce_min_unsigned(%input: tensor<16x128xi32>, %output: tensor<128xi32>) {
+  %result = linalg_ext.reduce_min ins(%input : tensor<16x128xi32>) outs(%output : tensor<128xi32>) dimensions = [0]
+                (%arg0: i32, %arg1: i32) {
+                  %0 = arith.minsi %arg0, %arg1 : i32
+                  linalg.yield %0 : i32
+                }
+  func.return
+}
+
+// -----
+// CHECK: linalg_ext.reduce_max_nan
+func.func @ext_reduce_max_nan(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  %result = linalg_ext.reduce_max_nan ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [0]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.maximumf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
+  func.return
+}
+
+// -----
+// CHECK: linalg_ext.reduce_min_nan
+func.func @ext_reduce_min_nan(%input: tensor<16x128xf32>, %output: tensor<128xf32>) {
+  %result = linalg_ext.reduce_min_nan ins(%input : tensor<16x128xf32>) outs(%output : tensor<128xf32>) dimensions = [0]
+                (%arg0: f32, %arg1: f32) {
+                  %0 = arith.minimumf %arg0, %arg1 : f32
+                  linalg.yield %0 : f32
+                }
   func.return
 }

@@ -51,6 +51,12 @@ OpFoldResult subOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
 OpFoldResult mulOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
                      OpBuilder &rewriter);
 
+/// Produce result = div(lhs, rhs). If both OFRs are Integer Attributes, result
+/// is an Integer Attribute. Otherwise, insert the arith.divsi instruction if
+/// needed and use its result value.
+OpFoldResult divOFRs(OpFoldResult lhs, OpFoldResult rhs, Location loc,
+                     OpBuilder &rewriter);
+
 /// Produce result = min(lhs, rhs). If both OFRs are Integer Attributes, result
 /// is an Integer Attribute. Otherwise, insert the arith.minsi instruction if
 /// needed and use its result value.

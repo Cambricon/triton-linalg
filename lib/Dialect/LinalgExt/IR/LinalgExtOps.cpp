@@ -1187,6 +1187,47 @@ void Im2ColOp::getEffects(
 }
 
 //===----------------------------------------------------------------------===//
+// TriOp
+//===----------------------------------------------------------------------===//
+
+void TriOp::build(OpBuilder &builder, OperationState &result, Value init,
+                  Value top, Value bottom, Value k,
+                  ArrayRef<NamedAttribute> attrs) {
+  result.addOperands({init, top, bottom, k});
+  result.addTypes(init.getType());
+  result.addAttributes(attrs);
+}
+
+LogicalResult TriOp::verify() {
+  Operation *op = getOperation();
+  auto initType = getInitType();
+  auto initRank = initType.getRank();
+  if (initRank != 2) {
+    return emitOpError("only support rank = 2");
+  }
+  if (getTop().getType() != getBottom().getType()) {
+    return emitOpError("expected same type of top value and bottom value");
+  }
+  if (initType.getElementType() != getTop().getType()) {
+    return op->emitOpError(
+        "expected same type of top value and the element type of init");
+  }
+
+  return success();
+}
+
+LogicalResult TriOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
+  return memref::foldMemRefCast(*this);
+}
+
+void TriOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
+                        getDpsInits());
+}
+
+//===----------------------------------------------------------------------===//
 // Implementation of ScatterOp
 //===----------------------------------------------------------------------===//
 /// Return true if `dimsPos` is invalid. It is invalid when: a) it contains
@@ -1401,10 +1442,11 @@ void ScanOp::getAsmResultNames(function_ref<void(Value, StringRef)> setNameFn) {
 
 void ScanOp::build(
     OpBuilder &builder, OperationState &result, ValueRange inputs,
-    ValueRange inits, ArrayRef<int64_t> dimension, bool reverse,
+    ValueRange inits, ArrayRef<int64_t> dimension, bool reverse, bool inclusive,
     function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
     ArrayRef<NamedAttribute> attributes) {
-  build(builder, result, TypeRange{}, inputs, inits, dimension, reverse);
+  build(builder, result, TypeRange{}, inputs, inits, dimension, reverse,
+        inclusive);
   result.addAttributes(attributes);
 
   // Add output types for `RankedTensorType` output arguments.
@@ -1454,20 +1496,25 @@ LogicalResult ScanOp::verify() {
                             " the shape at output-index 0.";
   }
 
-  if (getDimensions().size() != 1) {
-    return emitOpError() << "only support single dimension.";
+  if (getDimensions().size() > 1) {
+    return emitOpError() << "expects number dimensions less than 2. "
+                         << "but got " << getDimensions().size() << ".";
   }
-  int64_t dimension = getDimensions()[0];
 
+  ArrayRef<int64_t> dimensionsRef = getDimensions();
+  DenseSet<int64_t> dimensionsToScan;
   auto inputType = mlir::cast<ShapedType>(getInputs()[0].getType());
-  if (dimension < 0 || dimension >= inputType.getRank()) {
-    return emitOpError() << "dimension for scan should be in the range [0, "
-                         << inputType.getRank() - 1 << "].";
+  for (int64_t dimension : dimensionsRef) {
+    if (dimension < 0 || dimension >= inputType.getRank()) {
+      return emitOpError() << "dimension for scan should be in the range [0, "
+                           << inputType.getRank() - 1 << "].";
+    }
+    dimensionsToScan.insert(dimension);
   }
 
   SmallVector<int64_t> expectedInitShape;
   for (int64_t i = 0; i < inputType.getRank(); i++) {
-    if (i != dimension)
+    if (!dimensionsToScan.count(i))
       expectedInitShape.push_back(inputType.getShape()[i]);
   }
 
@@ -1925,7 +1972,7 @@ void GatherAtomicCASOp::getEffects(
 // BEGIN refers to linalg.reduce
 //===----------------------------------------------------------------------===//
 
-template <typename T> static LogicalResult verifyArgMaxMinOp(T op) {
+template <typename T> static LogicalResult verifyNaiveReduceOp(T op) {
   ArrayRef<int64_t> dimensionsRef = op.getDimensions();
 
   for (int64_t i = 1; i < op.getNumDpsInputs(); ++i) {
@@ -2012,7 +2059,8 @@ template <typename T> static LogicalResult verifyArgMaxMinOp(T op) {
   return success();
 }
 
-static ParseResult parseArgMaxMin(OpAsmParser &parser, OperationState &result) {
+static ParseResult parseNaiveReduceOp(OpAsmParser &parser,
+                                      OperationState &result) {
   std::optional<OperationName> payloadOpName;
   NamedAttrList payloadOpAttrs;
   if (succeeded(parser.parseOptionalLBrace())) {
@@ -2050,7 +2098,7 @@ static ParseResult parseArgMaxMin(OpAsmParser &parser, OperationState &result) {
   return success();
 }
 
-template <typename T> static void printArgMaxMin(OpAsmPrinter &p, T op) {
+template <typename T> static void printNaiveReduceOp(OpAsmPrinter &p, T op) {
   Block *mapper = op.getBody();
   Operation *payloadOp = findPayloadOp(mapper, /*initFirst=*/true);
   if (payloadOp) {
@@ -2074,16 +2122,13 @@ template <typename T> static void printArgMaxMin(OpAsmPrinter &p, T op) {
   }
 }
 
-//===----------------------------------------------------------------------===//
-// ArgMaxOp
-//===----------------------------------------------------------------------===//
-
-void ArgMaxOp::build(
+template <class T>
+static void buildNaiveReduceOpWithBody(
     OpBuilder &builder, OperationState &result, ValueRange inputs,
     ValueRange inits, ArrayRef<int64_t> dimensions,
     function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
     ArrayRef<NamedAttribute> attributes) {
-  build(builder, result, TypeRange{}, inputs, inits, dimensions);
+  T::build(builder, result, TypeRange{}, inputs, inits, dimensions);
   result.addAttributes(attributes);
 
   // Add output types for `RankedTensorType` output arguments.
@@ -2098,6 +2143,19 @@ void ArgMaxOp::build(
                        inputs, inits, bodyBuild);
 }
 
+//===----------------------------------------------------------------------===//
+// ArgMaxOp
+//===----------------------------------------------------------------------===//
+
+void ArgMaxOp::build(
+    OpBuilder &builder, OperationState &result, ValueRange inputs,
+    ValueRange inits, ArrayRef<int64_t> dimensions,
+    function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
+    ArrayRef<NamedAttribute> attributes) {
+  buildNaiveReduceOpWithBody<ArgMaxOp>(builder, result, inputs, inits,
+                                       dimensions, bodyBuild, attributes);
+}
+
 void ArgMaxOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
                              ArrayRef<NamedAttribute> attrs) {
   RegionBuilderHelper helper(b, block);
@@ -2105,17 +2163,28 @@ void ArgMaxOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
          "ArgMaxOp regionBuilder expects 4 (>=0) args");
   SmallVector<Value> yields;
   auto loc = block.getArgument(0).getLoc();
-  Value cmpfResOeq =
-      b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OEQ,
-                              block.getArgument(0), block.getArgument(2));
+  bool isInteger = block.getArgument(0).getType().isInteger();
+  Value cmpResOeq =
+      isInteger
+          ? b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                    block.getArgument(0), block.getArgument(2))
+                .getResult()
+          : b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OEQ,
+                                    block.getArgument(0), block.getArgument(2))
+                .getResult();
   Value cmpiRes =
       b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::slt,
                               block.getArgument(1), block.getArgument(3));
-  Value andiRes = b.create<arith::AndIOp>(loc, cmpfResOeq, cmpiRes);
-  Value cmpfResOgt =
-      b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OGT,
-                              block.getArgument(0), block.getArgument(2));
-  Value oriRes = b.create<arith::OrIOp>(loc, cmpfResOgt, andiRes);
+  Value andiRes = b.create<arith::AndIOp>(loc, cmpResOeq, cmpiRes);
+  Value cmpResOgt =
+      isInteger
+          ? b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::sgt,
+                                    block.getArgument(0), block.getArgument(2))
+                .getResult()
+          : b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OGT,
+                                    block.getArgument(0), block.getArgument(2))
+                .getResult();
+  Value oriRes = b.create<arith::OrIOp>(loc, cmpResOgt, andiRes);
   Value selectRes1 = b.create<arith::SelectOp>(
       loc, oriRes, block.getArgument(0), block.getArgument(2));
   Value selectRes2 = b.create<arith::SelectOp>(
@@ -2123,30 +2192,6 @@ void ArgMaxOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
   yields.push_back(selectRes1);
   yields.push_back(selectRes2);
   helper.yieldOutputs(yields);
-}
-
-void ArgMaxOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-        &effects) {
-  getGenericEffectsImpl(effects, cast<LinalgOp>(getOperation()));
-}
-
-ParseResult ArgMaxOp::parse(OpAsmParser &parser, OperationState &result) {
-  return parseArgMaxMin(parser, result);
-}
-
-void ArgMaxOp::getAsmResultNames(
-    function_ref<void(Value, StringRef)> setNameFn) {
-  if (!getResults().empty())
-    setNameFn(getResults().front(), "argmax");
-}
-
-void ArgMaxOp::print(OpAsmPrinter &p) { printArgMaxMin(p, *this); }
-
-LogicalResult ArgMaxOp::verify() { return verifyArgMaxMinOp(*this); }
-
-LogicalResult ArgMaxOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
-  return memref::foldMemRefCast(*this);
 }
 
 //===----------------------------------------------------------------------===//
@@ -2158,19 +2203,8 @@ void ArgMinOp::build(
     ValueRange inits, ArrayRef<int64_t> dimensions,
     function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
     ArrayRef<NamedAttribute> attributes) {
-  build(builder, result, TypeRange{}, inputs, inits, dimensions);
-  result.addAttributes(attributes);
-
-  // Add output types for `RankedTensorType` output arguments.
-  for (Value init : inits) {
-    Type initType = init.getType();
-    if (mlir::isa<RankedTensorType>(initType))
-      result.addTypes(initType);
-  }
-
-  if (bodyBuild)
-    buildGenericRegion(builder, result.location, *result.regions.front(),
-                       inputs, inits, bodyBuild);
+  buildNaiveReduceOpWithBody<ArgMinOp>(builder, result, inputs, inits,
+                                       dimensions, bodyBuild, attributes);
 }
 
 void ArgMinOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
@@ -2180,17 +2214,28 @@ void ArgMinOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
          "ArgMinOp regionBuilder expects 4 (>=0) args");
   SmallVector<Value> yields;
   auto loc = block.getArgument(0).getLoc();
-  Value cmpfResOeq =
-      b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OEQ,
-                              block.getArgument(0), block.getArgument(2));
+  bool isInteger = block.getArgument(0).getType().isInteger();
+  Value cmpResOeq =
+      isInteger
+          ? b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::eq,
+                                    block.getArgument(0), block.getArgument(2))
+                .getResult()
+          : b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OEQ,
+                                    block.getArgument(0), block.getArgument(2))
+                .getResult();
   Value cmpiRes =
       b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::slt,
                               block.getArgument(1), block.getArgument(3));
-  Value andiRes = b.create<arith::AndIOp>(loc, cmpfResOeq, cmpiRes);
-  Value cmpfResOgt =
-      b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OLT,
-                              block.getArgument(0), block.getArgument(2));
-  Value oriRes = b.create<arith::OrIOp>(loc, cmpfResOgt, andiRes);
+  Value andiRes = b.create<arith::AndIOp>(loc, cmpResOeq, cmpiRes);
+  Value cmpResOgt =
+      isInteger
+          ? b.create<arith::CmpIOp>(loc, arith::CmpIPredicate::slt,
+                                    block.getArgument(0), block.getArgument(2))
+                .getResult()
+          : b.create<arith::CmpFOp>(loc, arith::CmpFPredicate::OLT,
+                                    block.getArgument(0), block.getArgument(2))
+                .getResult();
+  Value oriRes = b.create<arith::OrIOp>(loc, cmpResOgt, andiRes);
   Value selectRes1 = b.create<arith::SelectOp>(
       loc, oriRes, block.getArgument(0), block.getArgument(2));
   Value selectRes2 = b.create<arith::SelectOp>(
@@ -2200,28 +2245,153 @@ void ArgMinOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
   helper.yieldOutputs(yields);
 }
 
-void ArgMinOp::getEffects(
-    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
-        &effects) {
-  getGenericEffectsImpl(effects, cast<LinalgOp>(getOperation()));
+//===----------------------------------------------------------------------===//
+// ReduceSumOp
+//===----------------------------------------------------------------------===//
+
+void ReduceSumOp::build(
+    OpBuilder &builder, OperationState &result, ValueRange inputs,
+    ValueRange inits, ArrayRef<int64_t> dimensions,
+    function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
+    ArrayRef<NamedAttribute> attributes) {
+  buildNaiveReduceOpWithBody<ReduceSumOp>(builder, result, inputs, inits,
+                                          dimensions, bodyBuild, attributes);
 }
 
-ParseResult ArgMinOp::parse(OpAsmParser &parser, OperationState &result) {
-  return parseArgMaxMin(parser, result);
+void ReduceSumOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
+                                ArrayRef<NamedAttribute> attrs) {
+  RegionBuilderHelper helper(b, block);
+  assert(block.getNumArguments() == 2 &&
+         "ReduceSumOp regionBuilder expects 2 (>=0) args");
+  SmallVector<Value> yields;
+  bool isInteger = block.getArgument(0).getType().isInteger();
+
+  auto loc = block.getArgument(0).getLoc();
+  Value result = isInteger ? b.create<arith::AddIOp>(loc, block.getArgument(0),
+                                                     block.getArgument(1))
+                                 .getResult()
+                           : b.create<arith::AddFOp>(loc, block.getArgument(0),
+                                                     block.getArgument(1))
+                                 .getResult();
+  helper.yieldOutputs({result});
 }
 
-void ArgMinOp::getAsmResultNames(
-    function_ref<void(Value, StringRef)> setNameFn) {
-  if (!getResults().empty())
-    setNameFn(getResults().front(), "argmin");
+//===----------------------------------------------------------------------===//
+// ReduceMaxOp
+//===----------------------------------------------------------------------===//
+
+void ReduceMaxOp::build(
+    OpBuilder &builder, OperationState &result, ValueRange inputs,
+    ValueRange inits, ArrayRef<int64_t> dimensions,
+    function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
+    ArrayRef<NamedAttribute> attributes) {
+  buildNaiveReduceOpWithBody<ReduceMaxOp>(builder, result, inputs, inits,
+                                          dimensions, bodyBuild, attributes);
 }
 
-void ArgMinOp::print(OpAsmPrinter &p) { printArgMaxMin(p, *this); }
+void ReduceMaxOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
+                                ArrayRef<NamedAttribute> attrs) {
+  RegionBuilderHelper helper(b, block);
+  assert(block.getNumArguments() == 2 &&
+         "ReduceMaxOp regionBuilder expects 2 (>=0) args");
+  SmallVector<Value> yields;
+  bool isInteger = block.getArgument(0).getType().isInteger();
 
-LogicalResult ArgMinOp::verify() { return verifyArgMaxMinOp(*this); }
+  auto loc = block.getArgument(0).getLoc();
+  Value result = isInteger
+                     ? b.create<arith::MaxSIOp>(loc, block.getArgument(0),
+                                                block.getArgument(1))
+                           .getResult()
+                     : b.create<arith::MaxNumFOp>(loc, block.getArgument(0),
+                                                  block.getArgument(1))
+                           .getResult();
+  helper.yieldOutputs({result});
+}
 
-LogicalResult ArgMinOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
-  return memref::foldMemRefCast(*this);
+//===----------------------------------------------------------------------===//
+// ReduceMinOp
+//===----------------------------------------------------------------------===//
+
+void ReduceMinOp::build(
+    OpBuilder &builder, OperationState &result, ValueRange inputs,
+    ValueRange inits, ArrayRef<int64_t> dimensions,
+    function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
+    ArrayRef<NamedAttribute> attributes) {
+  buildNaiveReduceOpWithBody<ReduceMinOp>(builder, result, inputs, inits,
+                                          dimensions, bodyBuild, attributes);
+}
+
+void ReduceMinOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
+                                ArrayRef<NamedAttribute> attrs) {
+  RegionBuilderHelper helper(b, block);
+  assert(block.getNumArguments() == 2 &&
+         "ReduceMinOp regionBuilder expects 2 (>=0) args");
+  SmallVector<Value> yields;
+  bool isInteger = block.getArgument(0).getType().isInteger();
+
+  auto loc = block.getArgument(0).getLoc();
+  Value result = isInteger
+                     ? b.create<arith::MinSIOp>(loc, block.getArgument(0),
+                                                block.getArgument(1))
+                           .getResult()
+                     : b.create<arith::MinNumFOp>(loc, block.getArgument(0),
+                                                  block.getArgument(1))
+                           .getResult();
+  helper.yieldOutputs({result});
+}
+
+//===----------------------------------------------------------------------===//
+// ReduceMaxNanOp
+//===----------------------------------------------------------------------===//
+
+void ReduceMaxNanOp::build(
+    OpBuilder &builder, OperationState &result, ValueRange inputs,
+    ValueRange inits, ArrayRef<int64_t> dimensions,
+    function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
+    ArrayRef<NamedAttribute> attributes) {
+  buildNaiveReduceOpWithBody<ReduceMaxNanOp>(builder, result, inputs, inits,
+                                             dimensions, bodyBuild, attributes);
+}
+
+void ReduceMaxNanOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
+                                   ArrayRef<NamedAttribute> attrs) {
+  RegionBuilderHelper helper(b, block);
+  assert(block.getNumArguments() == 2 &&
+         "ReduceMaxNanOp regionBuilder expects 2 (>=0) args");
+  SmallVector<Value> yields;
+
+  auto loc = block.getArgument(0).getLoc();
+  Value result = b.create<arith::MaximumFOp>(loc, block.getArgument(0),
+                                             block.getArgument(1))
+                     .getResult();
+  helper.yieldOutputs({result});
+}
+
+//===----------------------------------------------------------------------===//
+// ReduceMinNanOp
+//===----------------------------------------------------------------------===//
+
+void ReduceMinNanOp::build(
+    OpBuilder &builder, OperationState &result, ValueRange inputs,
+    ValueRange inits, ArrayRef<int64_t> dimensions,
+    function_ref<void(OpBuilder &, Location, ValueRange)> bodyBuild,
+    ArrayRef<NamedAttribute> attributes) {
+  buildNaiveReduceOpWithBody<ReduceMinNanOp>(builder, result, inputs, inits,
+                                             dimensions, bodyBuild, attributes);
+}
+
+void ReduceMinNanOp::regionBuilder(ImplicitLocOpBuilder &b, Block &block,
+                                   ArrayRef<NamedAttribute> attrs) {
+  RegionBuilderHelper helper(b, block);
+  assert(block.getNumArguments() == 2 &&
+         "ReduceMinNanOp regionBuilder expects 2 (>=0) args");
+  SmallVector<Value> yields;
+
+  auto loc = block.getArgument(0).getLoc();
+  Value result = b.create<arith::MinimumFOp>(loc, block.getArgument(0),
+                                             block.getArgument(1))
+                     .getResult();
+  helper.yieldOutputs({result});
 }
 
 //===----------------------------------------------------------------------===//
@@ -2743,6 +2913,38 @@ void ScalarAssertOp::getEffects(
   effects.emplace_back(MemoryEffects::Write::get(), /*stage=*/1,
                        /*effectOnFullRegion=*/false,
                        SideEffects::DefaultResource::get());
+}
+
+//===----------------------------------------------------------------------===//
+// Implementation of FlipOp
+//===----------------------------------------------------------------------===//
+
+LogicalResult FlipOp::fold(FoldAdaptor, SmallVectorImpl<OpFoldResult> &) {
+  return memref::foldMemRefCast(*this);
+}
+
+void FlipOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  getGenericEffectsImpl(effects, getOperation()->getResults(), getDpsInputs(),
+                        getDpsInits());
+}
+
+LogicalResult FlipOp::verify() {
+  auto inputType = mlir::cast<ShapedType>(getInput().getType());
+  ArrayRef<int64_t> dims = getDims();
+  for (int64_t dim : dims) {
+    if (dim < 0 || dim >= inputType.getRank()) {
+      return emitOpError() << "dims of flip should be in the range [0, "
+                           << inputType.getRank() - 1 << "].";
+    }
+  }
+
+  if (mlir::cast<ShapedType>(getInit().getType()).getShape() !=
+      mlir::cast<ShapedType>(getInput().getType()).getShape()) {
+    return emitOpError() << "expects input and output have the same shape.";
+  }
+  return success();
 }
 
 /////// Operations corresponding to library calls defined with Tablegen ////////

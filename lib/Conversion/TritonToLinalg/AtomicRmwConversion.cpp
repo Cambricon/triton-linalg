@@ -103,27 +103,19 @@ public:
       return failure();
 
     auto loc = op.getLoc();
-    auto resultType = op.getResult().getType();
-    auto memref = getMemRef(loc, op.getPtr(), resultType, rewriter);
+    auto elementType = op.getResult().getType();
+    auto memref = getMemRef(loc, op.getPtr(), elementType, rewriter);
     Value originTensor =
         rewriter.create<bufferization::ToTensorOp>(loc, memref, true, true);
 
     auto zero = rewriter.create<arith::ConstantIndexOp>(loc, 0);
     RankedTensorType originTensorTy =
-        cast<RankedTensorType>(originTensor.getType());
+        mlir::cast<RankedTensorType>(originTensor.getType());
 
-    SmallVector<int64_t, 2> shape = {1, 1};
-    auto val =
-        rewriter.create<tensor::EmptyOp>(loc, shape, op.getVal().getType());
-    Value valTensor = rewriter.create<tensor::InsertOp>(
-        loc, op.getVal(), val, ValueRange({zero, zero}));
-    Value zeroI32 = rewriter.create<arith::ConstantIntOp>(loc, 0, 32);
-    auto offset =
-        rewriter.create<tensor::EmptyOp>(loc, shape, zeroI32.getType());
-    Value offsetValue = rewriter.create<tensor::InsertOp>(
-        loc, zeroI32, offset, ValueRange({zero, zero}));
-
-    SmallVector<Value> atomicInputs{valTensor, offsetValue};
+    auto val = rewriter.create<tensor::EmptyOp>(loc, originTensorTy.getShape(),
+                                                op.getVal().getType());
+    Value valTensor = rewriter.create<tensor::InsertOp>(loc, op.getVal(), val,
+                                                        ValueRange({zero}));
 
     // If mask exists, get mask from op.
     // If mask does not exist, set mask to 1.
@@ -132,11 +124,11 @@ public:
       hasMask = op.getMask();
     }
     auto ifOp =
-        rewriter.create<scf::IfOp>(loc, TypeRange{resultType}, hasMask, true);
+        rewriter.create<scf::IfOp>(loc, TypeRange{elementType}, hasMask, true);
     rewriter.setInsertionPointToStart(ifOp.thenBlock());
 
     Value atomicResultInit = rewriter.create<tensor::EmptyOp>(
-        loc, shape, originTensorTy.getElementType());
+        loc, originTensorTy.getShape(), elementType);
 
     auto maybeKind =
         getAtomicRMWType(op.getAtomicRmwOp(), originTensorTy.getElementType());
@@ -148,15 +140,17 @@ public:
       return failure();
 
     SmallVector<Value> atomicInits{originTensor, atomicResultInit};
+    SmallVector<Value> atomicInputs{valTensor};
     Value atomicResult =
         rewriter
-            .create<linalg_ext::GatherAtomicRMWOp>(
+            .create<triton::linalg_ext::AtomicRMWOp>(
                 loc, atomicInputs, atomicInits, *maybeKind, *maybeMemoryOrder)
-            .getResult()[1];
+            ->getResult(1);
+
     Value scalarRet =
         rewriter
             .create<tensor::ExtractOp>(loc, op.getResult().getType(),
-                                       atomicResult, ValueRange({zero, zero}))
+                                       atomicResult, ValueRange({zero}))
             .getResult();
     rewriter.create<scf::YieldOp>(loc, ValueRange(scalarRet));
     // Yield 0 if mask is false, align with GPU behaviour.
@@ -302,10 +296,10 @@ public:
 
     // Init atomic output.
     Type resultEltType = resultTy.getElementType();
-    Value atomicResultInit = rewriter.create<tensor::EmptyOp>(
-        op.getLoc(), resultTy.getShape(), resultEltType);
-    atomicResultInit =
-        triton::flattenValueToMatchGatherScatter(rewriter, atomicResultInit);
+    Value zeroConst = rewriter.create<arith::ConstantOp>(
+        loc, rewriter.getZeroAttr(op.getResult().getType()));
+    Value atomicResultInit =
+        triton::flattenValueToMatchGatherScatter(rewriter, zeroConst);
 
     auto maybeKind = getAtomicRMWType(op.getAtomicRmwOp(), resultEltType);
     if (!maybeKind)

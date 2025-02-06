@@ -8,7 +8,7 @@ cnpipe {
         }
         container {
             networkPolicy "cncl-no-internnet-access"
-            image 'yellow.hub.cambricon.com/genesis/devel/x86_64/genesis:0.7.13-x86_64-ubuntu2004-prebuild-thirdparty-py_3_10'
+            image 'yellow.hub.cambricon.com/genesis/devel/x86_64/genesis:v1.3.0-x86_64-ubuntu2204-prebuild-thirdparty-py_3_10'
             runArgs "--network=host --privileged -v /usr/bin/cnmon:/usr/bin/cnmon --device=/dev/cambricon_dev0:/dev/cambricon_dev0 --device=/dev/cambricon_ctl"
         }
         resReq {
@@ -41,7 +41,7 @@ cnpipe {
         }
         container {
             networkPolicy "cncl-no-internnet-access"
-            image 'yellow.hub.cambricon.com/genesis/devel/x86_64/genesis:0.7.13-x86_64-ubuntu2004-prebuild-thirdparty-py_3_10'
+            image 'yellow.hub.cambricon.com/genesis/devel/x86_64/genesis:v1.3.0-x86_64-ubuntu2204-prebuild-thirdparty-py_3_10'
             runArgs "--network=host --privileged -v /usr/bin/cnmon:/usr/bin/cnmon --device=/dev/cambricon_dev0:/dev/cambricon_dev0 --device=/dev/cambricon_ctl"
         }
         resReq {
@@ -72,7 +72,7 @@ cnpipe {
         }
         container {
             networkPolicy "cncl-no-internnet-access"
-            image 'yellow.hub.cambricon.com/genesis/devel/x86_64/genesis:0.7.13-x86_64-ubuntu2004-prebuild-thirdparty-py_3_10'
+            image 'yellow.hub.cambricon.com/genesis/devel/x86_64/genesis:v1.3.0-x86_64-ubuntu2204-prebuild-thirdparty-py_3_10'
             runArgs "--network=host --privileged -v /usr/bin/cnmon:/usr/bin/cnmon --device=/dev/cambricon_dev0:/dev/cambricon_dev0 --device=/dev/cambricon_ctl"
         }
         resReq {

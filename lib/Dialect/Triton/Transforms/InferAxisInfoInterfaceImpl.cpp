@@ -951,7 +951,7 @@ struct ExpandShapeOpInferAxisInfoOpInterface
       }
     }
 
-    return setResultAxisInfo(expandShapeOp->getResult(0),
+    return setResultAxisInfo(expandShapeOp.getResult(),
                              AxisInfoExt(divisibility, stride, strideValue,
                                          opInfo.getConstantValue()));
   }
@@ -999,7 +999,7 @@ struct CollapseShapeOpInferAxisInfoOpInterface
       strideValue.push_back(resStrideValue);
     }
 
-    return setResultAxisInfo(collapseShapeOp->getResult(0),
+    return setResultAxisInfo(collapseShapeOp.getResult(),
                              AxisInfoExt(divisibility, stride, strideValue,
                                          opInfo.getConstantValue()));
   }
@@ -1012,7 +1012,18 @@ struct ExtractSliceOpInferAxisInfoOpInterface
   void inferAxisInfos(Operation *op, ArrayRef<AxisInfoExt> argInfos,
                       SetAxisInfoFn setResultAxisInfo) const {
     tensor::ExtractSliceOp extractSliceOp = cast<tensor::ExtractSliceOp>(op);
-    assert(argInfos.size() == 1 && "Expected one operand");
+    assert(argInfos.size() >= 1 && "Expected at least one operand");
+
+    // Check dynamic sizes or strides.
+    bool hasDynamicSize =
+        llvm::any_of(extractSliceOp.getMixedSizes(), [](OpFoldResult val) {
+          return !getConstantIntValue(val).has_value();
+        });
+    bool hasDynamicStride =
+        llvm::any_of(extractSliceOp.getMixedStrides(), [](OpFoldResult val) {
+          return !getConstantIntValue(val).has_value();
+        });
+    assert(!hasDynamicSize && !hasDynamicStride);
 
     AxisInfoExt opInfo = argInfos[0];
     ArrayRef<int64_t> extractSliceOffsets = extractSliceOp.getStaticOffsets();
@@ -1038,7 +1049,16 @@ struct ExtractSliceOpInferAxisInfoOpInterface
           extractSliceOffsets[d] % opInfo.getStride()[d] == 0 &&
           extractSliceSizes[d] % opInfo.getStride()[d] == 0 &&
           extractSliceSizes[d] / opInfo.getStride()[d] >= 1;
-      if (opInfo.isStridedConstantDim(srcShape, d)) {
+      bool isDynamicOffset =
+          !getConstantIntValue(extractSliceOp.getMixedOffsets()[d]).has_value();
+      if (isDynamicOffset) {
+        stride.push_back(AxisInfoExt::kInitValue);
+        strideValue.push_back(AxisInfoExt::kStrideValueInitValue);
+        divisibility.push_back(extractSliceSizes[d] == 1 &&
+                                       opInfo.isFullConstantDim(srcShape, d)
+                                   ? opInfo.getDivisibility()[d]
+                                   : AxisInfoExt::kInitValue);
+      } else if (opInfo.isStridedConstantDim(srcShape, d)) {
         if (opInfo.isFullStrideDim(srcShape, d) || isSliceInsideFirstStride) {
           stride.push_back(extractSliceSizes[d]);
           strideValue.push_back(opInfo.getStrideValue()[d]);
@@ -1090,6 +1110,7 @@ struct ExtractSliceOpInferAxisInfoOpInterface
         divisibility.push_back(AxisInfoExt::kInitValue);
       }
     }
+
     return setResultAxisInfo(extractSliceOp.getResult(),
                              AxisInfoExt(divisibility, stride, strideValue,
                                          opInfo.getConstantValue()));

@@ -86,6 +86,7 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/ADT/iterator.h"
 #include "llvm/ADT/iterator_range.h"
+#include "llvm/IR/Attributes.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/MathExtras.h"
 
@@ -171,24 +172,17 @@ static Value sliceRemaining(ConversionPatternRewriter &rewriter, Location loc,
 static Value getInitConstValue(ReductionMode mode, ShapedType type,
                                Location &loc, PatternRewriter &rewriter) {
   auto elementType = type.getElementType();
+  bool isFloat = isa<FloatType>(elementType);
   switch (mode) {
   case ReductionMode::ARGMAX:
-    if (isa<FloatType>(elementType)) {
-      return arith::getIdentityValue(arith::AtomicRMWKind::maximumf,
-                                     elementType, rewriter, loc);
-    } else if (elementType.isIntOrIndex()) {
-      return rewriter.create<arith::ConstantOp>(
-          loc, elementType, rewriter.getIntegerAttr(elementType, -1));
-    }
+    return arith::getIdentityValue(isFloat ? arith::AtomicRMWKind::maximumf
+                                           : arith::AtomicRMWKind::maxs,
+                                   elementType, rewriter, loc);
     break;
   case ReductionMode::ARGMIN:
-    if (isa<FloatType>(elementType)) {
-      return arith::getIdentityValue(arith::AtomicRMWKind::minimumf,
-                                     elementType, rewriter, loc);
-    } else if (elementType.isIntOrIndex()) {
-      return rewriter.create<arith::ConstantOp>(
-          loc, elementType, rewriter.getIntegerAttr(elementType, -1));
-    }
+    return arith::getIdentityValue(isFloat ? arith::AtomicRMWKind::minimumf
+                                           : arith::AtomicRMWKind::mins,
+                                   elementType, rewriter, loc);
     break;
   default:
     break;
@@ -487,11 +481,23 @@ struct TritonAddPtrPattern : public OpConversionPattern<triton::AddPtrOp> {
       return rewriter.create<arith::AddIOp>(loc, ptr, offset);
     };
 
+    auto createGep = [&rewriter, &op](Value ptr, Value offset, Location loc,
+                                      Type type) {
+      auto elemType =
+          cast<PointerType>(op.getResult().getType()).getPointeeType();
+      auto llvmPtrTy = LLVM::LLVMPointerType::get(rewriter.getContext());
+      auto llvmPtr = rewriter.create<LLVM::IntToPtrOp>(loc, llvmPtrTy, ptr);
+      auto gepOp = rewriter.create<LLVM::GEPOp>(loc, llvmPtr.getType(),
+                                                elemType, llvmPtr, offset);
+      return rewriter.create<LLVM::PtrToIntOp>(loc, type, gepOp.getResult());
+    };
+
     Location loc = op.getLoc();
     auto resultTy = dyn_cast<RankedTensorType>(type);
     if (!resultTy) {
-      // Handle addptr for scalar.
-      auto ret = createAdd(adaptor.getPtr(), adaptor.getOffset(), loc, type);
+      // Convert operands addptr to llvm ptr in case of pointer aliasanalysis
+      // analysis in ir1.
+      auto ret = createGep(adaptor.getPtr(), adaptor.getOffset(), loc, type);
       rewriter.replaceOp(op, ret->getResults());
       return success();
     }
@@ -662,20 +668,27 @@ struct TritonReducePattern : public OpConversionPattern<triton::ReduceOp> {
                    mode == ReductionMode::ARGMIN) {
           // Deal argmax/min op.
           bool canGetInit = true;
-          for (auto initTy : convertedResultTensorTypes) {
-            auto initVal = getInitConstValue(*mode, initTy, loc, rewriter);
-            if (!initVal) {
-              canGetInit = false;
-              break;
-            }
-            auto initOp = rewriter.create<tensor::EmptyOp>(
-                loc, initTy.getShape(), initTy.getElementType());
-            Value fillInitVal =
-                rewriter
-                    .create<linalg::FillOp>(loc, initVal, initOp.getResult())
-                    .getResult(0);
-            initVals.push_back(fillInitVal);
-          }
+          auto it = convertedResultTensorTypes.begin();
+          ShapedType cmpValType = *it++;
+          ShapedType argIdxType = *it;
+          Value cmpInitConst =
+              getInitConstValue(*mode, cmpValType, loc, rewriter);
+          auto cmpDefineOp = rewriter.create<tensor::EmptyOp>(
+              loc, cmpValType.getShape(), cmpValType.getElementType());
+          Value cmpInit = rewriter
+                              .create<linalg::FillOp>(loc, cmpInitConst,
+                                                      cmpDefineOp.getResult())
+                              .getResult(0);
+          Value argInitConst = rewriter.create<arith::ConstantOp>(
+              loc, argIdxType.getElementType(),
+              rewriter.getIntegerAttr(argIdxType.getElementType(), -1));
+          auto argDefineOp = rewriter.create<tensor::EmptyOp>(
+              loc, argIdxType.getShape(), argIdxType.getElementType());
+          Value argInit = rewriter
+                              .create<linalg::FillOp>(loc, argInitConst,
+                                                      argDefineOp.getResult())
+                              .getResult(0);
+          initVals = {cmpInit, argInit};
           if (!canGetInit) {
             initVals.clear();
             break;
@@ -936,8 +949,12 @@ public:
   LogicalResult
   matchAndRewrite(tensor::ExpandShapeOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    auto type = typeConverter->convertType(op.getResult().getType());
+    if (!type)
+      return failure();
+    auto resultTy = cast<RankedTensorType>(type);
     rewriter.replaceOpWithNewOp<tensor::ExpandShapeOp>(
-        op, op.getType(), adaptor.getSrc(), op.getReassociationIndices());
+        op, resultTy, adaptor.getSrc(), op.getReassociationIndices());
     return success();
   }
 };
@@ -1059,6 +1076,12 @@ public:
                                 newOp.getBody().end());
     if (failed(rewriter.convertRegionTypes(&newOp.getBody(), *converter)))
       return failure();
+
+    DictionaryAttr dicAttr = op->getDiscardableAttrDictionary();
+    for (const NamedAttribute &attr : dicAttr) {
+      newOp->setAttr(attr.getName(), attr.getValue());
+    }
+    newOp.setVisibility(op.getVisibility());
 
     rewriter.eraseOp(op);
     return success();
@@ -1206,8 +1229,9 @@ public:
     // 4. If there are both scalars and tensors, split tt.print into
     // aux.scalar.print and aux.print.
     if (numOperands == 0) {
-      rewriter.create<triton::aux::ScalarPrintOp>(loc, nullptr,
-                                                  op.getPrefixAttr());
+      rewriter.create<triton::aux::ScalarPrintOp>(
+          loc, nullptr,
+          rewriter.getStringAttr(op.getPrefixAttr().getValue() + "\n"));
       rewriter.eraseOp(op);
       return success();
     }
@@ -1225,7 +1249,9 @@ public:
 
       auto resultTy = dyn_cast<RankedTensorType>(operandType);
       if (!resultTy) {
-        rewriter.create<triton::aux::ScalarPrintOp>(loc, operand, *prefixAttr);
+        rewriter.create<triton::aux::ScalarPrintOp>(
+            loc, operand,
+            rewriter.getStringAttr((*prefixAttr).getValue() + "\n"));
       } else {
         auto printOp = rewriter.create<triton::aux::PrintOp>(
             loc, resultTy, operand, *prefixAttr);
@@ -1295,11 +1321,11 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
 
     llvm::SmallVector<Value> inputVals;
     llvm::SmallVector<Value> initVals;
-    assert(adaptor.getOperands().size() == op.getNumResults() &&
-           "tt.scan requires the same input number and init number");
-    assert(adaptor.getOperands().size() == 1 &&
-           "tt.scan only support single input now");
-    for (auto inputVal : adaptor.getOperands()) {
+    int64_t numResults = op.getNumResults();
+    assert(adaptor.getOperands().size() == numResults &&
+           "tt.scan must have the same number of inputs as outputs");
+    for (int64_t i = 0; i < numResults; ++i) {
+      auto inputVal = adaptor.getOperands()[i];
       RankedTensorType inputTy = cast<RankedTensorType>(inputVal.getType());
       int64_t rank = inputTy.getRank();
 
@@ -1312,7 +1338,7 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
         Value empty = rewriter.create<tensor::EmptyOp>(
             loc, sliceShape, inputTy.getElementType());
         inputVals.push_back(slice);
-        initVals.push_back(empty);
+        initVals.insert(initVals.begin() + i, empty);
       }
 
       // 2. Slice the first elements of input operands, and use them as init
@@ -1333,7 +1359,7 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
         assert(res && "attempting to collapse into an incompatible shape");
         Value collapse = rewriter.create<tensor::CollapseShapeOp>(
             loc, slice, reassociationMap);
-        initVals.push_back(collapse);
+        initVals.insert(initVals.begin() + 2 * i + 1, collapse);
       }
     }
 
@@ -1346,10 +1372,14 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
         loc, /*resultTypes=*/SmallVector<Type>(resultTypes),
         /*inputs=*/inputVals, /*inits=*/initVals,
         /*dimensions=*/ArrayRef<int64_t>{op.getAxis()},
-        /*reverse=*/op.getReverse());
+        /*reverse=*/op.getReverse(),
+        /*inclusive=*/true);
     auto &block = op->getRegion(0).front();
-    block.addArgument(block.getArgumentTypes()[0], loc);
-    rewriter.replaceAllUsesWith(block.getArgument(1), block.getArgument(2));
+    for (int64_t i = 0; i < numResults; ++i) {
+      block.addArgument(block.getArgumentTypes()[numResults + i], loc);
+      rewriter.replaceAllUsesWith(block.getArgument(numResults + i),
+                                  block.getArgument(2 * numResults + i));
+    }
     rewriter.inlineRegionBefore(op.getCombineOp(), scanOp.getCombiner(),
                                 scanOp.getCombiner().end());
 
@@ -1371,10 +1401,14 @@ struct TritonScanPattern : public OpConversionPattern<triton::ScanOp> {
     // Retrieve insert strides of result tensor.
     SmallVector<OpFoldResult> insertStrides(rank, rewriter.getIndexAttr(1));
 
-    auto insertSliceOp = rewriter.create<tensor::InsertSliceOp>(
-        loc, scanOp.getResults()[0], adaptor.getOperands()[0], insertOffsets,
-        insertSizes, insertStrides);
-    rewriter.replaceOp(op, insertSliceOp.getResult());
+    for (int64_t i = 0; i < numResults; ++i) {
+      auto insertSliceOp = rewriter.create<tensor::InsertSliceOp>(
+          loc, scanOp.getResults()[i], adaptor.getOperands()[i], insertOffsets,
+          insertSizes, insertStrides);
+      rewriter.replaceAllUsesWith(op->getResults()[i],
+                                  insertSliceOp.getResult());
+    }
+    rewriter.eraseOp(op);
     return success();
   }
 };
@@ -1718,9 +1752,9 @@ void triton::TritonToLinalgPass::runOnOperation() {
   // Mark MakeTensorOp and AdvanceOp as legal op, it will be erased by cse.
   target.addDynamicallyLegalOp<triton::MakeTensorPtrOp, triton::AdvanceOp>(
       [](Operation *op) { return !op->getUsers().empty(); });
-  target.addLegalOp<LLVM::IntToPtrOp, triton::aux::StoreResourceOp,
-                    triton::aux::ViewOp, bufferization::ToTensorOp,
-                    bufferization::ToMemrefOp,
+  target.addLegalOp<LLVM::IntToPtrOp, LLVM::PtrToIntOp, LLVM::GEPOp,
+                    triton::aux::StoreResourceOp, triton::aux::ViewOp,
+                    bufferization::ToTensorOp, bufferization::ToMemrefOp,
                     bufferization::MaterializeInDestinationOp,
                     triton::aux::PrintOp, triton::aux::ScalarPrintOp>();
   target.addDynamicallyLegalDialect<

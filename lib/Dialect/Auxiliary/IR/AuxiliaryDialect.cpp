@@ -123,6 +123,49 @@ void printSymbolAlias(OpAsmPrinter &p, Operation *op, StringAttr symName,
 }
 
 //===----------------------------------------------------------------------===//
+// BEGIN copied from mlir/lib/Dialect/Arith/IR/ArithOps.cpp
+//===----------------------------------------------------------------------===//
+
+template <typename... Types> using type_list = std::tuple<Types...> *;
+
+/// Returns a non-null type only if the provided type is one of the allowed
+/// types or one of the allowed shaped types of the allowed types. Returns the
+/// element type if a valid shaped type is provided.
+template <typename... ShapedTypes, typename... ElementTypes>
+static Type getUnderlyingType(Type type, type_list<ShapedTypes...>,
+                              type_list<ElementTypes...>) {
+  if (llvm::isa<ShapedType>(type) && !llvm::isa<ShapedTypes...>(type))
+    return {};
+
+  auto underlyingType = getElementTypeOrSelf(type);
+  if (!llvm::isa<ElementTypes...>(underlyingType))
+    return {};
+
+  return underlyingType;
+}
+
+/// Get allowed underlying types for vectors, tensors, and memrefs.
+template <typename... ElementTypes>
+static Type getTypeIfLikeOrMemRef(Type type) {
+  return getUnderlyingType(type,
+                           type_list<VectorType, TensorType, MemRefType>(),
+                           type_list<ElementTypes...>());
+}
+
+/// Return false if both types are ranked tensor with mismatching encoding.
+static bool hasSameEncoding(Type typeA, Type typeB) {
+  auto rankedTensorA = dyn_cast<RankedTensorType>(typeA);
+  auto rankedTensorB = dyn_cast<RankedTensorType>(typeB);
+  if (!rankedTensorA || !rankedTensorB)
+    return true;
+  return rankedTensorA.getEncoding() == rankedTensorB.getEncoding();
+}
+
+//===----------------------------------------------------------------------===//
+// END copied from mlir/lib/Dialect/Arith/IR/ArithOps.cpp
+//===----------------------------------------------------------------------===//
+
+//===----------------------------------------------------------------------===//
 // StoreResourceOp
 //===----------------------------------------------------------------------===//
 LogicalResult StoreResourceOp::verify() {
@@ -366,6 +409,75 @@ LogicalResult ScalarPrintOp::verify() {
                            << " need equal to valid fmt num " << validFmtNum
                            << "\n";
     }
+  }
+  return success();
+}
+
+//===----------------------------------------------------------------------===//
+// BitcastExtOp
+//===----------------------------------------------------------------------===//
+void BitcastExtOp::getEffects(
+    SmallVectorImpl<SideEffects::EffectInstance<MemoryEffects::Effect>>
+        &effects) {
+  for (auto operand : getDpsInputs()) {
+    if (!llvm::isa<MemRefType>(operand.getType()))
+      continue;
+    effects.emplace_back(MemoryEffects::Read::get(), operand,
+                         SideEffects::DefaultResource::get());
+  }
+  for (auto operand : getDpsInits()) {
+    if (!llvm::isa<MemRefType>(operand.getType()))
+      continue;
+    effects.emplace_back(MemoryEffects::Read::get(), operand,
+                         SideEffects::DefaultResource::get());
+    effects.emplace_back(MemoryEffects::Write::get(), operand,
+                         SideEffects::DefaultResource::get());
+  }
+}
+
+LogicalResult BitcastExtOp::verify() {
+  ShapedType inType = cast<ShapedType>(getIn().getType());
+  ShapedType outType = cast<ShapedType>(getOut().getType());
+  ArrayRef<int64_t> inShape = inType.getShape();
+  ArrayRef<int64_t> outShape = outType.getShape();
+  int64_t inRank = inType.getRank();
+  int64_t outRank = outType.getRank();
+  if (inRank != outRank) {
+    return emitOpError() << "Input and output need to have the same rank.";
+  }
+  if (inType.getElementTypeBitWidth() == outType.getElementTypeBitWidth()) {
+    return emitOpError()
+           << "Input and output require different data types and bit widths.";
+  }
+  // Check continuous except for the lowest dimension.
+  for (int64_t dim = 0; dim < inRank - 1; ++dim) {
+    if (inShape[dim] != outShape[dim]) {
+      return emitOpError() << "Shape mismatch at dimension " << dim
+                           << " between in and out";
+    }
+  }
+  // The minimum dimensional dim size for input and output is
+  // a multiple relationship.
+  int64_t largerDim = std::max(inShape[inRank - 1], outShape[inRank - 1]);
+  int64_t smallerDim = std::min(inShape[inRank - 1], outShape[inRank - 1]);
+  if (largerDim % smallerDim != 0) {
+    return emitOpError()
+           << "The lowest dimension of in and out are not multiples.";
+  }
+
+  if (auto memType = dyn_cast<MemRefType>(getIn().getType())) {
+    auto inBitwidth = memType.getElementTypeBitWidth();
+    auto outMemType = dyn_cast<MemRefType>(getOut().getType());
+    auto outBitwidth = outMemType.getElementTypeBitWidth();
+    bool isLowToHigh = inBitwidth < outBitwidth ? 1 : 0;
+    auto rank = memType.getRank();
+    auto stride = getStridesAndOffset(memType).first;
+    int64_t inLastDim = memType.getDimSize(rank - 1);
+
+    if (isLowToHigh && (stride[rank - 1] != 1))
+      return emitOpError()
+             << "When the low bit width transitions to the high bit width, "
+                "constrain its lowest dimensional continuity";
   }
   return success();
 }

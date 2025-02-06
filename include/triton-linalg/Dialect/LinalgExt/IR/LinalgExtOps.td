@@ -847,14 +847,16 @@ def ScanOp : LinalgExtBase_Op<"scan", [
     // Dimension arg
     DenseI64ArrayAttr:$dimensions,
     // Reverse arg
-    BoolAttr:$reverse
+    BoolAttr:$reverse,
+    // Inclusive arg
+    BoolAttr:$inclusive
   );
   let results = (outs Variadic<TensorOrMemref>:$results);
   let regions = (region SizedRegion<1>:$combiner);
 
   let builders = [
     OpBuilder<(ins "ValueRange":$inputs, "ValueRange":$inits,
-      "ArrayRef<int64_t>":$dimensions, "bool":$reverse,
+      "ArrayRef<int64_t>":$dimensions, "bool":$reverse, "bool":$inclusive,
       "function_ref<void(OpBuilder &, Location, ValueRange)>",
       CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
   ];
@@ -865,6 +867,7 @@ def ScanOp : LinalgExtBase_Op<"scan", [
     `outs` `(` $inits `:` type($inits) `)`
     `dimensions` `=` $dimensions
     `reverse` `=` $reverse
+    `inclusive` `=` $inclusive
     $combiner (`->` type($results)^)?
   }];
 
@@ -932,6 +935,86 @@ def ScanOp : LinalgExtBase_Op<"scan", [
   }];
 
   let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+}
+
+//===----------------------------------------------------------------------===//
+// Op definition for TriOp
+//===----------------------------------------------------------------------===//
+
+def TriOp : LinalgExtBase_Op<"tri", []> {
+  let summary = "Triangle operation.";
+  let description = [{
+    Return an tensor with elements above the k-th diagonal is filled by
+    top value, and below the k-th diagonal is filled by bottom value.
+
+    It only support rank = 2.
+
+    The purpose of this operator is to generate and apply a causal mask,
+    ensuring that each element in the sequence can only access unmasked elements.
+
+    The operation supports the following arguments:
+
+    * init: the dst tensor or memref.
+    * top: the value of the top half of the triangle.
+    * bottom: the value of the bottom half of the triangle.
+    * k: diagonal above which to top elements.
+         k = 0 (the default) is the main diagonal,
+         k < 0 is below it and k > 0 is above.
+
+    Example:
+    ```
+      %tri = linalg_ext.tri
+             ins(%top, %bottom, %k: f32, f32, index)
+             outs(%inits: tensor<4x8xf32>)
+             top(%top: f32)
+             bottom(%bottom: f32)
+             k = 3 -> tensor<16x32xf32>
+    ```
+
+    We assume top = 3, bottom = 1, It will generate the following tensor.
+
+    [[1, 1, 1, 3, 3, 3, 3, 3],
+     [1, 1, 1, 1, 3, 3, 3, 3],
+     [1, 1, 1, 1, 1, 3, 3, 3],
+     [1, 1, 1, 1, 1, 1, 3, 3]]
+
+  }];
+
+  let arguments = (ins
+    TensorOrMemref:$init,
+    AnyType:$top,
+    AnyType:$bottom,
+    Index:$k
+  );
+  let results = (outs Variadic<AnyTensor>:$result);
+
+  let builders = [
+    OpBuilder<(ins "Value":$init,
+      "Value":$top,
+      "Value":$bottom,
+      "Value":$k,
+      CArg<"ArrayRef<NamedAttribute>", "{}">:$attributes)>
+  ];
+
+  let assemblyFormat = [{attr-dict
+      `outs` `(` $init `:` type($init) `)`
+      `top` `(` $top`:` type($top) `)`
+      `bottom` `(` $bottom`:` type($bottom) `)`
+      `k` `=` $k (`->` type($result)^)?
+    }];
+  let hasFolder = 1;
+
+  let extraClassDeclaration = extraLinalgExtOpClassDeclaration # [{
+    ShapedType getInitType() {
+      return mlir::cast<ShapedType>(getInit().getType());
+    }
+    LogicalResult reifyResultShapes(OpBuilder &b,
+                                    ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
+      return mlir::cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+    }
+    MutableOperandRange getDpsInitsMutable() { return getInitMutable(); }
+  }];
   let hasVerifier = 1;
 }
 
@@ -1094,6 +1177,47 @@ def HistogramOp : LinalgExtBase_Op<"histogram", []> {
     LogicalResult reifyResultShapes(OpBuilder &b,
                                     ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
       return mlir::cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
+    }
+    MutableOperandRange getDpsInitsMutable() { return getInitMutable(); }
+  }];
+}
+
+//===----------------------------------------------------------------------===//
+// Flip op.
+//===----------------------------------------------------------------------===//
+def FlipOp : LinalgExtBase_Op<"flip", []> {
+  let summary = "Reverse the order of an n-D tensor along given axis in dim.";
+  let description = [{
+    `linalg_ext.flip` reverses the elements of a tensor (`input`) along one or more specified dimensions (`dims`).
+
+    - `input`: The input tensor to be flipped.
+    - `dims`: One or more dimensions (axes) along which the tensor will be flipped. The dimensions are indexed starting from 0.
+      If more than one axis is provided, the operation will reverse the order along each of the specified axes.
+
+    Example:
+    - For a 2D tensor `[[1, 2, 3], [4, 5, 6]]` and `dims = [0]`, the result will be `[[4, 5, 6], [1, 2, 3]]` (flipping along the first dimension).
+    - If `dims = [1]`, the result will be `[[3, 2, 1], [6, 5, 4]]` (flipping along the second dimension).
+    - If `dims = [0, 1]`, the result will be `[[6, 5, 4], [3, 2, 1]]` (flipping along both dimensions).
+  }];
+
+  let arguments = (ins
+    TensorOrMemref:$input,
+    TensorOrMemref:$init,
+    ConfinedAttr<DenseI64ArrayAttr,
+                 [DenseArrayStrictlySorted<DenseI64ArrayAttr>]>:$dims
+  );
+  let results = (outs Variadic<AnyTensor>:$result);
+
+  let assemblyFormat = [{
+    attr-dict `dims` `=` $dims
+    `ins` `(` $input `:` type($input) `)`
+    `outs` `(` $init `:` type($init) `)`
+    (`->` type($result)^)?
+  }];
+  let extraClassDeclaration =  [{
+    LogicalResult reifyResultShapes(OpBuilder &b,
+                                    ReifiedRankedShapedTypeDims &reifiedReturnShapes) {
+      return cast<LinalgExtOp>(getOperation()).reifyResultShapes(b, reifiedReturnShapes);
     }
     MutableOperandRange getDpsInitsMutable() { return getInitMutable(); }
   }];

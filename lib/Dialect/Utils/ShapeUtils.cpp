@@ -302,3 +302,51 @@ Value mlir::triton::collapseLastNDimsToOneDim(OpBuilder &b, Location loc,
 bool mlir::triton::isScalar(const Value val) {
   return !isa<ShapedType>(val.getType());
 }
+
+SmallVector<int64_t>
+mlir::triton::getOneSizeDimIndices(ArrayRef<int64_t> shapeVec) {
+  SmallVector<int64_t> oneSizeDimIndices;
+  for (int64_t i = 0; i < shapeVec.size(); i++) {
+    if (shapeVec[i] == 1) {
+      oneSizeDimIndices.push_back(i);
+    }
+  }
+  return oneSizeDimIndices;
+}
+
+SmallVector<ReassociationIndices>
+mlir::triton::getReassociationsForFoldOneSizeDim(
+    int64_t operandRank, ArrayRef<int64_t> oneSizeDimIndices) {
+  SmallVector<ReassociationIndices> resultIndices;
+  if (oneSizeDimIndices.empty()) {
+    for (int64_t dim = 0; dim < operandRank; ++dim) {
+      resultIndices.push_back({dim});
+    }
+    return resultIndices;
+  }
+  if (operandRank == static_cast<int64_t>(oneSizeDimIndices.size())) {
+    return resultIndices;
+  }
+
+  bool firstNoOneSizeDimInserted = false;
+  resultIndices.push_back({});
+
+  // There is and only one index in each currIndices that is non-one-size dim
+  // index.
+  int64_t indexCount = static_cast<int64_t>(oneSizeDimIndices.size());
+  for (int64_t dim = 0, oneIndex = 0; dim < operandRank; ++dim) {
+    if (oneIndex < indexCount && oneSizeDimIndices[oneIndex] == dim) {
+      // The current dim is a one-size dim.
+      resultIndices.back().push_back(dim);
+      ++oneIndex;
+    } else if (!firstNoOneSizeDimInserted) {
+      // The first insertion of a non-one-size dim.
+      resultIndices.back().push_back(dim);
+      firstNoOneSizeDimInserted = true;
+    } else {
+      // Subsequent insertion of non-one-size dim.
+      resultIndices.push_back({dim});
+    }
+  }
+  return resultIndices;
+}

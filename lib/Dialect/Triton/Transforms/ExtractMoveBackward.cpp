@@ -128,6 +128,22 @@ static bool hasSameSizeWithDim(OpFoldResult ofr, Value value, int64_t dim) {
          mlir::cast<mlir::IntegerAttr>(constantOp.getValue()).getInt() == dim;
 }
 
+/// Check at most only one of the dims of src reassociation postions is not one.
+static bool hasAtMostOneDimNonTrivial(
+    SmallVector<ReassociationIndices, 4> &reassociationIndices,
+    int64_t dstDimIdx, const Value &collapseSrc, PatternRewriter &rewriter,
+    const Location &loc, int64_t srcDimCntOffset) {
+  int64_t cntDimOne = 0;
+  for (size_t i = 0; i < reassociationIndices[dstDimIdx].size(); ++i) {
+    auto constDim = getConstantIntValue(
+        getDim(rewriter, loc, collapseSrc, srcDimCntOffset + i));
+    if (constDim && *constDim == 1) {
+      ++cntDimOne;
+    }
+  }
+  return (cntDimOne >= reassociationIndices[dstDimIdx].size() - 1);
+}
+
 /// Reshape input to resultType by adding unit dims.
 ///
 /// Example: Support we want to reshape %0 with type tensor<1x16x1x8xf32>
@@ -712,6 +728,7 @@ static void extractFromCollapseShapeOp(tensor::CollapseShapeOp op,
 /// number larger than 1, one of the following conditions must be satisfied:
 /// 1. Extracts the entire size of the collapsed dimension.
 /// 2. Only extract the first element.
+/// 3. At most one of the dims in reassociationIndices is >1.
 static void extractSliceFromCollapseShapeOp(tensor::CollapseShapeOp op,
                                             ExtractState &state, Location loc,
                                             PatternRewriter &rewriter) {
@@ -727,7 +744,11 @@ static void extractSliceFromCollapseShapeOp(tensor::CollapseShapeOp op,
 
   auto indexAttrZero = rewriter.getIndexAttr(0);
   auto indexAttrOne = rewriter.getIndexAttr(1);
+  int64_t srcDimCntOffset = 0;
   for (int64_t dstDimIdx = 0; dstDimIdx < resRank; ++dstDimIdx) {
+    if (dstDimIdx >= 1) {
+      srcDimCntOffset += reassociationIndices[dstDimIdx - 1].size();
+    }
     // Skip dims with association number 1.
     if (reassociationIndices[dstDimIdx].size() == 1) {
       operandState.offsets.push_back(state.offsets[dstDimIdx]);
@@ -754,6 +775,34 @@ static void extractSliceFromCollapseShapeOp(tensor::CollapseShapeOp op,
       operandState.offsets.append(dimNum, indexAttrZero);
       operandState.sizes.append(dimNum, indexAttrOne);
       operandState.strides.append(dimNum, indexAttrOne);
+      continue;
+    }
+
+    // Meet condition 3.
+    if (hasAtMostOneDimNonTrivial(reassociationIndices, dstDimIdx, collapseSrc,
+                                  rewriter, loc, srcDimCntOffset)) {
+      bool statePushed = false;
+
+      for (size_t i = 0; i < reassociationIndices[dstDimIdx].size(); ++i) {
+        auto constDim = getConstantIntValue(
+            getDim(rewriter, loc, collapseSrc, srcDimCntOffset + i));
+        // If all dims at reassociation indices are 1, pass state info to the
+        // last dim.
+        bool flag =
+            (i == reassociationIndices[dstDimIdx].size() - 1 && !statePushed)
+                ? false
+                : true;
+        if (constDim && *constDim == 1 && flag) {
+          operandState.offsets.push_back(indexAttrZero);
+          operandState.sizes.push_back(indexAttrOne);
+          operandState.strides.push_back(indexAttrOne);
+        } else {
+          operandState.offsets.push_back(state.offsets[dstDimIdx]);
+          operandState.sizes.push_back(state.sizes[dstDimIdx]);
+          operandState.strides.push_back(state.strides[dstDimIdx]);
+          statePushed = true;
+        }
+      }
       continue;
     }
 

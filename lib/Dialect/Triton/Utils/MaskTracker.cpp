@@ -48,6 +48,75 @@ namespace mlir {
 class Operation;
 } // namespace mlir
 
+/// Figure if the shape's indices dimension match `<1xNx1>`.
+static bool isSingleNonOneSizeIndShape(ArrayRef<int64_t> shape,
+                                       ArrayRef<int64_t> indices) {
+  assert(indices.size() <= shape.size());
+  int64_t numNonOneSize =
+      std::count_if(indices.begin(), indices.end(),
+                    [&](int64_t dim) { return shape[dim] != 1; });
+  return numNonOneSize == 1;
+}
+
+/// Figure if the shape's indices dimension match `<1x1x1>`.
+static bool isAllOneSizeIndShape(ArrayRef<int64_t> shape,
+                                 ArrayRef<int64_t> indices) {
+  assert(indices.size() <= shape.size());
+  int64_t numOfOnes =
+      std::count_if(indices.begin(), indices.end(),
+                    [&](int64_t dim) { return shape[dim] == 1; });
+  return numOfOnes == indices.size();
+}
+
+/// Find which reassociative axis is one size, for example:
+///  1.1 tensor.expand_shape <N> -> <1xNx1> : [0, 2]
+///  1.2 tensor.expand_shape <1> -> <1x1x1> : [1, 2]
+///  1.3 tensor.expand_shape <MxN> -> <Mx1xNx1> : [0, 2]
+///  1.4 tensor.expand_shape <MxN> -> <M1xM2xNx1> : null
+///  2.1.tensor.collapse_shape <1xNx1> -> <N> : [0, 2]
+///  2.2 tensor.collapse_shape <1x1x1> -> <1> : [1, 2]
+///  2.3 tensor.collapse_shape <Mx1xNx1> -> <MxN> : [0, 2]
+///  2.4 tensor.collapse_shape <M1xM2xNx1> -> <MxN> : null
+static std::optional<SmallVector<int64_t>>
+getOneSizeAxesOfReassociativeReshapeOp(
+    Operation *op, std::optional<int64_t> skippedAxis = std::nullopt) {
+  SmallVector<int64_t, 4> axes;
+  SmallVector<ReassociationIndices, 4> reassociationIndices;
+  ArrayRef<int64_t> expandedShape;
+  if (auto expandShapeOp = dyn_cast<tensor::ExpandShapeOp>(op)) {
+    expandedShape = expandShapeOp.getResultType().getShape();
+    reassociationIndices = expandShapeOp.getReassociationIndices();
+  } else if (auto collapseShapeOp = dyn_cast<tensor::CollapseShapeOp>(op)) {
+    expandedShape = collapseShapeOp.getSrcType().getShape();
+    reassociationIndices = collapseShapeOp.getReassociationIndices();
+  } else {
+    return std::nullopt;
+  }
+  for (const auto &indices : reassociationIndices) {
+    // If any indice shape does not match <1xNx1> or <1x1x1>, failed as the
+    // mask tracker not support analysis `<M> <-> <M1xM2>`.
+    if (!isSingleNonOneSizeIndShape(expandedShape, indices) &&
+        !isAllOneSizeIndShape(expandedShape, indices))
+      return std::nullopt;
+    if (indices.size() == 1)
+      continue;
+    // If skipped axis not specified, keep the first dim of indice for pattern
+    // `<1> <-> <1x1x1>`.
+    if (skippedAxis == std::nullopt &&
+        isAllOneSizeIndShape(expandedShape, indices)) {
+      skippedAxis = indices.front();
+    }
+    for (int64_t indice : indices) {
+      if (skippedAxis.has_value() && indice == skippedAxis.value())
+        continue;
+      if (expandedShape[indice] == 1) {
+        axes.push_back(indice);
+      }
+    }
+  }
+  return axes;
+}
+
 namespace {
 inline raw_ostream &operator<<(raw_ostream &os, ArrayRef<OpFoldResult> vec) {
   os << "[";
@@ -265,6 +334,7 @@ private:
      *  (range > scalar) <=> (scalar < range)
      *  (range <= scale) <=> (scalar >= range)
      *  (range >= scalar) <=> (scalar <= range)
+     *  (range == scalar) <=> (scalar == range)
      */
     static const llvm::DenseMap<arith::CmpIPredicate, arith::CmpIPredicate>
         map = {
@@ -272,6 +342,7 @@ private:
             {arith::CmpIPredicate::sgt, arith::CmpIPredicate::slt},
             {arith::CmpIPredicate::sle, arith::CmpIPredicate::sge},
             {arith::CmpIPredicate::sge, arith::CmpIPredicate::sle},
+            {arith::CmpIPredicate::eq, arith::CmpIPredicate::eq},
         };
     auto it = map.find(cmpTy);
     assert(it != map.end());
@@ -315,6 +386,10 @@ private:
           newDim = cmpSgt(ret, lhs, rhs.scalar, i);
           break;
         }
+        case arith::CmpIPredicate::eq: {
+          newDim = cmpEq(ret, lhs, rhs.scalar, i);
+          break;
+        }
         default: {
           return rewriter.notifyMatchFailure(loc, "Unsupport compare type");
         }
@@ -346,6 +421,24 @@ private:
     absoluteStart = maxOFRs(lhs.start, limitLb, loc, rewriter);
     absoluteEnd = lhs.end;
     newDim = subOFRs(absoluteEnd, absoluteStart, loc, rewriter);
+    ret.maskStarts[i] = subOFRs(absoluteStart, lhs.start, loc, rewriter);
+    ret.maskEnds[i] = addOFRs(ret.maskStarts[i], newDim, loc, rewriter);
+    return newDim;
+  }
+  OpFoldResult cmpEq(Mask &ret, const SimpleRange &lhs, OpFoldResult closedLb,
+                     int32_t i) {
+    OpFoldResult absoluteStart, absoluteEnd, newDim;
+    // Step1: get absolute start according to `sge` implement.
+    auto limitLb = minOFRs(lhs.end, closedLb, loc, rewriter);
+    absoluteStart = maxOFRs(lhs.start, limitLb, loc, rewriter);
+    // Step2: get absolute end according to `sle` implement.
+    auto openedUb = addOFRs(closedLb, rewriter.getIndexAttr(1), loc, rewriter);
+    auto limitUb = maxOFRs(openedUb, lhs.start, loc, rewriter);
+    absoluteEnd = minOFRs(lhs.end, limitUb, loc, rewriter);
+    // Step3: get `eq` range according to `eq` <=> `sge && sle`.
+    newDim = subOFRs(absoluteEnd, absoluteStart, loc, rewriter);
+    // Step4: set dim's upper bound to 1 as `range eq scalar` always be 0 or 1.
+    newDim = minOFRs(newDim, rewriter.getIndexAttr(1), loc, rewriter);
     ret.maskStarts[i] = subOFRs(absoluteStart, lhs.start, loc, rewriter);
     ret.maskEnds[i] = addOFRs(ret.maskStarts[i], newDim, loc, rewriter);
     return newDim;
@@ -451,9 +544,10 @@ private:
 };
 
 struct SplatVisitor : public VisitorBase {
-  SplatVisitor(Location loc, RewriterBase &rewriter, ArrayRef<int64_t> dstShape)
-      : VisitorBase(loc, rewriter), dstShape(dstShape) {}
-  template <typename T> LogicalResult operator()(T &self) {
+  SplatVisitor(Location loc, RewriterBase &rewriter, ArrayRef<int64_t> dstShape,
+               Type elemType)
+      : VisitorBase(loc, rewriter), dstShape(dstShape), elemType{elemType} {}
+  template <typename T> FailureOr<Result> operator()(T &self) {
     if constexpr (std::is_same_v<Scalar, T>) {
       return splatScalar(self, dstShape);
     }
@@ -462,11 +556,42 @@ struct SplatVisitor : public VisitorBase {
 
 private:
   ArrayRef<int64_t> dstShape;
-  LogicalResult splatScalar(Scalar &self, ArrayRef<int64_t> dstShape) {
+  Type elemType;
+  FailureOr<Result> splatScalar(Scalar &self, ArrayRef<int64_t> dstShape) {
     assert(self.dims.empty() && "splat only support 0 rank scalar input");
+
+    if (auto intType = dyn_cast<IntegerType>(elemType)) {
+      if (intType.getWidth() == 1) {
+        // For type i1, we can consider it as a mask. The src of splatop
+        // is a scalar, which can be used to mark the length of dimensions with
+        // shape=1, i.e., cast_to_int(mask). If there are multiple dimensions
+        // with shape=1, it defaults to marking the first dimension.
+        Mask ret(dstShape.size());
+        bool succeed = false;
+
+        for (auto e : llvm::enumerate(dstShape)) {
+          auto idx = e.index();
+          ret.maskStarts[idx] = rewriter.getIndexAttr(0);
+
+          if (!succeed && e.value() == 1) {
+            ret.maskEnds[idx] = self.scalar;
+            succeed = true;
+          } else {
+            ret.maskEnds[idx] = rewriter.getIndexAttr(e.value());
+          }
+          ret.dims[idx] = ret.maskEnds[idx];
+        }
+        if (succeed) {
+          return Result(ret);
+        } else {
+          return failure();
+        }
+      }
+    }
+
     for (auto s : dstShape)
       self.dims.push_back(rewriter.getIndexAttr(s));
-    return success();
+    return Result(self);
   }
 };
 
@@ -481,7 +606,7 @@ struct ExpandDimVisitor : public VisitorBase {
     } else if constexpr (std::is_same_v<Scalar, T>) {
       return expandDimScalar(self, axis);
     }
-    return rewriter.notifyMatchFailure(loc, "Unsupported splat");
+    return rewriter.notifyMatchFailure(loc, "Unsupported expand_dim");
   }
 
 private:
@@ -502,6 +627,123 @@ private:
                            rewriter.getIndexAttr(0));
     self.maskEnds.insert(self.maskEnds.begin() + axis,
                          rewriter.getIndexAttr(1));
+    return success();
+  }
+};
+
+struct ExpandShapeVisitor : public VisitorBase {
+  ExpandShapeVisitor(Location loc, RewriterBase &rewriter,
+                     tensor::ExpandShapeOp expandShapeOp)
+      : VisitorBase(loc, rewriter), expandShapeOp(expandShapeOp) {}
+  template <typename T> LogicalResult operator()(T &self) {
+    if constexpr (std::is_base_of_v<SimpleRange, T>) {
+      return expandShapeRange(self);
+    } else if constexpr (std::is_same_v<Mask, T>) {
+      return expandShapeMask(self);
+    } else if constexpr (std::is_same_v<Scalar, T>) {
+      return expandShapeScalar(self);
+    }
+    return rewriter.notifyMatchFailure(loc, "Unsupported expand_shape");
+  }
+
+private:
+  tensor::ExpandShapeOp expandShapeOp;
+  LogicalResult expandShapeScalar(Scalar &self) {
+    std::optional<SmallVector<int64_t>> axes =
+        getOneSizeAxesOfReassociativeReshapeOp(expandShapeOp);
+    if (!axes.has_value() || axes.value().empty())
+      return failure();
+    for (int64_t axis : axes.value()) {
+      self.dims.insert(self.dims.begin() + axis, rewriter.getIndexAttr(1));
+    }
+    return success();
+  }
+  LogicalResult expandShapeRange(SimpleRange &self) {
+    std::optional<SmallVector<int64_t>> axes =
+        getOneSizeAxesOfReassociativeReshapeOp(expandShapeOp);
+    if (!axes.has_value() || axes.value().empty())
+      return failure();
+    for (int64_t axis : axes.value()) {
+      self.dims.insert(self.dims.begin() + axis, rewriter.getIndexAttr(1));
+      if (self.isTrackingAxis() && axis <= self.axis)
+        self.axis += 1;
+    }
+    return success();
+  }
+  LogicalResult expandShapeMask(Mask &self) {
+    std::optional<SmallVector<int64_t>> axes =
+        getOneSizeAxesOfReassociativeReshapeOp(expandShapeOp);
+    if (!axes.has_value() || axes.value().empty())
+      return failure();
+    for (int64_t axis : axes.value()) {
+      self.dims.insert(self.dims.begin() + axis, rewriter.getIndexAttr(1));
+      self.maskStarts.insert(self.maskStarts.begin() + axis,
+                             rewriter.getIndexAttr(0));
+      self.maskEnds.insert(self.maskEnds.begin() + axis,
+                           rewriter.getIndexAttr(1));
+    }
+    return success();
+  }
+};
+
+struct CollapseShapeVisitor : public VisitorBase {
+  CollapseShapeVisitor(Location loc, RewriterBase &rewriter,
+                       tensor::CollapseShapeOp collapseShapeOp)
+      : VisitorBase(loc, rewriter), collapseShapeOp(collapseShapeOp) {}
+  template <typename T> LogicalResult operator()(T &self) {
+    if constexpr (std::is_base_of_v<SimpleRange, T>) {
+      return collapseShapeRange(self);
+    } else if constexpr (std::is_same_v<Mask, T>) {
+      return collapseShapeMask(self);
+    } else if constexpr (std::is_same_v<Scalar, T>) {
+      return collapseShapeScalar(self);
+    }
+    return rewriter.notifyMatchFailure(loc, "Unsupported collapse_shape");
+  }
+
+private:
+  tensor::CollapseShapeOp collapseShapeOp;
+  LogicalResult collapseShapeScalar(Scalar &self) {
+    std::optional<SmallVector<int64_t>> axes =
+        getOneSizeAxesOfReassociativeReshapeOp(collapseShapeOp);
+    if (!axes.has_value() || axes.value().empty())
+      return failure();
+    for (int64_t axis : llvm::reverse(axes.value())) {
+      self.dims.erase(self.dims.begin() + axis);
+    }
+    return success();
+  }
+  LogicalResult collapseShapeRange(SimpleRange &self) {
+    // Do NOT erase the collapsed one size axis unless it is static true,
+    // or it is not the simple range axis, as we do NOT known if this
+    // axis is masked by false or true.
+    std::optional<SmallVector<int64_t>> axes =
+        getOneSizeAxesOfReassociativeReshapeOp(collapseShapeOp, self.axis);
+    if (!axes.has_value() || axes.value().empty())
+      return failure();
+    for (int64_t axis : llvm::reverse(axes.value())) {
+      assert(axis != self.axis);
+      if (!isConstantIntValue(self.dims[axis], 1))
+        return failure();
+      self.dims.erase(self.dims.begin() + axis);
+      if (self.isTrackingAxis() && axis < self.axis)
+        self.axis -= 1;
+    }
+    return success();
+  }
+  LogicalResult collapseShapeMask(Mask &self) {
+    std::optional<SmallVector<int64_t>> axes =
+        getOneSizeAxesOfReassociativeReshapeOp(collapseShapeOp);
+    if (!axes.has_value() || axes.value().empty())
+      return failure();
+    for (int64_t axis : llvm::reverse(axes.value())) {
+      // Do NOT erase the collapsed one-sized axis unless it is static true.
+      if (!isConstantIntValue(self.dims[axis], 1))
+        return failure();
+      self.dims.erase(self.dims.begin() + axis);
+      self.maskStarts.erase(self.maskStarts.begin() + axis);
+      self.maskEnds.erase(self.maskEnds.begin() + axis);
+    }
     return success();
   }
 };
@@ -571,14 +813,28 @@ public:
         rewriter.create<arith::ConstantIndexOp>(loc, value.getSExtValue());
     Scalar ret;
     ret.scalar = op.getValue();
+    if (auto tensorType = dyn_cast<TensorType>(constOp.getType())) {
+      for (auto s : tensorType.getShape())
+        ret.dims.push_back(rewriter.getIndexAttr(s));
+    }
     return Result(ret);
   }
 
   FailureOr<Result> parseIntScalar(Value scalar) {
-    auto castOp = rewriter.create<arith::IndexCastOp>(
-        loc, rewriter.getIndexType(), scalar);
     Scalar ret;
-    ret.scalar = castOp.getResult();
+
+    IntegerType scalarType = cast<IntegerType>(scalar.getType());
+    if (scalarType.getWidth() == 1) {
+      // Because the 1-bit integer does not have a sign bit, `IndexCastUIOp`
+      // needs to be used here for conversion.
+      auto castOp = rewriter.create<arith::IndexCastUIOp>(
+          loc, rewriter.getIndexType(), scalar);
+      ret.scalar = castOp.getResult();
+    } else {
+      auto castOp = rewriter.create<arith::IndexCastOp>(
+          loc, rewriter.getIndexType(), scalar);
+      ret.scalar = castOp.getResult();
+    }
     return Result(ret);
   }
 
@@ -640,7 +896,8 @@ public:
     if (cmpTy != arith::CmpIPredicate::slt &&
         cmpTy != arith::CmpIPredicate::sgt &&
         cmpTy != arith::CmpIPredicate::sle &&
-        cmpTy != arith::CmpIPredicate::sge) {
+        cmpTy != arith::CmpIPredicate::sge &&
+        cmpTy != arith::CmpIPredicate::eq) {
       return rewriter.notifyMatchFailure(loc, "Unsupported cmpi predicate");
     }
 
@@ -709,8 +966,8 @@ public:
     if (failed(ret))
       return failure();
 
-    if (failed(std::visit(SplatVisitor(loc, rewriter, dstShape), *ret)))
-      return failure();
+    ret =
+        std::visit(SplatVisitor(loc, rewriter, dstShape, src.getType()), *ret);
 
     return ret;
   }
@@ -730,6 +987,40 @@ public:
         "expect changed dimension to be 1 in expand_dims");
 
     if (failed(std::visit(ExpandDimVisitor(loc, rewriter, axis), *ret)))
+      return failure();
+    return ret;
+  }
+
+  /// Operand is the result of expand_shape.
+  /// Insert expanded dimensions, only support expanded dimension size is one.
+  /// For example:
+  //// tensor<64xi32> -> tensor<1x64xi32>
+  //// tensor<64xi32> -> tensor<1x64x1xi32>
+  ///  tensor<1xi32> -> tensor<1x1x1xi32>
+  FailureOr<Result> parseOp(tensor::ExpandShapeOp expandShapeOp) {
+    auto ret = parse(expandShapeOp.getSrc());
+    if (failed(ret))
+      return failure();
+
+    if (failed(
+            std::visit(ExpandShapeVisitor(loc, rewriter, expandShapeOp), *ret)))
+      return failure();
+    return ret;
+  }
+
+  /// Operand is the result of collapse_shape.
+  /// Erase collapsed dimensions, only support collapsed dimension size is one.
+  /// For example:
+  //// tensor<1x64xi32> -> tensor<64xi32>
+  //// tensor<1x64x1xi32> -> tensor<64xi32>
+  ///  tensor<1x1x1xi32> -> tensor<1xi32>
+  FailureOr<Result> parseOp(tensor::CollapseShapeOp collapseShapeOp) {
+    auto ret = parse(collapseShapeOp.getSrc());
+    if (failed(ret))
+      return failure();
+
+    if (failed(std::visit(CollapseShapeVisitor(loc, rewriter, collapseShapeOp),
+                          *ret)))
       return failure();
     return ret;
   }
@@ -787,8 +1078,8 @@ public:
         .Case<arith::ConstantOp, arith::AddIOp, arith::AndIOp, arith::CmpIOp,
               arith::SubIOp, arith::ExtSIOp, arith::TruncIOp,
               triton::MakeRangeOp, triton::BroadcastOp, triton::ExpandDimsOp,
-              triton::SplatOp, triton::TransOp>(
-            [&](auto op) { return parseOp(op); })
+              triton::SplatOp, triton::TransOp, tensor::CollapseShapeOp,
+              tensor::ExpandShapeOp>([&](auto op) { return parseOp(op); })
         .Default([&](Operation *) { return parseUnknownValue(operand); });
   }
 
@@ -830,4 +1121,21 @@ void MaskTracker::setDimensionStatus(int64_t dim, OpFoldResult start,
   starts[dim] = start;
   ends[dim] = end;
   dims[dim] = dimSize;
+}
+
+LogicalResult RangeTracker::parse(Value operand, Location loc,
+                                  RewriterBase &rewriter) {
+  auto shapeTy = dyn_cast<ShapedType>(operand.getType());
+  if (!shapeTy)
+    return failure();
+  MaskParser parser(loc, rewriter);
+  FailureOr<Result> ret = parser.parse(operand);
+  if (failed(ret) || !std::holds_alternative<SimpleRange>(*ret))
+    return failure();
+
+  SimpleRange &simpleRange = std::get<SimpleRange>(*ret);
+  start = simpleRange.start;
+  end = simpleRange.end;
+  axis = simpleRange.axis;
+  return success();
 }

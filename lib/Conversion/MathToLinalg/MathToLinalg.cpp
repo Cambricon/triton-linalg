@@ -37,16 +37,19 @@ class MLIRContext;
 void mlir::triton::populateMathToLinalgPatterns(RewritePatternSet &patterns) {
   MLIRContext *context = patterns.getContext();
   // Math ops to linalg ops.
-  patterns.add<GenericOpPattern<math::LogOp>, GenericOpPattern<math::ExpOp>,
-               GenericOpPattern<math::CosOp>, GenericOpPattern<math::SinOp>,
-               GenericOpPattern<math::SqrtOp>, GenericOpPattern<math::AbsIOp>,
-               GenericOpPattern<math::AbsFOp>, GenericOpPattern<math::TruncOp>,
-               GenericOpPattern<math::RoundOp>, GenericOpPattern<math::FloorOp>,
-               GenericOpPattern<math::FmaOp>, GenericOpPattern<math::CeilOp>,
-               GenericOpPattern<math::Log2Op>, GenericOpPattern<math::Exp2Op>,
-               GenericOpPattern<math::RsqrtOp>, GenericOpPattern<math::ErfOp>,
-               GenericOpPattern<math::TanhOp>,
-               GenericOpPattern<math_ext::MulhiUIOp>>(context);
+  patterns
+      .add<GenericOpPattern<math::LogOp>, GenericOpPattern<math::ExpOp>,
+           GenericOpPattern<math::CosOp>, GenericOpPattern<math::SinOp>,
+           GenericOpPattern<math::SqrtOp>, GenericOpPattern<math::AbsIOp>,
+           GenericOpPattern<math::AbsFOp>, GenericOpPattern<math::TruncOp>,
+           GenericOpPattern<math::RoundOp>, GenericOpPattern<math::FloorOp>,
+           GenericOpPattern<math::FmaOp>, GenericOpPattern<math::CeilOp>,
+           GenericOpPattern<math::Log2Op>, GenericOpPattern<math::Exp2Op>,
+           GenericOpPattern<math::RsqrtOp>, GenericOpPattern<math::ErfOp>,
+           GenericOpPattern<math::TanhOp>, GenericOpPattern<math::ExpM1Op>,
+           GenericOpPattern<math::Log1pOp>, GenericOpPattern<math::PowFOp>,
+           GenericOpPattern<math::FPowIOp>, GenericOpPattern<math::CopySignOp>,
+           GenericOpPattern<math_ext::MulhiUIOp>>(context);
 }
 
 namespace {

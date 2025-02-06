@@ -415,13 +415,15 @@ private:
 };
 
 //////////////////////////// TensorPtr ///////////////////////////////////////
-/// Order is the reverse of permutation in linalg::Transpose.
+/// According to
+/// https://github.com/triton-lang/triton/blob/main/include/triton/Dialect/TritonGPU/IR/TritonGPUAttrDefs.td#L241
+/// order[i] represent for the i-th fast changing dim, here we want the
+/// permutation from 'triton tensor shape' to 'original physical tensor shape',
+/// which can be proven to be the reverse of order.
+/// Return permutation is permute from 'triton tensor shape' to 'original
+/// physical tensor shape'.
 static SmallVector<int64_t> getPermutationFromOrder(ArrayRef<int32_t> order) {
-  SmallVector<int64_t> permutation(order.size(), 0);
-  for (const auto &dim : llvm::enumerate(order)) {
-    permutation[dim.index()] = order.size() - 1 - dim.value();
-  }
-  return permutation;
+  return SmallVector<int64_t>(order.rbegin(), order.rend());
 }
 
 class TritonTensorPtrLoadOpConversion
@@ -447,7 +449,8 @@ public:
       return failure();
     SmallVector<int64_t> permutations =
         getPermutationFromOrder(tracker.getOrder());
-    auto dimInfos = getDimInfos(tracker.getStrides(), resultTy.getShape());
+    auto dimInfos = getDimInfos(tracker.getStrides(), resultTy.getShape(),
+                                op.getBoundaryCheck());
     auto ptrInfo = getPtrInfo(loc, op.getBoundaryCheck(), resultTy.getShape(),
                               tracker, rewriter);
     auto originalMemRef =
@@ -525,7 +528,8 @@ public:
 
     SmallVector<int64_t> permutations =
         getPermutationFromOrder(tracker.getOrder());
-    auto dimInfos = getDimInfos(tracker.getStrides(), valueTy.getShape());
+    auto dimInfos = getDimInfos(tracker.getStrides(), valueTy.getShape(),
+                                op.getBoundaryCheck());
     auto ptrInfo = getPtrInfo(loc, op.getBoundaryCheck(), valueTy.getShape(),
                               tracker, rewriter);
     auto originalMemRef =
